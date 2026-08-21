@@ -89,6 +89,13 @@ Be ruthless. Most comments people write should not exist.
 - Section banners and decorative rules that carry no information.
 - Comments that name a value. `// wait 8 cycles` goes stale the moment the
   parameter changes. Name the parameter and let the code say `8`.
+- Anything pointing at another file. Paths rename and lines shift; the comment
+  does not follow.
+- Anything with an expiration date — TODOs, "for now", status words, a
+  measurement.
+
+The last two are the ones that survive review by looking useful. They get their
+own rules below.
 
 **Earn its place**
 
@@ -100,20 +107,89 @@ the whole test. In practice there are three kinds worth writing:
 2. **Why, not what.** The reason a non-obvious choice was made, especially where
    the obvious alternative is wrong.
 3. **Physical assumption.** Anything encoding settling time, charge injection,
-   capacitor matching, comparator offset, or a timing budget must name its
-   source — a spec section, a simulation, or a measurement. A number nobody can
-   trace is a number nobody can change.
+   capacitor matching, comparator offset, or a timing budget must be traceable
+   to a derivation. A number nobody can trace is a number nobody can change.
+   Traceability runs one way only — see *Reference points one way*. The comment
+   names the physical quantity; the derivation lives in the docs, keyed by the
+   parameter's name.
+
+**Nothing with an expiration date**
+
+If a statement can become false without anyone editing the line it sits on, it
+does not go in a comment. Code is checked by the simulator; comments are checked
+by nobody.
+
+- **Values.** Any number, width, count, or threshold, restated in prose. Already
+  banned by *No hardcoded values*; a comment does not get an exemption. This
+  includes counts of things — "three states", "both callers", "all four
+  channels". The fifth channel arrives and the comment does not notice.
+- **Temporary decisions.** "for now", "temporary", "placeholder", "until we
+  switch to X". Temporary things become permanent, and the comment ends up the
+  only record that anyone intended otherwise — a record nobody schedules. Either
+  the code is what we ship, or it does not get committed.
+- **TODO, FIXME, HACK, XXX.** Not in committed source. A TODO in RTL is work
+  with no owner and no date, in a place where work is not tracked. Track it
+  where work is tracked, or do it.
+- **Status and time words.** "new", "currently", "recently", "the old path",
+  "was previously", "will be replaced". Each is dated relative to a moment
+  nobody wrote down. Git records when; the comment should not try.
+- **Performance and area claims.** "faster than the shift-register version",
+  "fits in 200 cells". True at one measurement, on one toolchain version. If it
+  matters, it belongs in a check that fails when it stops being true.
+- **People and process.** Author names, dates, review notes, "per discussion
+  with —", ticket titles. Git blame is authoritative and never stale.
+
+Before writing a comment, ask: what change elsewhere makes this false, and would
+that change drag me back to this line? If the answer to the second is no, the
+comment is a liability, not documentation.
+
+**Never point at another file**
+
+A comment in one file must never point at another file. Files get renamed and
+moved, modules get split, lines shift. None of that touches the comment, so the
+pointer rots in silence and the next reader either chases a dead path or — worse
+— finds something at that path and trusts it.
+
+This covers all of:
+
+- Paths and filenames. `see docs/timing.md`, `mirrors hdl/reference/sar.py`.
+- Line numbers, always. They are stale before the commit lands.
+- "See the comment in X", "same as Y does", "keep in sync with Z".
+- Names this file does not declare — a module, parameter, signal, or function
+  owned somewhere else. If this file does not declare or instantiate it, do not
+  name it.
+
+A comment asking two files to be kept in sync is a confession that a value was
+copied. Fix the duplication — *No hardcoded values*, **Across the boundary** —
+and then the comment has nothing left to say.
+
+**Reference points one way.** Docs cite code; code never cites docs. A document
+is read and reviewed as a document, so a stale reference in one gets caught. A
+comment buried in RTL is read only by whoever is already editing that line. So
+the derivation of a settling-time parameter lives in the design docs *under that
+parameter's name*, and the RTL declares the parameter and says nothing about
+where the math is. Grepping the name finds both ends.
+
+The same rule applies inside this file: sections are cross-referenced by title,
+never by number, because numbers renumber.
+
+**Comments are part of the diff**
+
+A comment sits above code and claims something about it. Change the code and the
+comment is now a claim about code that no longer exists. Either update it in the
+same commit or delete it. A wrong comment is worse than no comment, because it
+is trusted.
+
+Reviewers reject a diff whose comments were not read.
 
 **File header.** Every file states what it is and the one contract a user must
-honor. Nothing more.
+honor. Nothing more — no filename banner (it goes stale on rename), no author,
+no date, no change log.
 
 ```verilog
-// sar_fsm.v
-//
 // Successive-approximation control FSM. One bit trial per cycle, MSB first.
 //
 // Contract: comp_i must be stable for the full cycle following dac_set_o.
-//           Budget derived in docs/timing.md, verified in sim/comparator.sp.
 ```
 
 If you cannot state the contract in a sentence, the module is doing too much.
