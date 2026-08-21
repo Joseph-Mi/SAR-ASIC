@@ -5,17 +5,8 @@ physical design in one repo.
 
 ## Layout
 
-| Path | What's in it |
-|---|---|
-| `hdl/reference/` | Python golden models. Written **first**, before any RTL. |
-| `hdl/verification/` | cocotb unit tests; SystemVerilog for larger benches |
-| `hdl/rtl/` | Verilog-2005. Written **last**. |
-| `model/` | Python system models (transfer curve, noise, DNL/INL) |
-| `sim/` | Analog simulation decks (ngspice/xyce) |
-| `xschem/` | Schematics and symbols |
-| `layout/` | magic/klayout, GDS, DRC/LVS decks |
-| `docs/` | Specs, architecture notes, measurements |
-| `build/` | Generated output. Not committed. |
+OMITTED as paths are always subject to change and can documentation of
+such can become stale
 
 Coding rules live in [STYLE.md](STYLE.md). Read it before writing RTL.
 
