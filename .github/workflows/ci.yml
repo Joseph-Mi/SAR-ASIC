@@ -51,14 +51,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Lint RTL
-        run: python scripts/lint_rtl.py
+      - name: Check formatting
+        run: make format-check
 
-      - name: Lint Python
-        run: ruff check .
+      - name: Lint
+        run: make lint
 
-      - name: Run cocotb tests
-        run: python -m pytest -v
+      - name: Verify
+        run: make verify
 
       - name: Upload simulation results
         if: always()

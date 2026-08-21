@@ -6,7 +6,6 @@ Delete this directory once real RTL has its own unit tests.
 from pathlib import Path
 
 import cocotb
-import pytest
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, RisingEdge
 
@@ -79,6 +78,5 @@ async def test_holds_when_disabled(dut):
     assert got == held, f"count moved while disabled: expected {held}, got {got}"
 
 
-@pytest.mark.unit
 def test_smoke():
     run(DUT, sources=[DUT_SOURCE], parameters={"N_BITS": N_BITS})

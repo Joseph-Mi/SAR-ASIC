@@ -46,14 +46,26 @@ Native tool versions are recorded in [docs/tool-versions.md](docs/tool-versions.
 
 ## Running
 
+`make` is the entry point. `make` alone prints the target list.
+
 ```bash
-python -m pytest                      # whole suite
-python -m pytest -m unit              # one level: unit / integration / system
-python -m pytest hdl/verification/unit/smoke -v
-WAVES=1 python -m pytest              # dump FST into build/sim/<top>/
-python scripts/lint_rtl.py            # verilator --lint-only -Wall over hdl/rtl
-ruff check .                          # Python lint
+make model               # validate golden models -- do this first
+make verify-unit         # cocotb unit tests
+make verify              # model, then every verification level in order
+make lint                # verilator + verible + yosys structural check + ruff
+make format              # rewrite Verilog and Python in canonical style
+make format-check        # read-only; what CI runs
+make clean
 ```
+
+Flags: `WAVES=1 make verify-unit` dumps FST into `build/sim/<top>/`.
+
+There is no synthesis target. TinyTapeout's GDS action owns synthesis with
+shuttle-pinned Yosys and LibreLane, so anything produced locally would be an
+estimate that does not match what gets fabricated, and estimates do not get
+targets. What *is* deterministic -- inferred latches, combinational loops,
+multiple drivers, undriven nets -- is a `yosys check -assert` pass inside
+`make lint-rtl`, where it belongs.
 
 Testbenches use cocotb's Python runner rather than cocotb Makefiles, so `make`
 is not required. Each `test_*.py` holds both its `@cocotb.test()` coroutines and
