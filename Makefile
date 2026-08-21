@@ -17,6 +17,16 @@ YOSYS        ?= yosys
 VERIBLE_FMT  ?= verible-verilog-format
 VERIBLE_LINT ?= verible-verilog-lint
 
+# Container. DESIGNS is bind-mounted to /foss/designs, so it must be the PARENT
+# of this repo -- that is what puts us at /foss/designs/$(DESIGN_NAME) inside.
+# An exported DESIGNS in the environment wins, which is what you want if you also
+# run the start scripts by hand.
+OSIC_TOOLS_URL := https://github.com/iic-jku/iic-osic-tools.git
+OSIC_TOOLS_DIR ?= $(abspath $(CURDIR)/../iic-osic-tools)
+DESIGNS        ?= $(abspath $(CURDIR)/..)
+DESIGN_NAME    := $(notdir $(CURDIR))
+CONTAINER_NAME ?= iic-osic-tools_xvnc_uid_$(shell id -u)
+
 RTL_DIR   := hdl/rtl
 REF_DIR   := hdl/reference
 VERIF_DIR := hdl/verification
@@ -44,9 +54,47 @@ help:
 	@echo ""
 	@echo "Flags:  WAVES=1  dump FST into $(BUILD_DIR)/sim/<top>/"
 
-## container: open a shell in the pinned IIC-OSIC-TOOLS image
-container:
-	docker run -it --rm -v "$$PWD":/foss/designs hpretl/iic-osic-tools:$(OSIC_TOOLS_TAG) bash
+## doctor: check host prerequisites -- run this first on a new machine
+doctor:
+	@command -v git >/dev/null || { echo "git not found -- see docs/environment.md"; exit 1; }
+	@command -v docker >/dev/null || { echo "docker not found -- see docs/environment.md"; exit 1; }
+	@docker info >/dev/null 2>&1 || { echo "docker daemon unreachable: is it running, and are you in the docker group? -- see docs/environment.md"; exit 1; }
+	@[ -d "$(DESIGNS)/$(DESIGN_NAME)" ] || { echo "DESIGNS=$(DESIGNS) does not contain $(DESIGN_NAME); the container would mount an empty tree"; exit 1; }
+	@echo "host OK -- DESIGNS=$(DESIGNS)"
+
+# We read the helper scripts and never write them. A missing checkout is created
+# at the pinned tag -- there is nothing there to clobber. An existing checkout is
+# only ever *verified*: if it has drifted off the pin, say so and stop rather
+# than moving someone else's working tree underneath them.
+## osic-tools: ensure the helper scripts exist at the tag in versions.env
+osic-tools: doctor
+	@if [ ! -d "$(OSIC_TOOLS_DIR)/.git" ]; then \
+	  echo "cloning iic-osic-tools at $(OSIC_TOOLS_TAG) ..."; \
+	  git clone --quiet --branch "$(OSIC_TOOLS_TAG)" $(OSIC_TOOLS_URL) "$(OSIC_TOOLS_DIR)"; \
+	fi
+	@got=$$(cd "$(OSIC_TOOLS_DIR)" && git describe --tags --always --exact-match 2>/dev/null || echo "<no tag>"); \
+	if [ "$$got" != "$(OSIC_TOOLS_TAG)" ]; then \
+	  echo "iic-osic-tools is at $$got, but versions.env pins $(OSIC_TOOLS_TAG)."; \
+	  echo "The start scripts and the image must match. Fix it yourself -- this"; \
+	  echo "repo does not write to that checkout:"; \
+	  echo "    git -C $(OSIC_TOOLS_DIR) fetch --tags && git -C $(OSIC_TOOLS_DIR) checkout $(OSIC_TOOLS_TAG)"; \
+	  exit 1; \
+	fi
+	@echo "iic-osic-tools $(OSIC_TOOLS_TAG) at $(OSIC_TOOLS_DIR)"
+
+# start_vnc.sh prompts to STOP a container that is already running, so check
+# first rather than letting `make shell` offer to kill the session it needs.
+## container: start the pinned container (first run pulls ~20 GB)
+container: osic-tools
+	@if [ -n "$$(docker ps -q -f name=$(CONTAINER_NAME))" ]; then \
+	  echo "already running -- VNC at http://localhost/?password=abc123"; \
+	else \
+	  DESIGNS="$(DESIGNS)" DOCKER_TAG="$(OSIC_TOOLS_TAG)" "$(OSIC_TOOLS_DIR)/start_vnc.sh"; \
+	fi
+
+## shell: bash inside the running container, at this design
+shell: container
+	@docker exec -it -w /foss/designs/$(DESIGN_NAME) $(CONTAINER_NAME) bash
 
 ## tool-versions: print what is actually installed
 tool-versions:
@@ -57,6 +105,11 @@ tool-versions:
 	@$(RUFF) --version
 	@$(PYTHON) -c "import cocotb; print('cocotb', cocotb.__version__)"
 	@$(PYTHON) -c "import pytest; print('pytest', pytest.__version__)"
+
+## tool-manifest: record every tool version into docs/tool-manifest.txt
+tool-manifest:
+	@OSIC_TOOLS_TAG="$(OSIC_TOOLS_TAG)" sh scripts/tool-manifest.sh > docs/tool-manifest.txt
+	@echo "wrote docs/tool-manifest.txt"
 
 ## check-tools: fail unless installed versions match versions.env
 check-tools:
@@ -113,4 +166,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: help container tool-versions check-tools format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean
+.PHONY: help doctor osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean

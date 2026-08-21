@@ -35,8 +35,10 @@ default-assignment style and `yosys check -assert` in CI.
 Image: `hpretl/iic-osic-tools:2026.07`. The `iic-osic-tools` helper repo is
 checked out at tag `2026.07` to match — the start scripts and the image are
 versioned together. Bump both at once, deliberately, and re-run the M0 smoke
-test after any bump. The devcontainer image is a separate tag namespace; pin it
-independently.
+test after any bump. `make container` enforces the match: it checks the helper
+repo out at `OSIC_TOOLS_TAG` before starting the image at that same tag. No
+devcontainer — VNC plus VS Code over WSL covers it, and a devcontainer image is
+a separate tag namespace that would be a third thing to keep in sync.
 
 **DD-03 — Vref gets its own analog pin, separate from VDD.**
 The array pulls charge from Vref on every bit trial and TT analog pins have real
@@ -83,19 +85,27 @@ Layout:
 | Path | What |
 |---|---|
 | `~/github/SAR-ASIC` | this repo |
-| `~/github/iic-osic-tools` | helper scripts only, never committed, never edited |
+| `~/github/iic-osic-tools` | helper scripts, cloned by `make osic-tools` at the pinned tag. Never committed, never edited — we only ever read them and check out the tag |
 | `/foss/designs/SAR-ASIC` | the same repo, seen from inside the container |
 
 `DESIGNS=$HOME/github` is bind-mounted to `/foss/designs`. Host and container see
 the same bytes — edit on the host, run tools in the container, no syncing.
 
-Three doors into the container:
+Two doors into the container, both opened by make from the host:
 
-| Mode | Use for |
+| Command | Use for |
 |---|---|
-| `./start_vnc.sh` -> `http://localhost` (pw `abc123`) | Xschem, Magic, KLayout, GTKWave — anything GUI |
-| `docker exec -it iic-osic-tools_xvnc_uid_$(id -u) bash` | CLI work in the *same running* container |
-| `.devcontainer/` in VS Code | RTL, cocotb, Python model, git |
+| `make container` -> `http://localhost` (pw `abc123`) | Xschem, Magic, KLayout, GTKWave — anything GUI |
+| `make shell` | CLI work in the *same running* container |
+
+`make shell` is exactly `docker exec -it iic-osic-tools_xvnc_uid_$(id -u) bash`
+with `-w /foss/designs/SAR-ASIC`. Use the raw form when make is unavailable or
+when a second terminal is wanted. Editing is done on the host (VS Code over WSL)
+against `~/github/SAR-ASIC` — same bytes, no third environment.
+
+`make container` is the only supported way in. A hand-rolled `docker run`
+misses the uid/gid mapping the start scripts pass and leaves root-owned files
+in the designs tree.
 
 XQuartz is macOS-only and irrelevant here; VNC mode needs no X server on any
 platform.

@@ -1,8 +1,9 @@
-// Verilator lint waivers.
+// Lint waivers: one reviewable place for every suppression, instead of inline
+// `lint_off` pragmas scattered through the RTL. Every entry needs a comment
+// saying why the warning is not a bug.
 //
-// One reviewable place for every suppression, instead of inline `lint_off`
-// pragmas scattered through the RTL. Every entry needs a comment saying why
-// the warning is not a bug.
+// Do not start a comment in this file with the word "verilator" -- Verilator
+// reads `// verilator ...` as a metacomment pragma and fails on line 1.
 
 `verilator_config
 

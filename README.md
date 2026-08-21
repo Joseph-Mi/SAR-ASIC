@@ -15,15 +15,28 @@ STYLE.md section 1 explains why.
 
 ## Setup
 
-Everything runs in the **IIC-OSIC-TOOLS** container. It ships the sky130A PDK
-plus Verilator, cocotb, Yosys, xschem, ngspice, magic, KLayout, and netgen, so
-there is no venv and no per-tool install. Pin it by dated tag, never `latest`:
+Everything runs in the **IIC-OSIC-TOOLS** container, pinned by dated tag in
+`versions.env` — never `latest`. It ships the sky130A PDK plus Verilator,
+cocotb, Yosys, xschem, ngspice, magic, KLayout, and netgen, so there is no venv
+and no per-tool install.
+
+On a machine that already has Docker, `make`, and git:
 
 ```bash
-make container
+make doctor       # is this host ready? names what is missing if not
+make container    # clone helpers at the pinned tag, then start the container
+make shell        # bash inside it, at this design
 ```
 
-The image tag lives in `versions.env` so it is not written down twice.
+`make container` clones `iic-osic-tools` beside this repo at the pinned tag if it
+is missing, and verifies the tag if it is already there, so the helper scripts
+and the image cannot drift apart unnoticed. Do not clone it by hand. That
+checkout is read-only to us — make will refuse to move it and will print the
+command instead.
+
+From a bare machine, the one-time host bootstrap — WSL2, Docker Engine, `make` —
+is in **[docs/environment.md](docs/environment.md)**. Those are the only steps
+that are not a make target, because they need `sudo` and a restart.
 
 Verilator has no native Windows build, so the container (or WSL2) is the only
 place the suite actually runs. The Windows checkout is for editing and git.
@@ -35,13 +48,15 @@ image ships, install them inside the container:
 pip install -r requirements.txt
 ```
 
-Native tool versions are recorded in [docs/tool-versions.md](docs/tool-versions.md).
+Native tool versions are recorded in [docs/tool-versions.md](docs/tool-versions.md);
+`make check-tools` enforces them.
 
 ## Running
 
 `make` is the entry point. `make` alone prints the target list.
 
 ```bash
+make container           # start the container; make shell to get into it
 make model               # validate golden models -- do this first
 make verify-unit         # cocotb unit tests
 make verify              # model, then every verification level in order

@@ -29,7 +29,8 @@ back.
 Simulator is Verilator. Python is linted with ruff.
 
 RTL is Verilog-2005 because that is what goes to TinyTapeout. The testbench side
-has no such constraint, which is why the larger benches are SystemVerilog.
+has no such constraint, which is why the larger benches are SystemVerilog. That
+freedom stops at the device under test — see *Verification layout and naming*.
 
 The TinyTapeout top module signature is fixed and must match exactly:
 
@@ -46,7 +47,35 @@ module tt_um_[username]_[project] (
 );
 ```
 
-## 3. No hardcoded values
+## 3. Verification layout and naming
+
+One testbench per directory, named for what it exercises.
+
+| Thing | Name | Example |
+|---|---|---|
+| Testbench directory | `tb_<block>` | `hdl/verification/unit/tb_sar_fsm/` |
+| Test module (pytest + cocotb) | `test_<block>.py` | `test_sar_fsm.py` |
+| DUT stand-in, when the bench needs one | `<block>_dut.v` | `smoke_dut.v` |
+| SystemVerilog bench components | `<block>_<role>.sv` | `sar_fsm_monitor.sv` |
+
+`test_*.py` is not a preference — `pyproject.toml` sets
+`python_files = ["test_*.py"]`, so a file named anything else is silently never
+collected, and the suite passes by not running. The `tb_` prefix on directories
+keeps benches visually distinct from `tb_common/` helpers and from the
+`unit/ integration/ system/` level directories that contain them.
+
+**A DUT is Verilog-2005, even when it is only a stand-in.** `smoke_dut.v` is not
+"simulation code that may as well be SystemVerilog" — it is the device under
+test, and the point of running it is to prove the real path works: Verilog-2005
+source, Verilator, cocotb. Write it in `.sv` and the smoke test exercises a route
+no design file will ever take, which is the one thing it exists to rule out.
+`hdl/lint/` tooling and `tb_common.runner.rtl()` both look for `.v` for the same
+reason.
+
+SystemVerilog is for testbench *infrastructure* — drivers, monitors,
+scoreboards, benches that wrap a DUT. Never for the DUT itself.
+
+## 4. No hardcoded values
 
 A bare literal in the source is a defect. Every value gets a name, in one place,
 and every use derives from that name.
@@ -78,7 +107,7 @@ imported or generated into the other. Retyping the same number in Python and in
 Verilog creates two values that will silently diverge. If you catch yourself
 copying a number between `hdl/reference/` and `hdl/rtl/`, that is the bug.
 
-## 4. Comments
+## 5. Comments
 
 Be ruthless. Most comments people write should not exist.
 

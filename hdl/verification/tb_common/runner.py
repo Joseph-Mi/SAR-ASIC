@@ -15,6 +15,11 @@ from cocotb_tools.runner import VerilatorControlFile, get_runner
 
 SIM = "verilator"
 
+#: cocotb infers the toplevel language from the *last* entry in `sources`, and
+#: ours is the waiver control file, not HDL. State it instead of depending on
+#: list order. RTL is Verilog-2005 -- see STYLE.md, *Languages*.
+HDL_TOPLEVEL_LANG = "verilog"
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RTL_DIR = REPO_ROOT / "hdl" / "rtl"
 BUILD_DIR = REPO_ROOT / "build" / "sim"
@@ -99,6 +104,7 @@ def run(
 
     runner.test(
         hdl_toplevel=top,
+        hdl_toplevel_lang=HDL_TOPLEVEL_LANG,
         test_module=test_module,
         test_dir=str(test_dir),
         testcase=testcase,
