@@ -29,8 +29,10 @@ plus Verilator, cocotb, Yosys, xschem, ngspice, magic, KLayout, and netgen, so
 there is no venv and no per-tool install. Pin it by dated tag, never `latest`:
 
 ```bash
-docker run -it --rm -v "$PWD":/foss/designs hpretl/iic-osic-tools:2026.07 bash
+make container
 ```
+
+The image tag lives in `versions.env` so it is not written down twice.
 
 Verilator has no native Windows build, so the container (or WSL2) is the only
 place the suite actually runs. The Windows checkout is for editing and git.

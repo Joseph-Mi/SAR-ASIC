@@ -7,6 +7,9 @@
 
 .DEFAULT_GOAL := help
 
+# Native tool versions. Also sourced by CI.
+include versions.env
+
 PYTHON       ?= python
 VERILATOR    ?= verilator
 RUFF         ?= ruff
@@ -37,13 +40,16 @@ ALLOW_EMPTY = s=$$?; if [ $$s -eq 5 ]; then echo "WARNING: no tests collected"; 
 ## help: list available targets
 help:
 	@echo "SAR-ASIC targets:"
-	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'
+	@grep -hE '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Flags:  WAVES=1  dump FST into $(BUILD_DIR)/sim/<top>/"
 
-## check-tools: print the version of every tool this Makefile depends on
-check-tools:
-	@echo "--- expected: docs/tool-versions.md ---"
+## container: open a shell in the pinned IIC-OSIC-TOOLS image
+container:
+	docker run -it --rm -v "$$PWD":/foss/designs hpretl/iic-osic-tools:$(OSIC_TOOLS_TAG) bash
+
+## tool-versions: print what is actually installed
+tool-versions:
 	@$(PYTHON) --version
 	@$(VERILATOR) --version
 	@$(YOSYS) -V
@@ -51,6 +57,13 @@ check-tools:
 	@$(RUFF) --version
 	@$(PYTHON) -c "import cocotb; print('cocotb', cocotb.__version__)"
 	@$(PYTHON) -c "import pytest; print('pytest', pytest.__version__)"
+
+## check-tools: fail unless installed versions match versions.env
+check-tools:
+	@got=$$($(VERILATOR) --version | awk '{print $$2}'); [ "$$got" = "$(VERILATOR_VERSION)" ] || { echo "verilator: want $(VERILATOR_VERSION), got $$got"; exit 1; }
+	@got=$$($(YOSYS) -V | awk '{print $$2}'); [ "$$got" = "$(YOSYS_VERSION)" ] || { echo "yosys: want $(YOSYS_VERSION), got $$got"; exit 1; }
+	@$(VERIBLE_FMT) --version | grep -qF '$(VERIBLE_VERSION)' || { echo "verible: want $(VERIBLE_VERSION), got $$($(VERIBLE_FMT) --version | head -1)"; exit 1; }
+	@echo "native tools match versions.env"
 
 ## format: rewrite Verilog and Python in canonical style
 format:
@@ -100,4 +113,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: help check-tools format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean
+.PHONY: help container tool-versions check-tools format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean

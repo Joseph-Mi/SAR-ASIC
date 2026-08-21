@@ -22,7 +22,7 @@ BUILD_DIR = REPO_ROOT / "build" / "sim"
 #: Waveforms cost runtime; off by default, on with `WAVES=1`.
 DEFAULT_WAVES = os.getenv("WAVES", "0") not in ("0", "", "false", "False")
 
-#: Applies to every build; matches what scripts/lint_rtl.py enforces in CI.
+#: Applies to every build; matches the timescale `make lint-rtl` uses.
 TIMESCALE = ("1ns", "1ps")
 
 #: Verilator is strict about unused/undriven signals. Keep it that way, but let

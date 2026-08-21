@@ -5,16 +5,14 @@ on:
     branches: [main]
   pull_request:
 
-env:
-  # Must match docs/tool-versions.md. apt's verilator is far older than this,
-  # which is why it is built from the tag instead of installed.
-  VERILATOR_VERSION: v5.050
-
 jobs:
   digital:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Load tool versions
+        run: grep -E '^[A-Z0-9_]+=' versions.env >> "$GITHUB_ENV"
 
       - uses: actions/setup-python@v5
         with:
@@ -25,7 +23,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/verilator
-          key: verilator-${{ env.VERILATOR_VERSION }}-${{ runner.os }}
+          key: verilator-v${{ env.VERILATOR_VERSION }}-${{ runner.os }}
 
       - name: Build Verilator
         if: steps.cache-verilator.outputs.cache-hit != 'true'
@@ -33,7 +31,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git help2man perl python3 make autoconf g++ flex bison ccache \
             libgoogle-perftools-dev numactl perl-doc libfl2 libfl-dev zlib1g zlib1g-dev
-          git clone --depth 1 --branch "$VERILATOR_VERSION" \
+          git clone --depth 1 --branch "v$VERILATOR_VERSION" \
             https://github.com/verilator/verilator.git /tmp/verilator
           cd /tmp/verilator
           autoconf
