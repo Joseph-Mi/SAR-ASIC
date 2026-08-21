@@ -1,0 +1,23 @@
+# Tool configuration only. This repo is not a Python package -- there is
+# nothing to build or install. Dependencies live in requirements.txt.
+
+[tool.pytest.ini_options]
+testpaths = ["hdl/verification"]
+pythonpath = ["hdl/verification"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+markers = [
+  "unit: single-module testbench",
+  "integration: digital core against Python analog models",
+  "system: full converter, ENOB/DNL/INL checks (slow)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tb_common"]

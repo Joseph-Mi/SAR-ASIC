@@ -1,0 +1,11 @@
+# Python verification stack. Pinned, not ranged.
+#
+# cocotb and pytest are pinned to EXACTLY what the TinyTapeout template pins
+# (TinyTapeout/ttsky-verilog-template test/requirements.txt), so local runs and
+# the shuttle's CI agree. Do not bump these independently of TT.
+cocotb==2.0.1
+pytest==8.4.2
+
+# Ours, not TT's.
+numpy==2.5.2
+ruff==0.16.4

@@ -1,0 +1,21 @@
+* text=auto eol=lf
+
+*.sv     text diff=verilog
+*.v      text diff=verilog
+*.svh    text diff=verilog
+*.vh     text diff=verilog
+*.py     text diff=python
+*.md     text
+*.tcl    text
+*.spice  text
+*.cir    text
+*.sch    text
+*.sym    text
+
+*.gds    binary
+*.gds.gz binary
+*.oas    binary
+*.png    binary
+*.pdf    binary
+*.vcd    binary
+*.fst    binary

@@ -1,0 +1,9 @@
+// Verilator lint waivers.
+//
+// One reviewable place for every suppression, instead of inline `lint_off`
+// pragmas scattered through the RTL. Every entry needs a comment saying why
+// the warning is not a bug.
+
+`verilator_config
+
+// (no waivers yet)

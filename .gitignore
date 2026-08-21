@@ -1,0 +1,58 @@
+# ---- Verilator + cocotb output -------------------------------------------
+build/
+sim_build/
+obj_dir/
+results.xml
+*.vcd
+*.fst
+*.fst.hier
+dump.vcd
+
+# ---- Synthesis / PnR -----------------------------------------------------
+runs/
+*.blif
+*.edif
+*.sdf
+*.spef
+*.def.gz
+*.json.gz
+
+# ---- Analog: ngspice / xschem / magic / klayout --------------------------
+*.raw
+*.op
+*.ic
+*.log
+*.sch.bak
+*.sym.bak
+*.sch~
+*.sym~
+xschem/simulation/
+*.ext
+*.nodes
+*.res.ext
+*.sim
+*.lyrdb
+*.gds.gz
+*.oas.gz
+
+# ---- Python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---- Editors / OS --------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
+
+# ---- Local Claude state (keep shared config, drop per-user) --------------
+.claude/settings.local.json
