@@ -109,6 +109,40 @@ Once inside, `make check-tools` confirms the installed native tools match
 
 ---
 
+## Do you actually need the container?
+
+For the digital half, no.
+
+`model`, `lint`, `format`, and `verify` run against whatever is on `PATH` —
+Verilator, Yosys, Verible, and the `requirements.txt` Python stack. They never
+reference the container or the helper repo. CI proves this: it runs them on a
+bare GitHub runner with no Docker at all.
+
+Only `container` and `shell` reach for it. So:
+
+| Working on | Needs the container |
+|---|---|
+| RTL, cocotb, golden models, lint, CI | **No.** Verilator + Python is enough |
+| Schematics, ngspice, Magic, DRC/LVS, the PDK | Yes |
+
+A contributor doing RTL and simulation never installs Docker, never clones
+`iic-osic-tools`, and is never blocked by either. The cost of skipping it is
+that your tool versions are then whatever you installed rather than what
+`versions.env` pins — `make check-tools` tells you if that matters.
+
+This is deliberate, and it is the answer to "what if upstream restructures":
+the coupling is one edge in the build graph, reached by two targets, pinned to a
+tag that upstream cannot change underneath us. Do not add `doctor` or
+`osic-tools` as a prerequisite of any digital target.
+
+`OSIC_TOOLS_DIR` defaults to a sibling checkout but is an override —
+`make container OSIC_TOOLS_DIR=/somewhere/else` — so the sibling layout is a
+default, not an assumption. If the start script is missing from wherever it
+points, `make container` says so and names the override instead of failing in
+upstream's shell code.
+
+---
+
 ## Getting in
 
 | How | For |

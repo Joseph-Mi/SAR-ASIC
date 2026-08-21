@@ -1,7 +1,14 @@
 # Build entry point for SAR-ASIC.
 #
-# Everything here assumes the IIC-OSIC-TOOLS container, which supplies
-# verilator, yosys, verible, cocotb, and the sky130A PDK. See README.md.
+# The IIC-OSIC-TOOLS container supplies verilator, yosys, verible, cocotb, and
+# the sky130A PDK. See README.md.
+#
+# The container is a DOOR, not a build dependency. Only `container` and `shell`
+# reach for it (via `osic-tools` -> `doctor`); every digital target -- model,
+# lint, format, verify -- runs against whatever is on PATH. That is why CI runs
+# them with no container at all, and why a digital-only contributor never needs
+# Docker or the helper repo. Keep it that way: do not add `doctor` or
+# `osic-tools` as a prerequisite of anything below.
 #
 # `make` on its own prints help and changes nothing.
 
@@ -21,8 +28,12 @@ VERIBLE_LINT ?= verible-verilog-lint
 # of this repo -- that is what puts us at /foss/designs/$(DESIGN_NAME) inside.
 # An exported DESIGNS in the environment wins, which is what you want if you also
 # run the start scripts by hand.
-OSIC_TOOLS_URL := https://github.com/iic-jku/iic-osic-tools.git
-OSIC_TOOLS_DIR ?= $(abspath $(CURDIR)/../iic-osic-tools)
+# OSIC_TOOLS_DIR assumes a sibling checkout but is an override: point it
+# anywhere with `make container OSIC_TOOLS_DIR=/path/to/iic-osic-tools`, or
+# export it. Nothing else in this file depends on that layout.
+OSIC_TOOLS_URL   := https://github.com/iic-jku/iic-osic-tools.git
+OSIC_TOOLS_DIR   ?= $(abspath $(CURDIR)/../iic-osic-tools)
+OSIC_START_SCRIPT = $(OSIC_TOOLS_DIR)/start_vnc.sh
 DESIGNS        ?= $(abspath $(CURDIR)/..)
 DESIGN_NAME    := $(notdir $(CURDIR))
 CONTAINER_NAME ?= iic-osic-tools_xvnc_uid_$(shell id -u)
@@ -86,10 +97,16 @@ osic-tools: doctor
 # first rather than letting `make shell` offer to kill the session it needs.
 ## container: start the pinned container (first run pulls ~20 GB)
 container: osic-tools
+	@[ -x "$(OSIC_START_SCRIPT)" ] || { \
+	  echo "$(OSIC_START_SCRIPT) is missing or not executable."; \
+	  echo "Upstream moved it, or OSIC_TOOLS_DIR points somewhere wrong."; \
+	  echo "Override with: make container OSIC_TOOLS_DIR=/path/to/iic-osic-tools"; \
+	  exit 1; \
+	}
 	@if [ -n "$$(docker ps -q -f name=$(CONTAINER_NAME))" ]; then \
 	  echo "already running -- VNC at http://localhost/?password=abc123"; \
 	else \
-	  DESIGNS="$(DESIGNS)" DOCKER_TAG="$(OSIC_TOOLS_TAG)" "$(OSIC_TOOLS_DIR)/start_vnc.sh"; \
+	  DESIGNS="$(DESIGNS)" DOCKER_TAG="$(OSIC_TOOLS_TAG)" "$(OSIC_START_SCRIPT)"; \
 	fi
 
 ## shell: bash inside the running container, at this design
