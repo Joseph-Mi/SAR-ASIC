@@ -38,7 +38,7 @@ filesystem hop on every container I/O.
 
 Follow [Docker's Ubuntu install docs](https://docs.docker.com/engine/install/ubuntu/).
 If `apt update` 404s on `download.docker.com`, your Ubuntu codename has no
-directory in Docker's repo yet — substitute `noble` in the `deb` line. The
+directory in Docker's repo — substitute `noble` in the `deb` line. The
 packages are compatible; only the repo path differs.
 
 Then, so `docker` works without `sudo` (running the start scripts as root makes
@@ -143,6 +143,43 @@ upstream's shell code.
 
 ---
 
+## PDK selection
+
+The image defaults to **`PDK=ihp-sg13g2`**, not sky130A. It also derives
+`PDKPATH`, `STD_CELL_LIBRARY`, `SPICE_USERINIT_DIR`, and `KLAYOUT_PATH` from
+`PDK` *before* sourcing any file of ours, so setting `PDK` on its own leaves
+four variables pointing into the IHP tree. Get this wrong and magic, ngspice,
+and KLayout load the wrong technology and produce wrong results with no error.
+
+All five settings live in [`pdk.env`](../pdk.env), in this repo, under git:
+
+```bash
+make designinit
+```
+
+That writes a three-line shim to `$DESIGNS/.designinit` — the one path the
+container sources at shell start — which does nothing but source `pdk.env`.
+The indirection is the point:
+
+| | Where | Consequence |
+|---|---|---|
+| Settings | `pdk.env`, in the repo | Version-controlled, reviewable, present for anyone who clones |
+| Hook | `$DESIGNS/.designinit` | Written once, contains no settings, never edited again |
+
+Change the PDK config by editing `pdk.env` and committing it, like any other
+file. The out-of-repo file does not change.
+
+`make designinit` is idempotent, and it will not overwrite a `.designinit` it
+did not write — the designs directory is shared with sibling projects, so
+anything unrecognised is left alone and the line to add is printed instead.
+`make doctor` fails if the shim is missing, so the container cannot be started
+onto the wrong PDK.
+
+`pdk.env` is sourced by every shell in the container, so it is POSIX `sh` and
+must not fail: a syntax error there breaks every terminal.
+
+---
+
 ## Getting in
 
 | How | For |
@@ -215,7 +252,7 @@ gdsfactory, gdspy, pygmid, pyuvm, spicebind, cace, and chipify are already there
 
 Change `OSIC_TOOLS_TAG` in `versions.env` — one number, one place. Then:
 
-Then `make container` will stop, because the helper checkout no longer matches:
+`make container` then stops, because the helper checkout disagrees with the pin:
 
 ```
 iic-osic-tools is at 2026.07, but versions.env pins 2026.11.

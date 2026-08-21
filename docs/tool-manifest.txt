@@ -24,7 +24,7 @@ klayout      KLayout 0.30.9
 ngspice      ngspice-46
 xschem       XSCHEM V3.4.8RC
 
-## Python (pinned in requirements.txt, enforced by pip)
+## Python (pins live in requirements.txt; the image may differ)
 python       Python 3.12.3
 cocotb       2.0.1
 pytest       9.1.1

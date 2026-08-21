@@ -38,6 +38,13 @@ DESIGNS        ?= $(abspath $(CURDIR)/..)
 DESIGN_NAME    := $(notdir $(CURDIR))
 CONTAINER_NAME ?= iic-osic-tools_xvnc_uid_$(shell id -u)
 
+# The container sources exactly one fixed path at shell start, and it lives
+# outside any repo. So $(DESIGNS)/.designinit is reduced to a shim that sources
+# pdk.env from this repo: the settings stay under git, reviewable and visible to
+# anyone who clones, and the out-of-repo file never needs editing again.
+DESIGNINIT      := $(DESIGNS)/.designinit
+DESIGNINIT_MARK := managed by make designinit
+
 RTL_DIR   := hdl/rtl
 REF_DIR   := hdl/reference
 VERIF_DIR := hdl/verification
@@ -71,12 +78,38 @@ doctor:
 	@command -v docker >/dev/null || { echo "docker not found -- see docs/environment.md"; exit 1; }
 	@docker info >/dev/null 2>&1 || { echo "docker daemon unreachable: is it running, and are you in the docker group? -- see docs/environment.md"; exit 1; }
 	@[ -d "$(DESIGNS)/$(DESIGN_NAME)" ] || { echo "DESIGNS=$(DESIGNS) does not contain $(DESIGN_NAME); the container would mount an empty tree"; exit 1; }
-	@echo "host OK -- DESIGNS=$(DESIGNS)"
+	@[ -r "$(CURDIR)/pdk.env" ] || { echo "pdk.env is missing from this repo"; exit 1; }
+	@grep -qsF '$(DESIGNINIT_MARK)' "$(DESIGNINIT)" || { \
+	  echo "$(DESIGNINIT) does not source $(DESIGN_NAME)/pdk.env."; \
+	  echo "The image defaults to PDK=ihp-sg13g2, so magic, ngspice and KLayout"; \
+	  echo "would silently load the wrong technology and report no error."; \
+	  echo "Fix with:  make designinit"; \
+	  exit 1; \
+	}
+	@echo "host OK -- DESIGNS=$(DESIGNS), PDK from $(DESIGN_NAME)/pdk.env"
 
 # We read the helper scripts and never write them. A missing checkout is created
 # at the pinned tag -- there is nothing there to clobber. An existing checkout is
 # only ever *verified*: if it has drifted off the pin, say so and stop rather
 # than moving someone else's working tree underneath them.
+# Writes one file outside the repo, and only that file: a shim with no settings
+# in it. Anything it does not recognise as its own is left alone rather than
+# overwritten -- the designs directory is shared with sibling projects.
+## designinit: point the container's startup hook at pdk.env (idempotent)
+designinit:
+	@if [ -e "$(DESIGNINIT)" ] && ! grep -qsF '$(DESIGNINIT_MARK)' "$(DESIGNINIT)"; then \
+	  echo "$(DESIGNINIT) exists and was not written by this repo."; \
+	  echo "Refusing to overwrite it. Add this line to it yourself:"; \
+	  echo '    [ -r "$$DESIGNS/$(DESIGN_NAME)/pdk.env" ] && . "$$DESIGNS/$(DESIGN_NAME)/pdk.env"'; \
+	  exit 1; \
+	fi
+	@{ \
+	  printf '%s\n' '# $(DESIGN_NAME) PDK hook -- $(DESIGNINIT_MARK). Do not edit.'; \
+	  printf '%s\n' '# Settings live in $(DESIGN_NAME)/pdk.env, under git.'; \
+	  printf '%s\n' '[ -r "$$DESIGNS/$(DESIGN_NAME)/pdk.env" ] && . "$$DESIGNS/$(DESIGN_NAME)/pdk.env"'; \
+	} > "$(DESIGNINIT)"
+	@echo "$(DESIGNINIT) -> $(DESIGN_NAME)/pdk.env"
+
 ## osic-tools: ensure the helper scripts exist at the tag in versions.env
 osic-tools: doctor
 	@if [ ! -d "$(OSIC_TOOLS_DIR)/.git" ]; then \
@@ -104,13 +137,19 @@ container: osic-tools
 	  exit 1; \
 	}
 	@if [ -n "$$(docker ps -q -f name=$(CONTAINER_NAME))" ]; then \
-	  echo "already running -- VNC at http://localhost/?password=abc123"; \
+	  echo "already running -- VNC at http://$$(docker port $(CONTAINER_NAME) 80 2>/dev/null | head -1 | sed 's/0\.0\.0\.0/localhost/')"; \
 	else \
 	  DESIGNS="$(DESIGNS)" DOCKER_TAG="$(OSIC_TOOLS_TAG)" "$(OSIC_START_SCRIPT)"; \
 	fi
 
 ## shell: bash inside the running container, at this design
 shell: container
+	@[ -n "$$(docker ps -q -f name=$(CONTAINER_NAME))" ] || { \
+	  echo "$(CONTAINER_NAME) is not running."; \
+	  echo "start_vnc.sh offers to start/remove an exited container and exits 0"; \
+	  echo "if you decline, so re-run: make container"; \
+	  exit 1; \
+	}
 	@docker exec -it -w /foss/designs/$(DESIGN_NAME) $(CONTAINER_NAME) bash
 
 ## tool-versions: print what is actually installed
@@ -125,7 +164,9 @@ tool-versions:
 
 ## tool-manifest: record every tool version into docs/tool-manifest.txt
 tool-manifest:
-	@OSIC_TOOLS_TAG="$(OSIC_TOOLS_TAG)" sh scripts/tool-manifest.sh > docs/tool-manifest.txt
+	@tmp=$$(mktemp) && \
+	  OSIC_TOOLS_TAG="$(OSIC_TOOLS_TAG)" sh scripts/tool-manifest.sh > "$$tmp" && \
+	  mv "$$tmp" docs/tool-manifest.txt || { rm -f "$$tmp"; exit 1; }
 	@echo "wrote docs/tool-manifest.txt"
 
 ## check-tools: fail unless installed versions match versions.env
@@ -183,4 +224,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: help doctor osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean
+.PHONY: help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean

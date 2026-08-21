@@ -33,9 +33,9 @@ regenerating and bumping stay deliberate.
 | Magic / Netgen / KLayout | the image | DRC / LVS / layout |
 | ngspice / xschem | the image | Analog simulation and schematics |
 
-Only the first four are ours to pin. `make check-tools` enforces the three
-tools it can interrogate; the image tag is enforced by `make container` being
-the only documented way in.
+Only the first four are ours to pin. `make check-tools` enforces the three tools
+it can interrogate, locally and in CI; the image tag is enforced by
+`make container` being the only documented way in.
 
 ## Notes
 
@@ -52,6 +52,12 @@ Icarus and runs on Icarus in CI regardless of local preference. Verilator is the
 right tool for RTL simulation and lint; Icarus is the tool for the post-synthesis
 netlist check.
 
+**Verible's version decides what `make format-check` accepts.** Its formatting
+output changes between releases, so a skew between the container and CI turns
+that target into a coin flip. The pin is not cosmetic, and it is pinned to what
+the image ships rather than to upstream latest, because the image is the one
+version we cannot change.
+
 ## UNRESOLVED
 
 **CI and the container use different Verilator builds.** CI compiles the pinned
@@ -59,24 +65,13 @@ version from source; the container ships whatever it was built with. Until those
 agree, local and CI lint with different tools. Two ways out: run CI inside the
 container, or accept that CI is the reference and the container is not.
 
-**CI has no Yosys and no Verible.** `make lint` and `make format-check` invoke
-both. They are currently skipped because `hdl/rtl/` holds no `.v` files, so CI
-passes by accident; the first RTL file will break it. This has to be settled the
-same way as the Verilator split, which is why `make check-tools` is not wired
-into CI yet -- it would fail on the missing tools rather than on a real mismatch.
+**The container does not honor `requirements.txt`.** The pins are correct --
+`pytest` and `cocotb` match the TinyTapeout template exactly, which is the
+constraint that matters -- but the image ships different versions of the Python
+stack and no `ruff` at all, so `make lint-py` and `make format-check` fail inside
+the container. Pinned is not the same as installed. See
+[`tool-manifest.txt`](tool-manifest.txt) for what the image actually ships.
 
-**RESOLVED: the three native pins now describe the image rather than wishing at
-it.** `make tool-versions` reported yosys `0.67` (not `0.68`) and verible
-`v0.0-4084-gf3e4d98b` (not `v0.0-4148-g1ea007ec`); `versions.env` was corrected
-to match and `make check-tools` passes. This matters most for Verible, whose
-formatting output changes between releases — a skew between container and CI
-turns `make format-check` into a coin flip.
-
-**`ruff` is pinned but not present.** `requirements.txt` pins `ruff==0.16.4`;
-the image ships no ruff at all, so `make lint-py` and `make format-check` fail
-inside the container. Pinned is not the same as installed. Same story for the
-Python stack generally: the image ships pytest 9.1.1 and numpy 2.5.1 against
-pinned 8.4.2 / 2.5.2. The pytest and cocotb pins match the TinyTapeout template
-exactly (verified against `TinyTapeout/ttsky-verilog-template`) and must not be
-bumped to chase the image. The fix is a thin `FROM hpretl/iic-osic-tools:<tag>`
-layer that installs `requirements.txt`, not a change to the pins.
+The fix is a thin `FROM hpretl/iic-osic-tools:<tag>` layer that installs
+`requirements.txt`, not a change to the pins. Bumping the pins to match the image
+would break the TinyTapeout agreement, which is the wrong trade.

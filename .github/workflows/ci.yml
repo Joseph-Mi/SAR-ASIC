@@ -5,12 +5,32 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: this job reads the tree and uploads an artifact, nothing more.
+permissions:
+  contents: read
+
+# A newer push to the same ref makes the older run irrelevant. Cancel it rather
+# than paying for a toolchain build whose result nobody will read.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   digital:
     runs-on: ubuntu-latest
+    # A wedged toolchain build would otherwise burn the default 6h.
+    timeout-minutes: 60
+
+    # Tools install under ~/tools, never /opt. /opt is root-owned on hosted
+    # runners, so a root-owned install cannot be restored by actions/cache,
+    # which runs unprivileged -- the cache silently misses and every run
+    # rebuilds from source. A user-owned prefix also means no sudo outside apt,
+    # and keeps the tools out of the checkout where ruff would scan them.
     steps:
       - uses: actions/checkout@v4
 
+      # versions.env is the single source of truth. Every tool version below
+      # comes from it -- never hardcode one here.
       - name: Load tool versions
         run: grep -E '^[A-Z0-9_]+=' versions.env >> "$GITHUB_ENV"
 
@@ -18,36 +38,86 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Unconditional, not inside a cache-miss branch: a restored Yosys binary
+      # still links libreadline/libtcl at run time, and missing those surfaces
+      # as "error while loading shared libraries" from check-tools rather than
+      # as a version mismatch.
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake clang bison flex gawk pkg-config \
+            libreadline-dev tcl-dev libffi-dev zlib1g-dev \
+            git help2man perl perl-doc python3 autoconf ccache \
+            libgoogle-perftools-dev numactl libfl2 libfl-dev
+
+      # ---- Verilator: source only, so build and cache --------------------
       - name: Cache Verilator
         id: cache-verilator
         uses: actions/cache@v4
         with:
-          path: /opt/verilator
+          path: ~/tools/verilator
           key: verilator-v${{ env.VERILATOR_VERSION }}-${{ runner.os }}
 
       - name: Build Verilator
         if: steps.cache-verilator.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git help2man perl python3 make autoconf g++ flex bison ccache \
-            libgoogle-perftools-dev numactl perl-doc libfl2 libfl-dev zlib1g zlib1g-dev
           git clone --depth 1 --branch "v$VERILATOR_VERSION" \
             https://github.com/verilator/verilator.git /tmp/verilator
           cd /tmp/verilator
           autoconf
-          ./configure --prefix=/opt/verilator
+          ./configure --prefix="$HOME/tools/verilator"
           make -j"$(nproc)"
-          sudo make install
+          make install
 
-      - name: Check Verilator version
+      # ---- Yosys: source only, so build and cache the same way -----------
+      - name: Cache Yosys
+        id: cache-yosys
+        uses: actions/cache@v4
+        with:
+          path: ~/tools/yosys
+          key: yosys-v${{ env.YOSYS_VERSION }}-${{ runner.os }}
+
+      - name: Build Yosys
+        if: steps.cache-yosys.outputs.cache-hit != 'true'
         run: |
-          echo "/opt/verilator/bin" >> "$GITHUB_PATH"
-          /opt/verilator/bin/verilator --version
+          # Two things about this tarball, both easy to get wrong:
+          #   - it has NO top-level directory, so no --strip-components here
+          #     (Verible's tarball is the opposite; check before changing either)
+          #   - Yosys is CMake-only; there is no Makefile at the archive root
+          mkdir -p /tmp/yosys
+          curl -fsSL "https://github.com/YosysHQ/yosys/releases/download/v$YOSYS_VERSION/yosys.tar.gz" \
+            | tar -xz -C /tmp/yosys
+          cmake -S /tmp/yosys -B /tmp/yosys/build \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/tools/yosys"
+          cmake --build /tmp/yosys/build -j"$(nproc)"
+          cmake --install /tmp/yosys/build
+
+      # ---- Verible: prebuilt static binary, ~16 MB. Cheaper to fetch than
+      # to cache, so it is fetched every run.
+      - name: Install Verible
+        run: |
+          mkdir -p "$HOME/tools/verible"
+          curl -fsSL "https://github.com/chipsalliance/verible/releases/download/$VERIBLE_VERSION/verible-$VERIBLE_VERSION-linux-static-x86_64.tar.gz" \
+            | tar -xz -C "$HOME/tools/verible" --strip-components=1
+
+      # One step owns PATH, so reordering cannot silently drop a tool and let
+      # a Makefile guard skip the check that needed it.
+      - name: Put tools on PATH
+        run: |
+          for t in verilator yosys verible; do
+            echo "$HOME/tools/$t/bin" >> "$GITHUB_PATH"
+          done
 
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      # Ahead of the checks that depend on these tools, so a version skew
+      # reports as a version skew and not as a mysterious lint diff.
+      - name: Check tool versions
+        run: make check-tools
 
       - name: Check formatting
         run: make format-check

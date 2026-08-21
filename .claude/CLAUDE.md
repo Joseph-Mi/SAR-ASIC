@@ -110,8 +110,18 @@ in the designs tree.
 XQuartz is macOS-only and irrelevant here; VNC mode needs no X server on any
 platform.
 
-`.designinit` in the designs dir is sourced at container start — put project env
-vars there rather than retyping them.
+**PDK selection is not optional and does not live in the designs dir.** The
+image defaults to `PDK=ihp-sg13g2` and derives `PDKPATH`, `STD_CELL_LIBRARY`,
+`SPICE_USERINIT_DIR`, and `KLAYOUT_PATH` from it *before* sourcing anything of
+ours — so setting `PDK` alone leaves four variables pointing into the IHP tree,
+and magic, ngspice, and KLayout load the wrong technology with no error.
+
+All five live in `pdk.env`, in this repo, under git. `$DESIGNS/.designinit` is
+reduced to a three-line shim that sources it, written by `make designinit` and
+never edited again. Project env goes in `pdk.env`, never in `.designinit`: the
+designs dir is outside every repo, shared with sibling projects, and invisible
+to CI and to anyone who clones. `make doctor` refuses to start the container if
+the shim is missing.
 
 **Never** `pip install` or `apt install` a tool into a running container and rely
 on it. It vanishes on restart and isn't in anyone else's environment. If we

@@ -10,7 +10,7 @@
 #
 # This script READS. It never edits versions.env or requirements.txt, nothing
 # depends on it, and no target or CI job runs it for you. Bumping a pin stays a
-# deliberate human act; this only tells you what you are currently running.
+# deliberate human act; this only reports what the environment provides.
 
 set -eu
 
@@ -72,7 +72,10 @@ fi
 ver xschem xschem --version
 printf '\n'
 
-printf '## Python (pinned in requirements.txt, enforced by pip)\n'
+# requirements.txt states the pins; nothing installs them into the image, so
+# what is recorded here is whatever the image ships unless someone installed
+# them. A mismatch against requirements.txt is a real finding, not noise.
+printf '## Python (pins live in requirements.txt; the image may differ)\n'
 ver python python --version
 for pkg in cocotb pytest numpy ruff; do
 	if python -c "import importlib.metadata as m; m.version('$pkg')" >/dev/null 2>&1; then

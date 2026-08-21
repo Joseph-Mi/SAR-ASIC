@@ -5,8 +5,8 @@ physical design in one repo.
 
 ## Layout
 
-OMITTED as paths are always subject to change and can documentation of
-such can become stale
+Deliberately not documented here. Paths change, and a layout table is the
+first thing to go stale without anyone noticing. Read the tree.
 
 Coding rules live in [STYLE.md](STYLE.md). Read it before writing RTL.
 
@@ -23,10 +23,15 @@ and no per-tool install.
 On a machine that already has Docker, `make`, and git:
 
 ```bash
+make designinit   # point the container's startup hook at pdk.env (once)
 make doctor       # is this host ready? names what is missing if not
 make container    # clone helpers at the pinned tag, then start the container
 make shell        # bash inside it, at this design
 ```
+
+`pdk.env` holds the sky130A selection and is the source of truth for it; the
+image otherwise defaults to a different PDK. See
+[docs/environment.md](docs/environment.md#pdk-selection).
 
 `make container` clones `iic-osic-tools` beside this repo at the pinned tag if it
 is missing, and verifies the tag if it is already there, so the helper scripts
@@ -79,5 +84,5 @@ Testbenches use cocotb's Python runner rather than cocotb Makefiles, so `make`
 is not required. Each `test_*.py` holds both its `@cocotb.test()` coroutines and
 a pytest entry point that builds the DUT.
 
-`hdl/verification/unit/smoke/` is a toolchain check, not part of the design —
+`hdl/verification/unit/tb_smoke/` is a toolchain check, not part of the design —
 delete it once real RTL has tests.

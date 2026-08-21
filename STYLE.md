@@ -167,6 +167,24 @@ by nobody.
   matters, it belongs in a check that fails when it stops being true.
 - **People and process.** Author names, dates, review notes, "per discussion
   with —", ticket titles. Git blame is authoritative and never stale.
+- **Development narration.** "RESOLVED", "DONE", "now supports X", "no longer
+  needed", "as of this PR". These describe the *project's* history, not the
+  code's behavior, and they are written at the one moment they are true.
+
+**Documents are held to the same rule**
+
+A document states what is true. It does not narrate how it got that way. A
+document that annotates its own entries as resolved has become a changelog, and
+a changelog nobody prunes is indistinguishable from current fact — the reader
+cannot tell which lines describe the system and which describe its past.
+
+So: a resolved item is **deleted**, not marked. If the resolution taught us
+something durable, that lesson is rewritten as a plain present-tense statement in
+the section where it belongs, and the history of it is left to git.
+
+A list of open questions is fine, because every entry is live by construction:
+the moment one stops being live, it comes out. What is not fine is a list where
+entries accumulate and get decorated.
 
 Before writing a comment, ask: what change elsewhere makes this false, and would
 that change drag me back to this line? If the answer to the second is no, the
