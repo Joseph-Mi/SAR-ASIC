@@ -169,10 +169,14 @@ tool-manifest:
 	  mv "$$tmp" docs/tool-manifest.txt || { rm -f "$$tmp"; exit 1; }
 	@echo "wrote docs/tool-manifest.txt"
 
+# Yosys appends build metadata after a '+' (a CMake build of the v0.67 release
+# tarball reports "0.67+post" where the image's build reports "0.67"). That
+# suffix describes the build, not the release, and the pin names the release --
+# so compare the part before the '+'.
 ## check-tools: fail unless installed versions match versions.env
 check-tools:
 	@got=$$($(VERILATOR) --version | awk '{print $$2}'); [ "$$got" = "$(VERILATOR_VERSION)" ] || { echo "verilator: want $(VERILATOR_VERSION), got $$got"; exit 1; }
-	@got=$$($(YOSYS) -V | awk '{print $$2}'); [ "$$got" = "$(YOSYS_VERSION)" ] || { echo "yosys: want $(YOSYS_VERSION), got $$got"; exit 1; }
+	@got=$$($(YOSYS) -V | awk '{print $$2}' | cut -d+ -f1); [ "$$got" = "$(YOSYS_VERSION)" ] || { echo "yosys: want $(YOSYS_VERSION), got $$got"; exit 1; }
 	@$(VERIBLE_FMT) --version | grep -qF '$(VERIBLE_VERSION)' || { echo "verible: want $(VERIBLE_VERSION), got $$($(VERIBLE_FMT) --version | head -1)"; exit 1; }
 	@echo "native tools match versions.env"
 
