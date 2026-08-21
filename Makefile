@@ -41,6 +41,17 @@ help:
 	@echo ""
 	@echo "Flags:  WAVES=1  dump FST into $(BUILD_DIR)/sim/<top>/"
 
+## check-tools: print the version of every tool this Makefile depends on
+check-tools:
+	@echo "--- expected: docs/tool-versions.md ---"
+	@$(PYTHON) --version
+	@$(VERILATOR) --version
+	@$(YOSYS) -V
+	@$(VERIBLE_FMT) --version | head -1
+	@$(RUFF) --version
+	@$(PYTHON) -c "import cocotb; print('cocotb', cocotb.__version__)"
+	@$(PYTHON) -c "import pytest; print('pytest', pytest.__version__)"
+
 ## format: rewrite Verilog and Python in canonical style
 format:
 	@if [ -n "$(RTL_SOURCES)" ]; then $(VERIBLE_FMT) --inplace $(RTL_SOURCES); fi
@@ -89,4 +100,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: help format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean
+.PHONY: help check-tools format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean
