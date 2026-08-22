@@ -42,6 +42,10 @@ CONTAINER_NAME ?= iic-osic-tools_xvnc_uid_$(shell id -u)
 # outside any repo. So $(DESIGNS)/.designinit is reduced to a shim that sources
 # pdk.env from this repo: the settings stay under git, reviewable and visible to
 # anyone who clones, and the out-of-repo file never needs editing again.
+# noVNC reads the password from the query string, so the URL can be clicked
+# straight through. Set OPEN=0 to print it without launching a browser.
+VNC_PW          ?= abc123
+OPEN            ?= 1
 DESIGNINIT      := $(DESIGNS)/.designinit
 DESIGNINIT_MARK := managed by make designinit
 
@@ -126,8 +130,11 @@ osic-tools: doctor
 	fi
 	@echo "iic-osic-tools $(OSIC_TOOLS_TAG) at $(OSIC_TOOLS_DIR)"
 
-# start_vnc.sh prompts to STOP a container that is already running, so check
-# first rather than letting `make shell` offer to kill the session it needs.
+# start_vnc.sh is interactive for both an already-running container ("press s to
+# stop") and an exited one ("press s to start"), and in the exited case it can
+# return 0 with nothing running. Handle both states here so restarting is one
+# non-interactive command, and only fall through to the script to CREATE a
+# container that does not exist yet.
 ## container: start the pinned container (first run pulls ~20 GB)
 container: osic-tools
 	@[ -x "$(OSIC_START_SCRIPT)" ] || { \
@@ -137,9 +144,27 @@ container: osic-tools
 	  exit 1; \
 	}
 	@if [ -n "$$(docker ps -q -f name=$(CONTAINER_NAME))" ]; then \
-	  echo "already running -- VNC at http://$$(docker port $(CONTAINER_NAME) 80 2>/dev/null | head -1 | sed 's/0\.0\.0\.0/localhost/')"; \
+	  echo "already running"; \
+	elif [ -n "$$(docker ps -aq -f name=$(CONTAINER_NAME))" ]; then \
+	  echo "container exists but is stopped -- starting it"; \
+	  docker start $(CONTAINER_NAME) >/dev/null; \
+	  sleep 3; \
 	else \
 	  DESIGNS="$(DESIGNS)" DOCKER_TAG="$(OSIC_TOOLS_TAG)" "$(OSIC_START_SCRIPT)"; \
+	fi
+	@port=$$(docker port $(CONTAINER_NAME) 80 2>/dev/null | head -1 | sed 's/.*://'); \
+	if [ -z "$$port" ]; then \
+	  echo "container is up but port 80 is not published; VNC unavailable"; \
+	else \
+	  if [ "$$port" = "80" ]; then host=localhost; else host=localhost:$$port; fi; \
+	  url="http://$$host/?password=$(VNC_PW)"; \
+	  echo "VNC: $$url"; \
+	  if [ "$(OPEN)" != "0" ]; then \
+	    if command -v wslview >/dev/null 2>&1; then wslview "$$url" >/dev/null 2>&1 || true; \
+	    elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$$url" >/dev/null 2>&1 || true; \
+	    elif command -v explorer.exe >/dev/null 2>&1; then explorer.exe "$$url" >/dev/null 2>&1 || true; \
+	    else echo "(no browser opener found -- open the URL above yourself)"; fi; \
+	  fi; \
 	fi
 
 ## shell: bash inside the running container, at this design
