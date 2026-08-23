@@ -23,10 +23,21 @@ runs/
 *.ic
 *.log
 *.sch.bak
+# xschem drops these when you open an unnamed schematic/symbol. Always scratch.
+untitled.sch
+untitled.sym
 *.sym.bak
 *.sch~
 *.sym~
 xschem/simulation/
+# xschem writes netlists to ./simulation (singular) beside the schematic when
+# local_netlist_dir is set. Regenerate with: xschem --no_x -n -s -q <file>.sch
+simulation/
+simulations/
+*.spc
+*.rpt
+*.out
+*.xml
 *.ext
 *.nodes
 *.res.ext
