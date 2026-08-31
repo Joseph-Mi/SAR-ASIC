@@ -2,8 +2,8 @@
 # nothing to build or install. Dependencies live in requirements.txt.
 
 [tool.pytest.ini_options]
-testpaths = ["hdl/reference", "hdl/verification"]
-pythonpath = ["hdl/verification"]
+testpaths = ["hdl/reference", "hdl/verification", "model"]
+pythonpath = ["hdl/verification", "hdl/reference", "model"]
 python_files = ["test_*.py"]
 addopts = "-ra"
 
@@ -18,4 +18,4 @@ target-version = "py310"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["tb_common"]
+known-first-party = ["tb_common", "sar", "metrics"]

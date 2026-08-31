@@ -51,6 +51,7 @@ DESIGNINIT_MARK := managed by make designinit
 
 RTL_DIR   := hdl/rtl
 REF_DIR   := hdl/reference
+MODEL_DIR := model
 VERIF_DIR := hdl/verification
 BUILD_DIR := build
 WAIVERS   := hdl/lint/waivers.vlt
@@ -229,9 +230,9 @@ lint-rtl:
 lint-py:
 	$(RUFF) check .
 
-## model: validate the Python golden models -- run before any RTL exists
+## model: validate the golden model and the mismatch study -- before any RTL
 model:
-	@$(PYTHON) -m pytest $(REF_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(REF_DIR) $(MODEL_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## verify-unit: cocotb unit tests
 verify-unit:

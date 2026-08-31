@@ -46,6 +46,20 @@ simulations/
 *.gds.gz
 *.oas.gz
 
+# Magic extraction products -- regenerate with `extract all` / sak-pex.sh
+*.al
+*.mag.bak
+# Netgen LVS reports
+comp.out
+netgen.log
+*.lvs.report
+# Layout streams. Binary, and regenerated from .mag or LibreLane -- see
+# CLAUDE.md "GDS is binary, gitignored and regenerated. LFS only for final
+# submission." Only the .gz forms were covered before.
+*.gds
+*.gds2
+*.oas
+
 # ---- Python --------------------------------------------------------------
 __pycache__/
 *.py[cod]
