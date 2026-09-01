@@ -22,8 +22,69 @@ voltage, so a testbench copied from one to the other will be driving the wrong
 rail. That is the single most likely reason a rebuilt circuit "works but the
 output never switches".
 
-Getting into the container, PDK variables, and the VNC desktop are in
-`environment.md` and are not repeated here.
+---
+
+## From a cold terminal
+
+Assumes the host, a fresh shell, nothing running. New-machine setup, the PDK
+variables, and why the container exists at all are in `environment.md`; this is
+only the shortest path from a prompt to a schematic on screen.
+
+```bash
+cd ~/github/SAR-ASIC
+make container
+```
+
+That command is idempotent and covers every state the container can be in: it
+creates one if none exists, starts it if it is stopped, and prints `already
+running` if it is up. Then it prints the noVNC URL with the password already in
+the query string, and opens a browser at it.
+
+The address and the password are deliberately not written down here. `make
+container` is what knows them, and a URL copied into a document is a URL that
+goes stale. Pass `OPEN=0` if you would rather it not launch a browser.
+
+From there, two doors:
+
+| Door | Use it for |
+|---|---|
+| The noVNC desktop in the browser | xschem, magic, KLayout, GTKWave — anything that draws |
+| `make shell` | netlisting, batch ngspice, git — same container, no desktop |
+
+`make shell` lands you in bash already at this repo, so it is the faster door
+whenever you do not need pixels.
+
+Two failures worth recognising rather than debugging:
+
+- **The browser tab shows nothing.** The container is up but has no published
+  port. `make container` says so in place of the URL rather than printing a dead
+  link, so read its last line.
+- **You are in the container but the repo is not under `/foss/designs`.** The
+  bind mount did not take, which means `DESIGNS` was wrong when the container
+  was *created*. `make doctor` checks for this.
+
+### A long-running container drifts off the pin
+
+`make container` will not re-create a container that is already running, so one
+created before the version pin existed keeps whatever image it was built from
+— indefinitely, and silently. Check what you are actually running:
+
+```bash
+docker ps --format '{{.Image}}'
+```
+
+If that disagrees with `OSIC_TOOLS_TAG` in `versions.env`, the toolchain under
+you is not the pinned one and not what CI uses. Recreate it:
+
+```bash
+docker rm -f iic-osic-tools_xvnc_uid_$(id -u)
+make container
+docker exec -it iic-osic-tools_xvnc_uid_$(id -u) bash
+```
+
+The repo is a bind mount and survives untouched. What you lose is the
+container's own home directory, which is the reason nothing of value is ever
+installed there.
 
 ---
 
