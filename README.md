@@ -56,6 +56,9 @@ pip install -r requirements.txt
 Native tool versions are recorded in [docs/tool-versions.md](docs/tool-versions.md);
 `make check-tools` enforces them.
 
+How the Python models fit together, and the physics under them, is in
+[docs/model.md](docs/model.md).
+
 The analog side of the workflow — reaching the noVNC desktop, xschem, ngspice,
 and the disposable experiments under `sandbox/` — is in
 [docs/sandbox.md](docs/sandbox.md). None of it is a make target.

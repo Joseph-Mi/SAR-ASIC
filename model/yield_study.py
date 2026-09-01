@@ -12,6 +12,8 @@ What each point reports:
   p_missing       fraction of arrays with a code that cannot be produced;
                   the yield criterion, since such a part is scrap
   max_inl         mean worst-case INL magnitude over the trials
+  enob            effective bits of the arrays that are not scrap -- what the
+                  resolution on the datasheet is actually worth
 
 Every point is seeded from its own parameters rather than from its position in
 the sweep, so adding or reordering points leaves every other point's numbers
@@ -27,6 +29,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from dynamic import enob_of
 from metrics import has_missing_codes, inl, msb_dnl, sigma_dnl_msb_analytic
 from mismatch import gradient, random_units
 
@@ -40,10 +43,22 @@ class Study:
     resolutions: tuple[int, ...] = (8, 10)
     sigmas: tuple[float, ...] = (0.005, 0.010, 0.015, 0.020, 0.030, 0.040)
     trials: int = 2000
+    # ENOB costs an FFT per array rather than a matmul per batch, so it is
+    # measured on a subset. The spread across arrays is small next to the
+    # spread across sigma, which is the axis being read.
+    enob_trials: int = 100
     gradient_strength: float = 0.0
     seed: int = 20260901
     columns: tuple[str, ...] = field(
-        default=("n_bits", "sigma_rel", "sigma_dnl_msb", "analytic", "p_missing", "max_inl")
+        default=(
+            "n_bits",
+            "sigma_rel",
+            "sigma_dnl_msb",
+            "analytic",
+            "p_missing",
+            "max_inl",
+            "enob",
+        )
     )
 
 
@@ -64,7 +79,19 @@ def run_point(study: Study, n_bits: int, sigma_rel: float) -> dict:
         "analytic": sigma_dnl_msb_analytic(n_bits, sigma_rel),
         "p_missing": float(np.mean(has_missing_codes(units))),
         "max_inl": float(np.mean(np.max(np.abs(inl(units)), axis=-1))),
+        "enob": mean_enob(units, study.enob_trials),
     }
+
+
+def mean_enob(units, limit: int) -> float:
+    """Effective bits averaged over the arrays worth measuring.
+
+    Arrays with a missing code are excluded: their ENOB is undefined and the
+    part is already scrap, so including them would blend a yield failure into
+    a resolution number and make neither readable.
+    """
+    working = units[~has_missing_codes(units)][:limit]
+    return float(np.mean([enob_of(u) for u in working])) if len(working) else float("nan")
 
 
 def sweep(study: Study) -> list[dict]:
