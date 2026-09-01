@@ -7,7 +7,9 @@ product rather than 2**N conversions. That difference is what makes a 1000-seed
 Monte Carlo sweep take seconds instead of hours.
 
 `sar_convert` is still the authority on what the converter *does*; this module
-describes what its DAC *is*. Task 4's cross-check compares the two.
+describes what its DAC *is*. They are cross-checked against each other
+below, because two implementations of one curve is exactly the shape that
+drifts.
 """
 
 from __future__ import annotations
@@ -55,7 +57,8 @@ def inl(unit_caps, vref: float = 1.0) -> np.ndarray:
 def has_missing_codes(unit_caps, vref: float = 1.0) -> bool:
     """True if any step is non-positive -- a code that can never be produced.
 
-    DNL <= -1 is the definition. This is the yield criterion for Task 4.
+    DNL <= -1 is the definition, and it is the yield criterion: an array
+    with a missing code is a part that fails, however good its other codes are.
     """
     return bool(np.any(dnl(unit_caps, vref) <= -1.0))
 

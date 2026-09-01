@@ -11,7 +11,7 @@ from metrics import (
     sigma_dnl_msb_analytic,
     transition_voltages,
 )
-from sar import ideal_units
+from sar import branch_weights, dac_voltage, ideal_units
 
 N_BITS = 8
 
@@ -39,7 +39,8 @@ def test_msb_dnl_indexes_the_msb_transition():
 
 
 def test_monte_carlo_matches_the_analytic_formula():
-    """Task 4's cross-check. Disagreement means one of them is wrong."""
+    """Simulated spread must match the closed form. One of them is wrong
+    otherwise, and the closed form is what sizes the array."""
     u = ideal_units(N_BITS)
     rng = np.random.default_rng(12345)
     sigma = 0.02
@@ -54,3 +55,17 @@ def test_ten_bits_needs_twice_the_matching_not_eight_times():
     is already in LSB -- so 8 -> 10 bits tightens sigma_u/C_u by 2x, not 8x."""
     ratio = sigma_dnl_msb_analytic(10, 1.0) / sigma_dnl_msb_analytic(8, 1.0)
     assert np.isclose(ratio, 2.0, atol=0.01)
+
+
+def test_fast_curve_matches_the_conversion_loop():
+    """The matmul in transition_voltages and the sum in dac_voltage are two
+    implementations of one equation. The fast one is only allowed to exist
+    because it is checked against the slow one on a mismatched array."""
+    rng = np.random.default_rng(7)
+    u = ideal_units(N_BITS) * (1 + rng.normal(0, 0.02, 2**N_BITS))
+    weights = branch_weights(u)
+    total_cap = u.sum()
+
+    fast = transition_voltages(u)
+    slow = np.array([dac_voltage(c, weights, total_cap, 1.0) for c in range(2**N_BITS)])
+    assert np.allclose(fast, slow, rtol=0, atol=1e-15)

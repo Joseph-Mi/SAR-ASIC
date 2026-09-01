@@ -98,14 +98,23 @@ def sar_convert(
     if cmp_noise_rms > 0.0 and rng is None:
         raise ValueError("cmp_noise_rms > 0 requires an rng, for reproducibility")
 
-    raise NotImplementedError(
-        "Write the binary search here. For k from n_bits-1 down to 0: set bit k "
-        "in the trial code, compute dac_voltage(trial, weights, total_cap, "
-        "vref), compare vin against it with cmp_offset and a fresh "
-        "rng.normal(0, cmp_noise_rms) draw, keep the bit if vin is higher and "
-        "clear it otherwise, and append the decision to bit_trace. "
-        "Return (code, bit_trace)."
-    )
+    code = 0
+    bit_trace = []
+    for k in range(n_bits - 1, -1, -1):
+        trial = code | (1 << k)
+        v_cmp = vin + cmp_offset
+        if cmp_noise_rms > 0.0:
+            v_cmp += rng.normal(0.0, cmp_noise_rms)
+        # A real comparator's output at exact equality is undefined, so the
+        # model has to pick a side and the FSM has to pick the same one.
+        # Resolving ties upward is what puts mid-scale at 2**(N-1) rather
+        # than one code below it.
+        bit = int(v_cmp >= dac_voltage(trial, weights, total_cap, vref))
+        if bit:
+            code = trial
+        bit_trace.append(bit)
+
+    return code, bit_trace
 
 
 def ideal_units(n_bits: int, c_unit: float = 1.0) -> np.ndarray:
