@@ -11,7 +11,7 @@ first thing to go stale without anyone noticing. Read the tree.
 Coding rules live in [STYLE.md](STYLE.md). Read it before writing RTL.
 
 Order of work is golden model -> tests -> RTL, and it is not optional.
-STYLE.md section 1 explains why.
+STYLE.md's "Order of work" explains why.
 
 ## Setup
 
@@ -55,6 +55,10 @@ pip install -r requirements.txt
 
 Native tool versions are recorded in [docs/tool-versions.md](docs/tool-versions.md);
 `make check-tools` enforces them.
+
+The analog side of the workflow — reaching the noVNC desktop, xschem, ngspice,
+and the disposable experiments under `sandbox/` — is in
+[docs/sandbox.md](docs/sandbox.md). None of it is a make target.
 
 ## Running
 
