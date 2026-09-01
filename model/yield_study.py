@@ -40,14 +40,19 @@ BASELINE = pathlib.Path(__file__).with_name("yield_baseline.txt")
 class Study:
     """Every knob, named once."""
 
-    resolutions: tuple[int, ...] = (8, 10)
+    resolutions: tuple[int, ...] = (8, 10, 12)
     sigmas: tuple[float, ...] = (0.005, 0.010, 0.015, 0.020, 0.030, 0.040)
-    trials: int = 2000
+    trials: int = 10000
     # ENOB costs an FFT per array rather than a matmul per batch, so it is
     # measured on a subset. The spread across arrays is small next to the
     # spread across sigma, which is the axis being read.
     enob_trials: int = 100
     gradient_strength: float = 0.0
+    # Trials are generated in blocks so peak memory does not grow with the
+    # trial count -- every column reduces to one scalar per trial anyway. The
+    # draw is a single sequential stream, so block size does not change any
+    # result; it only decides how much of it exists at once.
+    chunk: int = 2000
     seed: int = 20260901
     columns: tuple[str, ...] = field(
         default=(
@@ -69,29 +74,35 @@ def rng_for(study: Study, n_bits: int, sigma_rel: float) -> np.random.Generator:
 
 
 def run_point(study: Study, n_bits: int, sigma_rel: float) -> dict:
-    units = random_units(n_bits, sigma_rel, rng_for(study, n_bits, sigma_rel), study.trials)
-    if study.gradient_strength:
-        units = gradient(units, study.gradient_strength)
+    rng = rng_for(study, n_bits, sigma_rel)
+    msb, worst_inl, enob_seen = [], [], []
+    scrapped = 0
+
+    drawn = 0
+    while drawn < study.trials:
+        block = min(study.chunk, study.trials - drawn)
+        units = random_units(n_bits, sigma_rel, rng, block)
+        if study.gradient_strength:
+            units = gradient(units, study.gradient_strength)
+
+        scrap = has_missing_codes(units)
+        scrapped += int(scrap.sum())
+        msb.append(msb_dnl(units))
+        worst_inl.append(np.max(np.abs(inl(units)), axis=-1))
+        if len(enob_seen) < study.enob_trials:
+            wanted = study.enob_trials - len(enob_seen)
+            enob_seen.extend(enob_of(u) for u in units[~scrap][:wanted])
+        drawn += block
+
     return {
         "n_bits": n_bits,
         "sigma_rel": sigma_rel,
-        "sigma_dnl_msb": float(np.std(msb_dnl(units))),
+        "sigma_dnl_msb": float(np.std(np.concatenate(msb))),
         "analytic": sigma_dnl_msb_analytic(n_bits, sigma_rel),
-        "p_missing": float(np.mean(has_missing_codes(units))),
-        "max_inl": float(np.mean(np.max(np.abs(inl(units)), axis=-1))),
-        "enob": mean_enob(units, study.enob_trials),
+        "p_missing": scrapped / study.trials,
+        "max_inl": float(np.mean(np.concatenate(worst_inl))),
+        "enob": float(np.mean(enob_seen)) if enob_seen else float("nan"),
     }
-
-
-def mean_enob(units, limit: int) -> float:
-    """Effective bits averaged over the arrays worth measuring.
-
-    Arrays with a missing code are excluded: their ENOB is undefined and the
-    part is already scrap, so including them would blend a yield failure into
-    a resolution number and make neither readable.
-    """
-    working = units[~has_missing_codes(units)][:limit]
-    return float(np.mean([enob_of(u) for u in working])) if len(working) else float("nan")
 
 
 def sweep(study: Study) -> list[dict]:
@@ -121,10 +132,29 @@ def format_table(study: Study, rows: list[dict]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--trials", type=int, default=Study.trials)
+    parser.add_argument("--enob-trials", type=int, default=Study.enob_trials)
+    parser.add_argument("--seed", type=int, default=Study.seed)
+    parser.add_argument("--gradient", type=float, default=Study.gradient_strength)
+    parser.add_argument("--resolutions", type=int, nargs="+", default=Study.resolutions)
+    parser.add_argument("--sigmas", type=float, nargs="+", default=Study.sigmas)
     parser.add_argument("--out", type=pathlib.Path, default=BASELINE)
     args = parser.parse_args()
 
-    study = Study(trials=args.trials)
+    study = Study(
+        resolutions=tuple(args.resolutions),
+        sigmas=tuple(args.sigmas),
+        trials=args.trials,
+        enob_trials=args.enob_trials,
+        gradient_strength=args.gradient,
+        seed=args.seed,
+    )
+    if study != Study() and args.out == BASELINE:
+        parser.error(
+            f"refusing to write {BASELINE.name} from a non-default study -- the "
+            "committed baseline is what the regression test compares against. "
+            "Pass --out to write an exploratory run somewhere else."
+        )
+
     table = format_table(study, sweep(study))
     args.out.write_text(table)
     print(table, end="")
