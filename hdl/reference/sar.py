@@ -34,8 +34,13 @@ def branch_slices(n_bits: int) -> list[slice]:
 
 
 def n_bits_of(unit_caps) -> int:
-    """Resolution implied by the array length. Requires a power-of-two length."""
-    size = len(unit_caps)
+    """Resolution implied by the array length. Requires a power-of-two length.
+
+    Reads the last axis, so a stack of arrays shaped (trials, 2**N) reports the
+    same resolution as one array. That trailing-axis convention is what lets a
+    Monte Carlo batch use the same functions as a single array.
+    """
+    size = np.shape(unit_caps)[-1]
     n = int(round(np.log2(size)))
     if 2**n != size:
         raise ValueError(f"unit_caps length must be a power of two, got {size}")
@@ -49,7 +54,11 @@ def branch_weights(unit_caps) -> np.ndarray:
     branches non-binary, which is the entire source of DNL.
     """
     caps = np.asarray(unit_caps, dtype=float)
-    return np.array([caps[s].sum() for s in branch_slices(n_bits_of(caps))])
+    n_bits = n_bits_of(caps)
+    # reduceat sums between consecutive start indices, so appending the dummy's
+    # start closes the last branch. The dummy group is then dropped.
+    starts = [s.start for s in branch_slices(n_bits)] + [2**n_bits - 1]
+    return np.add.reduceat(caps, starts, axis=-1)[..., :n_bits]
 
 
 def dac_voltage(code: int, weights, total_cap: float, vref: float) -> float:

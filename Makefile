@@ -234,6 +234,10 @@ lint-py:
 model:
 	@$(PYTHON) -m pytest $(REF_DIR) $(MODEL_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
+## study: regenerate the mismatch sweep artifact -- commit the diff
+study:
+	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/yield_study.py
+
 ## verify-unit: cocotb unit tests
 verify-unit:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/unit $(PYTEST_ARGS); $(ALLOW_EMPTY)
@@ -254,4 +258,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean
+.PHONY: help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study verify-unit verify-integration verify-system verify clean

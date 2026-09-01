@@ -20,12 +20,17 @@ from sar import branch_weights, n_bits_of
 
 
 def transition_voltages(unit_caps, vref: float = 1.0) -> np.ndarray:
-    """DAC output for every code, in volts. Length 2**N."""
+    """DAC output for every code, in volts. Trailing axis is the 2**N codes.
+
+    Accepts one array or a stack of them. A stack costs one matmul rather than
+    one per trial, which is what keeps a Monte Carlo sweep interactive.
+    """
     caps = np.asarray(unit_caps, dtype=float)
+    n_bits = n_bits_of(caps)
     weights = branch_weights(caps)
-    codes = np.arange(2 ** n_bits_of(caps))
-    bits = ((codes[:, None] >> np.arange(len(weights))) & 1).astype(float)
-    return vref * (bits @ weights) / caps.sum()
+    codes = np.arange(2**n_bits)
+    bits = ((codes[:, None] >> np.arange(n_bits)) & 1).astype(float)
+    return vref * (weights @ bits.T) / caps.sum(axis=-1, keepdims=True)
 
 
 def lsb_ideal(n_bits: int, vref: float = 1.0) -> float:
@@ -41,16 +46,17 @@ def dnl(unit_caps, vref: float = 1.0) -> np.ndarray:
     """
     caps = np.asarray(unit_caps, dtype=float)
     v = transition_voltages(caps, vref)
-    return np.diff(v) / lsb_ideal(n_bits_of(caps), vref) - 1.0
+    return np.diff(v, axis=-1) / lsb_ideal(n_bits_of(caps), vref) - 1.0
 
 
 def inl(unit_caps, vref: float = 1.0) -> np.ndarray:
     """Integral non-linearity per code, in LSB, endpoint-referred."""
     caps = np.asarray(unit_caps, dtype=float)
     v = transition_voltages(caps, vref)
-    codes = np.arange(len(v))
+    codes = np.arange(v.shape[-1])
     # Endpoint fit: force zero error at the first and last code.
-    line = v[0] + (v[-1] - v[0]) * codes / (len(v) - 1)
+    first, last = v[..., :1], v[..., -1:]
+    line = first + (last - first) * codes / (v.shape[-1] - 1)
     return (v - line) / lsb_ideal(n_bits_of(caps), vref)
 
 
@@ -60,13 +66,13 @@ def has_missing_codes(unit_caps, vref: float = 1.0) -> bool:
     DNL <= -1 is the definition, and it is the yield criterion: an array
     with a missing code is a part that fails, however good its other codes are.
     """
-    return bool(np.any(dnl(unit_caps, vref) <= -1.0))
+    return np.any(dnl(unit_caps, vref) <= -1.0, axis=-1)
 
 
 def msb_dnl(unit_caps, vref: float = 1.0) -> float:
     """DNL at the MSB transition, in LSB. The number the analytic formula predicts."""
     caps = np.asarray(unit_caps, dtype=float)
-    return float(dnl(caps, vref)[2 ** (n_bits_of(caps) - 1) - 1])
+    return dnl(caps, vref)[..., 2 ** (n_bits_of(caps) - 1) - 1]
 
 
 def sigma_dnl_msb_analytic(n_bits: int, sigma_rel: float) -> float:

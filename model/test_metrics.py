@@ -2,6 +2,7 @@
 conversion loop -- a bug in one cannot hide a bug in the other."""
 
 import numpy as np
+import pytest
 
 from metrics import (
     dnl,
@@ -13,29 +14,40 @@ from metrics import (
 )
 from sar import branch_weights, dac_voltage, ideal_units
 
+# The structural metrics must hold at every resolution; only the two tests
+# that are about 8-bit magnitudes stay pinned to N_BITS.
+RESOLUTIONS = (4, 8, 10)
 N_BITS = 8
 
 
-def test_ideal_array_is_perfectly_linear():
-    u = ideal_units(N_BITS)
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+def test_ideal_array_is_perfectly_linear(n_bits):
+    u = ideal_units(n_bits)
     assert np.allclose(dnl(u), 0.0, atol=1e-12)
     assert np.allclose(inl(u), 0.0, atol=1e-12)
     assert not has_missing_codes(u)
 
 
-def test_one_lsb_step_is_one_unit():
-    u = ideal_units(N_BITS)
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+def test_one_lsb_step_is_one_unit(n_bits):
+    u = ideal_units(n_bits)
     v = transition_voltages(u)
-    assert np.isclose(v[1] - v[0], 1.0 / 2**N_BITS)
+    assert np.isclose(v[1] - v[0], 1.0 / 2**n_bits)
 
 
-def test_msb_dnl_indexes_the_msb_transition():
-    """Shrinking only the MSB branch must show up at the 127->128 step."""
-    u = ideal_units(N_BITS)
-    u[2 ** (N_BITS - 1) - 1 :] *= 0.99  # MSB branch is units[127:255]
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+def test_msb_dnl_indexes_the_worst_transition(n_bits):
+    """Shrink only the MSB branch and the damage must appear at the MSB step.
+
+    Asserting it is the *worst* step rather than a fixed magnitude is what
+    makes this resolution-independent: the size of the error scales with
+    2**N, its location does not.
+    """
+    u = ideal_units(n_bits)
+    u[2 ** (n_bits - 1) - 1 :] *= 0.99
     d = dnl(u)
-    assert msb_dnl(u) == d[2 ** (N_BITS - 1) - 1]
-    assert msb_dnl(u) < -0.5
+    assert msb_dnl(u) == d[2 ** (n_bits - 1) - 1]
+    assert msb_dnl(u) == d.min()
 
 
 def test_monte_carlo_matches_the_analytic_formula():
