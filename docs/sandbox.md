@@ -166,7 +166,7 @@ and what lets you check a change without a VNC session:
 
 ```bash
 xschem --no_x -n -s -q <cell>.sch     # schematic -> simulation/<cell>.spice
-ngspice -b simulation/<tb>.spice      # batch run, no interactive prompt
+(cd simulation && ngspice -b <tb>.spice)   # batch run, results beside the netlist
 ```
 
 Useful for confirming that a schematic still netlists after an edit, and for
@@ -220,6 +220,13 @@ need, and prefer one broad run to several narrow ones.
 The two commands write different shapes. `sweep` writes a row per geometry and
 is deterministic. `mc` writes a row per draw at a fixed geometry, so its output
 is a sample to summarise, not a result to read line by line.
+
+A third shape comes from the testbench itself: its control block appends a line
+per interactive run, which is what makes hand-editing a width in xschem and
+hitting Simulate still worth doing. That log accumulates across sessions and
+across whatever the schematic happened to hold at the time, so it records an
+afternoon rather than an experiment. Read a sweep for a result; read the log for
+what you tried.
 
 The corners that skew a trip point hardest are the mixed ones, `sf` and `fs`.
 They push the two devices in opposite directions, where `ss` and `ff` move both

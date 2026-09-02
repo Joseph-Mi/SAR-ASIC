@@ -3,11 +3,9 @@
 Contract: a deck handed to `run` prints its results through `meas` or `print`,
 and the caller owns a writable working directory for the scratch file.
 
-Loading the sky130 model library dominates the cost of a batch and is paid once
-per process rather than once per analysis. A parameter sweep is therefore
-cheaper as one deck holding every variant, each read out on its own node, than
-as one deck per variant; and a Monte Carlo is cheaper as a loop around `reset`
-than as a loop around a new process.
+Selecting the model library costs far more than any analysis and is paid per
+process, so a sweep belongs in one deck and a Monte Carlo in a loop around
+`reset`.
 """
 
 from __future__ import annotations
@@ -17,10 +15,9 @@ import pathlib
 import re
 import subprocess
 
-#: ngspice opens every result with "name = value" at the start of a line. The
-#: name is captured whole so that a measurement whose name ends in another's is
-#: not read as that other one. The line is not end-anchored because a min or max
-#: measurement trails the sweep position it was found at.
+#: ngspice opens every result with "name = value" at a line start. The name is
+#: captured whole so one measurement is not read as another whose name it ends;
+#: the line is not end-anchored because min and max trail their sweep position.
 RESULT = re.compile(r"^\s*(\w+)\s*=\s*([-+\d.eE]+)", re.M)
 
 LIBRARY = re.compile(r"^\.lib\s+(\S*sky130\.lib\.spice)\s+\w+\s*$", re.M)
@@ -40,9 +37,7 @@ def library(netlist: str) -> str:
 
 def subckt(netlist: str, name: str) -> str:
     """One subcircuit definition, whole, including its terminating line."""
-    found = re.search(
-        rf"^\.subckt\s+{re.escape(name)}\b.*?^\.ends\s*$", netlist, re.M | re.S
-    )
+    found = re.search(rf"^\.subckt\s+{re.escape(name)}\b.*?^\.ends\s*$", netlist, re.M | re.S)
     if not found:
         raise DeckError(f"netlist defines no subcircuit named {name}")
     return found.group(0)
@@ -54,10 +49,9 @@ def run(deck: str, workdir: pathlib.Path) -> dict[str, list[float]]:
     Results accumulate under their own names, so a loop that measures the same
     quantity each pass returns one list of draws per name.
 
-    ngspice exits zero whether or not the deck produced anything, so an empty
-    result is the failure signal rather than the exit status. The scratch deck
-    is named for the process holding it: two runs sharing one name would
-    silently simulate each other's circuit.
+    ngspice exits zero whether or not a deck produced anything, so an empty
+    result is the failure signal. The scratch deck is named for the process
+    holding it: two runs sharing one name would simulate each other's circuit.
     """
     scratch = workdir / f"_run{os.getpid()}.spice"
     scratch.write_text(deck)

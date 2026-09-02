@@ -33,6 +33,9 @@ xschem/simulation/
 # xschem writes netlists to ./simulation (singular) beside the schematic when
 # local_netlist_dir is set. Regenerate with: xschem --no_x -n -s -q <file>.sch
 simulation/
+# ngspice resolves a deck's output paths against its own cwd, so a hand-run from
+# an experiment directory drops results one level above simulation/.
+sandbox/**/*.csv
 simulations/
 *.spc
 *.rpt

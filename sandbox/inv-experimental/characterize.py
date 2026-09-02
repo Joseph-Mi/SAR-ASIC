@@ -3,15 +3,9 @@
 Contract: the testbench must have been netlisted, and that netlist must still
 define the cell as an instantiable subcircuit.
 
-The netlist is read as a parts bin rather than run as a deck: the model library
-and the cell come out of it, and the deck is built around them here. The
-schematic is never rewritten, so a run that dies partway leaves no half-edited
-cell behind, and the schematic stays the only thing that says what the circuit
-is.
-
-Every geometry under study is instantiated as its own subcircuit, sharing one
-input source and read out on its own node, so a sweep of any size costs one
-model library load.
+The netlist supplies the model library and the cell; the deck is built here.
+Nothing writes back to the schematic, so a run that dies partway cannot leave a
+half-edited cell behind.
 """
 
 from __future__ import annotations
@@ -52,9 +46,7 @@ class Point:
 
     def params(self, match) -> dict[str, float]:
         pull_down = "__nfet" in match.group("model")
-        return sky130.mosfet(
-            self.wn if pull_down else self.wp, self.length, self.mult
-        )
+        return sky130.mosfet(self.wn if pull_down else self.wp, self.length, self.mult)
 
 
 def deck(points: list[Point], corner: str, mismatch: bool, control: str) -> str:
@@ -113,13 +105,9 @@ def mc_control(points: list[Point], runs: int) -> str:
 def cmd_sweep(args: argparse.Namespace) -> None:
     points = [
         Point(i, wn, wp, length)
-        for i, (length, wn, wp) in enumerate(
-            itertools.product(args.lengths, args.wn, args.wp)
-        )
+        for i, (length, wn, wp) in enumerate(itertools.product(args.lengths, args.wn, args.wp))
     ]
-    got = ngspice.run(
-        deck(points, args.corner, False, vtc_control(points, args.temp)), WORKDIR
-    )
+    got = ngspice.run(deck(points, args.corner, False, vtc_control(points, args.temp)), WORKDIR)
 
     rows = []
     for p in points:
@@ -149,18 +137,13 @@ def cmd_sweep(args: argparse.Namespace) -> None:
 
 
 def cmd_mc(args: argparse.Namespace) -> None:
-    # The second leg scales multiplicity, not width or length. All three raise
-    # area by the same factor, but width and length also move the trip point,
-    # and a spread measured at a different trip point is a different
-    # measurement. Replicating the device leaves current density and every bias
-    # untouched, which is what isolates area from everything else.
+    # Multiplicity, not width or length: all three raise area, but only
+    # multiplicity leaves the trip point and every bias where they were.
     points = [Point(0, args.wn, args.wp, args.l)]
     if args.pelgrom > 1:
-        points.append(Point(1, args.wn, args.wp, args.l, int(args.pelgrom)))
+        points.append(Point(1, args.wn, args.wp, args.l, args.pelgrom))
 
-    got = ngspice.run(
-        deck(points, args.corner, True, mc_control(points, args.runs)), WORKDIR
-    )
+    got = ngspice.run(deck(points, args.corner, True, mc_control(points, args.runs)), WORKDIR)
 
     sigmas = []
     with open(args.out, "w", newline="") as f:
@@ -169,9 +152,7 @@ def cmd_mc(args: argparse.Namespace) -> None:
         for p in points:
             draws = got[f"vm{p.index}"]
             if len(draws) != args.runs:
-                raise ngspice.DeckError(
-                    f"asked for {args.runs} draws, deck returned {len(draws)}"
-                )
+                raise ngspice.DeckError(f"asked for {args.runs} draws, deck returned {len(draws)}")
             sigmas.append(statistics.pstdev(draws))
             print(
                 f"Wn={p.wn:g} Wp={p.wp:g} ratio={p.wp / p.wn:g} L={p.length:g} "
@@ -183,10 +164,8 @@ def cmd_mc(args: argparse.Namespace) -> None:
                 writer.writerow([p.wn, p.wp, p.length, p.mult, args.corner, v])
 
     if len(sigmas) == 2:
-        print(
-            f"\nsigma ratio {sigmas[0] / sigmas[1]:.3f}  "
-            f"(Pelgrom predicts {args.pelgrom ** 0.5:.3f})"
-        )
+        area = points[1].mult / points[0].mult
+        print(f"\nsigma ratio {sigmas[0] / sigmas[1]:.3f}  (Pelgrom predicts {area**0.5:.3f})")
     print(f"draws -> {args.out}")
 
 
@@ -201,15 +180,19 @@ def main() -> None:
         help="trip point and gain over Wp/Wn and L",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    s.add_argument("--wn", type=float, nargs="+", default=[1.0], help="NMOS widths to try, um")
     s.add_argument(
-        "--wn", type=float, nargs="+", default=[1.0], help="NMOS widths to try, um"
-    )
-    s.add_argument(
-        "--wp", type=float, nargs="+", default=[1, 1.5, 2, 3, 4],
+        "--wp",
+        type=float,
+        nargs="+",
+        default=[1, 1.5, 2, 3, 4],
         help="PMOS widths to try, um",
     )
     s.add_argument(
-        "--lengths", type=float, nargs="+", default=[0.15, 0.3, 0.5, 1.0],
+        "--lengths",
+        type=float,
+        nargs="+",
+        default=[0.15, 0.3, 0.5, 1.0],
         help="channel lengths to try, um, applied to both devices",
     )
     s.add_argument("--corner", default="tt", help="model library section")
@@ -229,8 +212,8 @@ def main() -> None:
     m.add_argument("--corner", default="tt", help="model library section")
     m.add_argument(
         "--pelgrom",
-        type=float,
-        default=1.0,
+        type=int,
+        default=1,
         help="also run with multiplicity scaled by this, to check sigma falls by its root",
     )
     m.add_argument("--out", default=WORKDIR / "mc_vm.csv", help="one row per draw")
