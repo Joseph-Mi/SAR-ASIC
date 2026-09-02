@@ -42,11 +42,16 @@ CONTAINER_NAME ?= iic-osic-tools_xvnc_uid_$(shell id -u)
 # outside any repo. So $(DESIGNS)/.designinit is reduced to a shim that sources
 # pdk.env from this repo: the settings stay under git, reviewable and visible to
 # anyone who clones, and the out-of-repo file never needs editing again.
+# noVNC reads the password from the query string, so the URL can be clicked
+# straight through. Set OPEN=0 to print it without launching a browser.
+VNC_PW          ?= abc123
+OPEN            ?= 1
 DESIGNINIT      := $(DESIGNS)/.designinit
 DESIGNINIT_MARK := managed by make designinit
 
 RTL_DIR   := hdl/rtl
 REF_DIR   := hdl/reference
+MODEL_DIR := model
 VERIF_DIR := hdl/verification
 BUILD_DIR := build
 WAIVERS   := hdl/lint/waivers.vlt
@@ -126,8 +131,11 @@ osic-tools: doctor
 	fi
 	@echo "iic-osic-tools $(OSIC_TOOLS_TAG) at $(OSIC_TOOLS_DIR)"
 
-# start_vnc.sh prompts to STOP a container that is already running, so check
-# first rather than letting `make shell` offer to kill the session it needs.
+# start_vnc.sh is interactive for both an already-running container ("press s to
+# stop") and an exited one ("press s to start"), and in the exited case it can
+# return 0 with nothing running. Handle both states here so restarting is one
+# non-interactive command, and only fall through to the script to CREATE a
+# container that does not exist yet.
 ## container: start the pinned container (first run pulls ~20 GB)
 container: osic-tools
 	@[ -x "$(OSIC_START_SCRIPT)" ] || { \
@@ -137,9 +145,27 @@ container: osic-tools
 	  exit 1; \
 	}
 	@if [ -n "$$(docker ps -q -f name=$(CONTAINER_NAME))" ]; then \
-	  echo "already running -- VNC at http://$$(docker port $(CONTAINER_NAME) 80 2>/dev/null | head -1 | sed 's/0\.0\.0\.0/localhost/')"; \
+	  echo "already running"; \
+	elif [ -n "$$(docker ps -aq -f name=$(CONTAINER_NAME))" ]; then \
+	  echo "container exists but is stopped -- starting it"; \
+	  docker start $(CONTAINER_NAME) >/dev/null; \
+	  sleep 3; \
 	else \
 	  DESIGNS="$(DESIGNS)" DOCKER_TAG="$(OSIC_TOOLS_TAG)" "$(OSIC_START_SCRIPT)"; \
+	fi
+	@port=$$(docker port $(CONTAINER_NAME) 80 2>/dev/null | head -1 | sed 's/.*://'); \
+	if [ -z "$$port" ]; then \
+	  echo "container is up but port 80 is not published; VNC unavailable"; \
+	else \
+	  if [ "$$port" = "80" ]; then host=localhost; else host=localhost:$$port; fi; \
+	  url="http://$$host/?password=$(VNC_PW)"; \
+	  echo "VNC: $$url"; \
+	  if [ "$(OPEN)" != "0" ]; then \
+	    if command -v wslview >/dev/null 2>&1; then wslview "$$url" >/dev/null 2>&1 || true; \
+	    elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$$url" >/dev/null 2>&1 || true; \
+	    elif command -v explorer.exe >/dev/null 2>&1; then explorer.exe "$$url" >/dev/null 2>&1 || true; \
+	    else echo "(no browser opener found -- open the URL above yourself)"; fi; \
+	  fi; \
 	fi
 
 ## shell: bash inside the running container, at this design
@@ -169,10 +195,14 @@ tool-manifest:
 	  mv "$$tmp" docs/tool-manifest.txt || { rm -f "$$tmp"; exit 1; }
 	@echo "wrote docs/tool-manifest.txt"
 
+# Yosys appends build metadata after a '+', so a source build of a release
+# tarball and the image's build of the same release report different strings.
+# That suffix describes the build, not the release, and the pin names the
+# release -- so compare the part before the '+'.
 ## check-tools: fail unless installed versions match versions.env
 check-tools:
 	@got=$$($(VERILATOR) --version | awk '{print $$2}'); [ "$$got" = "$(VERILATOR_VERSION)" ] || { echo "verilator: want $(VERILATOR_VERSION), got $$got"; exit 1; }
-	@got=$$($(YOSYS) -V | awk '{print $$2}'); [ "$$got" = "$(YOSYS_VERSION)" ] || { echo "yosys: want $(YOSYS_VERSION), got $$got"; exit 1; }
+	@got=$$($(YOSYS) -V | awk '{print $$2}' | cut -d+ -f1); [ "$$got" = "$(YOSYS_VERSION)" ] || { echo "yosys: want $(YOSYS_VERSION), got $$got"; exit 1; }
 	@$(VERIBLE_FMT) --version | grep -qF '$(VERIBLE_VERSION)' || { echo "verible: want $(VERIBLE_VERSION), got $$($(VERIBLE_FMT) --version | head -1)"; exit 1; }
 	@echo "native tools match versions.env"
 
@@ -200,9 +230,18 @@ lint-rtl:
 lint-py:
 	$(RUFF) check .
 
-## model: validate the Python golden models -- run before any RTL exists
+## model: validate the golden model and the mismatch study -- before any RTL
 model:
-	@$(PYTHON) -m pytest $(REF_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(REF_DIR) $(MODEL_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
+
+## study: regenerate the mismatch sweep artifact -- commit the diff
+## 	ARGS="--gradient 0.01 --out build/model/grad.txt" for an exploratory run
+study:
+	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/yield_study.py $(ARGS)
+
+## plots: draw the committed sweep into build/model/
+plots:
+	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/plots.py
 
 ## verify-unit: cocotb unit tests
 verify-unit:
@@ -224,4 +263,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model verify-unit verify-integration verify-system verify clean
+.PHONY: help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-unit verify-integration verify-system verify clean

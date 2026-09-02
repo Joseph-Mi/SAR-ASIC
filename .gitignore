@@ -23,10 +23,24 @@ runs/
 *.ic
 *.log
 *.sch.bak
+# xschem drops these when you open an unnamed schematic/symbol. Always scratch.
+untitled.sch
+untitled.sym
 *.sym.bak
 *.sch~
 *.sym~
 xschem/simulation/
+# xschem writes netlists to ./simulation (singular) beside the schematic when
+# local_netlist_dir is set. Regenerate with: xschem --no_x -n -s -q <file>.sch
+simulation/
+# ngspice resolves a deck's output paths against its own cwd, so a hand-run from
+# an experiment directory drops results one level above simulation/.
+sandbox/**/*.csv
+simulations/
+*.spc
+*.rpt
+*.out
+*.xml
 *.ext
 *.nodes
 *.res.ext
@@ -34,6 +48,19 @@ xschem/simulation/
 *.lyrdb
 *.gds.gz
 *.oas.gz
+
+# Magic extraction products -- regenerate with `extract all` / sak-pex.sh
+*.al
+*.mag.bak
+# Netgen LVS reports
+comp.out
+netgen.log
+*.lvs.report
+# Layout streams. Binary, and regenerated from .mag or from LibreLane, so they
+# are build products rather than sources. LFS only for a final submission.
+*.gds
+*.gds2
+*.oas
 
 # ---- Python --------------------------------------------------------------
 __pycache__/

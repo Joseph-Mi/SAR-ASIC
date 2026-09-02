@@ -1,0 +1,13 @@
+Vendored, not ours. Copied from the IIC-OSIC-TOOLS image, which ships it at
+/foss/examples/demo_sky130A/ana -- the same files are in the iic-osic-tools
+repository under _build/images/iic-osic-tools/skel.
+
+  (c) 2022-2026 Harald Pretl and Georg Zachl
+  Johannes Kepler University, Department for Integrated Circuits
+  SPDX-License-Identifier: Apache-2.0
+
+Do not edit these. The point of keeping a pristine copy is that when your own
+experiment misbehaves, there is a known-good one to diff against. Refresh it by
+re-copying from the image rather than by patching in place.
+
+xschemrc is the exception -- ours, added so the directory runs standalone.
