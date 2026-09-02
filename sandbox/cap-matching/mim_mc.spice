@@ -1,0 +1,31 @@
+* sigma(C)/C of a 1um x 1um MiM capacitor, measured across Monte Carlo draws.
+*
+* mc_mm_switch enables the PDK's device mismatch term; it is off by default,
+* which is why a naive sweep sees no spread at all and concludes the models
+* carry no matching information.
+*
+* Capacitance is read from the AC current: with 1 V across an ideal capacitor,
+* |I| = omega*C. One frequency is enough because the device is linear here.
+
+.lib /foss/pdks/sky130A/libs.tech/ngspice/sky130.lib.spice tt
+.param mc_mm_switch=1
+
+X1 a 0 sky130_fd_pr__cap_mim_m3_1 w=1 l=1
+V1 a 0 dc 0 ac 1
+
+.control
+set nomodcheck
+* No seed is set. `set rndseed` does not survive `reset` here, so runs are not
+* reproducible -- which makes this a measurement with an uncertainty rather
+* than a fixed number. Read the spread across runs, not one run's digits.
+let k = 0
+dowhile k < 80
+  * reset re-evaluates AGAUSS, which is what redraws the device
+  reset
+  ac lin 1 1e6 1e6
+  let c = abs(i(v1))/(2*PI*1e6)
+  print c
+  let k = k + 1
+end
+.endc
+.end

@@ -59,17 +59,25 @@ def inl(unit_caps, vref: float = 1.0) -> np.ndarray:
     return (v - line) / lsb_ideal(n_bits_of(caps), vref)
 
 
-def has_missing_codes(unit_caps, vref: float = 1.0) -> bool:
-    """True if any step is non-positive -- a code that can never be produced.
+def has_missing_codes(unit_caps, vref: float = 1.0) -> np.ndarray:
+    """Whether any step is non-positive -- a code that can never be produced.
 
     DNL <= -1 is the definition, and it is the yield criterion: an array
     with a missing code is a part that fails, however good its other codes are.
+
+    Follows the trailing-axis convention, so a stack answers per array. Test
+    the result elementwise rather than with `if`: a stacked answer is an array
+    and has no single truth value.
     """
     return np.any(dnl(unit_caps, vref) <= -1.0, axis=-1)
 
 
-def msb_dnl(unit_caps, vref: float = 1.0) -> float:
-    """DNL at the MSB transition, in LSB. The number the analytic formula predicts."""
+def msb_dnl(unit_caps, vref: float = 1.0) -> np.ndarray:
+    """DNL at the MSB transition, in LSB. The number the analytic formula predicts.
+
+    Follows the trailing-axis convention: one value per array, so a stack gives
+    the sample the mismatch study takes a standard deviation over.
+    """
     caps = np.asarray(unit_caps, dtype=float)
     return dnl(caps, vref)[..., 2 ** (n_bits_of(caps) - 1) - 1]
 
