@@ -2,14 +2,13 @@
 
 These are computed from the branch weights directly, not by sweeping vin through
 `sar_convert`. The transition from code k-1 to k happens exactly where the DAC
-output for code k sits, so the whole transfer curve is 2**N evaluations of a dot
-product rather than 2**N conversions. That difference is what makes a 1000-seed
-Monte Carlo sweep take seconds instead of hours.
+output for code k sits, so the whole transfer curve is one dot product per code
+rather than one conversion per code. That is what keeps a Monte Carlo sweep
+something you rerun while thinking rather than something you start and leave.
 
 `sar_convert` is still the authority on what the converter *does*; this module
-describes what its DAC *is*. They are cross-checked against each other
-below, because two implementations of one curve is exactly the shape that
-drifts.
+describes what its DAC *is*. Two implementations of one curve is exactly the
+shape that drifts apart, so the tests hold them against each other.
 """
 
 from __future__ import annotations
@@ -41,8 +40,8 @@ def dnl(unit_caps, vref: float = 1.0) -> np.ndarray:
     """Differential non-linearity per code step, in LSB. Length 2**N - 1.
 
     dnl[k] is the step from code k to code k+1. Index 2**(N-1) - 1 is the
-    MSB transition (127 -> 128 at 8 bits), where no unit capacitor is shared
-    between the two codes and mismatch is therefore maximally exposed.
+    MSB transition, where no unit capacitor is shared between the two codes
+    and mismatch is therefore maximally exposed.
     """
     caps = np.asarray(unit_caps, dtype=float)
     v = transition_voltages(caps, vref)

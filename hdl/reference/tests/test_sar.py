@@ -5,10 +5,10 @@ import pytest
 
 from sar import branch_weights, dac_voltage, ideal_units, n_bits_of, sar_convert
 
-# Every behaviour below is checked at three resolutions, because nothing in the
-# model is allowed to be 8-bit-specific: 4 is small enough to check by hand, 8
-# is the target, and 10 is the alternative the mismatch study has to weigh.
-# A model that silently only works at 8 would turn that comparison into noise.
+# Checked at more than one resolution, because nothing in the model may be
+# specific to the target: the mismatch study weighs resolutions against each
+# other, and a model that quietly worked at only one would turn that comparison
+# into noise. The smallest here is small enough to check by hand.
 RESOLUTIONS = (4, 8, 10)
 VREF = 1.0
 

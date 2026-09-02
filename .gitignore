@@ -53,9 +53,8 @@ simulations/
 comp.out
 netgen.log
 *.lvs.report
-# Layout streams. Binary, and regenerated from .mag or LibreLane -- see
-# CLAUDE.md "GDS is binary, gitignored and regenerated. LFS only for final
-# submission." Only the .gz forms were covered before.
+# Layout streams. Binary, and regenerated from .mag or from LibreLane, so they
+# are build products rather than sources. LFS only for a final submission.
 *.gds
 *.gds2
 *.oas

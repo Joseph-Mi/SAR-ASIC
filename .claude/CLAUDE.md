@@ -235,6 +235,59 @@ C_total > ~3 fF. Matching and manufacturability set the unit cap, not noise.
 
 ---
 
+**Where sky130 keeps capacitor matching.** It is not in a datasheet. Each
+capacitor's subcircuit carries a mismatch term proportional to `1/sqrt(area)`,
+under `libs.ref/sky130_fd_pr/spice/` — *not* the `libs.tech/ngspice/` files,
+which only `.include` those, so grepping there finds nothing and looks like
+proof that no matching data exists. `mc_mm_switch` also defaults to 0, so a
+Monte Carlo run without setting it shows exactly zero spread and invites the
+same wrong conclusion. Both traps cost real time once.
+
+The coefficient itself is not repeated here: the model names it, and a second
+copy in this file is a second thing to keep true. `docs/model.md` has the grep
+that reads it out of the PDK, and `sandbox/cap-matching/` measures it in
+ngspice to confirm the expression behaves the way it reads.
+
+```
+make shell first, then:
+
+  # 1. Read the coefficient straight out of the 
+  PDK
+  grep -n czero \
+    /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
+  /sky130_fd_pr__cap_mim_m3_1.model.spice
+
+  # See the whole device while you're there
+  grep -v '^\*' \
+    /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
+  /sky130_fd_pr__cap_mim_m3_1.model.spice
+
+  # The VPP equivalent, same shape, quotes 0.0283
+  grep -n 'ctot_a =' \
+    /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
+  /sky130_fd_pr__cap_vpp_04p4x04p6_m1m2_noshield.m
+  odel.spice
+
+  # Densities, per corner (camimc, farads per 
+  um^2)
+  grep -rn camimc
+  /foss/pdks/sky130A/libs.tech/ngspice/r+c/
+
+  Then measure it yourself — takes about a minute:
+
+  cd /foss/designs/SAR-ASIC/sandbox/cap-matching
+  ngspice -b mim_mc.spice 2>/dev/null | grep -oE
+  'c = [0-9.e+-]+' | awk '{print $3}' >
+  /tmp/caps.txt
+  python3 -c "
+  import statistics as st
+  v = [float(x) for x in open('/tmp/caps.txt')]
+  print(f'n={len(v)}  mean={st.mean(v)*1e15:.3f} 
+  fF  sigma/C={100*st.pstdev(v)/st.mean(v):.3f} 
+  %')
+  "
+```
+
 ## Design for test (non-negotiable)
 
 Lives entirely in the digital half, costs near-zero area:

@@ -14,8 +14,9 @@ from metrics import (
 )
 from sar import branch_weights, dac_voltage, ideal_units
 
-# The structural metrics must hold at every resolution; only the two tests
-# that are about 8-bit magnitudes stay pinned to N_BITS.
+# The structural metrics must hold at every resolution. Tests that assert a
+# magnitude rather than a shape stay pinned to a single N, because the
+# magnitude is exactly what changes with it.
 RESOLUTIONS = (4, 8, 10)
 N_BITS = 8
 

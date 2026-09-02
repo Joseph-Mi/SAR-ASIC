@@ -22,11 +22,17 @@ import numpy as np
 from metrics import transition_voltages
 from sar import n_bits_of
 
-# 4096 = 2**12 for a fast transform; 401 is prime, so it shares no factor with
-# it and the tone closes exactly. Any coprime pair works -- these are only a
-# default that puts the tone away from DC and from Nyquist.
+# A power-of-two record for a fast transform, and a prime cycle count so the
+# two share no factor and the tone closes exactly. Any coprime pair works;
+# these only put the tone clear of DC and of Nyquist.
 RECORD = 4096
 CYCLES = 401
+
+# Ideal SNDR of a full-scale sine into an N-bit quantiser is DB_PER_BIT*N +
+# SINE_HEADROOM_DB. Both follow from uniform quantisation error; neither is a
+# tuning knob.
+DB_PER_BIT = 6.02
+SINE_HEADROOM_DB = 1.76
 
 
 def coherent_sine(n_samples=RECORD, cycles=CYCLES, vref=1.0, amplitude_frac=0.49):
@@ -44,8 +50,8 @@ def codes_from_curve(vin, unit_caps, vref: float = 1.0) -> np.ndarray:
 
     A SAR settles on the largest code whose DAC output does not exceed the
     input, so on a monotonic array the binary search and a lookup agree
-    exactly -- and the lookup does a record of 4096 in one call rather than
-    4096 searches. Non-monotonic arrays are refused rather than silently
+    exactly -- and the lookup takes the whole record in one call rather than
+    one search per sample. Non-monotonic arrays are refused rather than silently
     mis-converted: the search can land on either side of a reversal, and a
     part with a missing code is scrap before its ENOB is interesting.
     """
@@ -72,12 +78,11 @@ def sndr_db(codes, cycles: int = CYCLES) -> float:
 def enob(sndr: float, amplitude_frac: float = 0.49) -> float:
     """Effective bits from SNDR, corrected back to full scale.
 
-    The 6.02 dB per bit and 1.76 dB are for a full-scale sine, so a stimulus
-    backed off from the rails would otherwise be reported as a worse converter
-    than it is.
+    The constants assume a full-scale sine, so a stimulus backed off from the
+    rails would otherwise be reported as a worse converter than it is.
     """
     full_scale_penalty = 20.0 * np.log10(2 * amplitude_frac)
-    return (sndr - 1.76 - full_scale_penalty) / 6.02
+    return (sndr - SINE_HEADROOM_DB - full_scale_penalty) / DB_PER_BIT
 
 
 def enob_of(unit_caps, vref: float = 1.0, amplitude_frac: float = 0.49) -> float:

@@ -1,13 +1,12 @@
 """Draw the committed sweep.
 
-Reads `yield_baseline.txt` rather than re-running the study, so a plot always
-shows exactly the numbers under review. Regenerating the artifact and looking
-at a picture of something else is the failure mode this avoids.
+Reads the committed artifact rather than re-running the study, so a plot always
+shows exactly the numbers under review. Regenerating the artifact and then
+looking at a picture of something else is the failure mode this avoids.
 
-matplotlib is imported inside the drawing function. It ships in the container
-but is not in requirements.txt, and CI installs only requirements.txt -- so
-importing it at module scope would make this file un-importable in CI for no
-benefit.
+matplotlib is imported inside the drawing function. CI installs only the pinned
+Python dependencies and matplotlib is not among them, so importing it at module
+scope would make this file un-importable there for no benefit.
 """
 
 from __future__ import annotations
@@ -16,13 +15,18 @@ import pathlib
 
 import numpy as np
 
+from mismatch import SKY130_CAP_A_C, area_for_sigma, sigma_from_area
 from yield_study import BASELINE
 
 OUT_DIR = pathlib.Path("build/model")
 
-# What each panel plots, and whether small values matter enough to need a log
-# axis. p_missing spans four decades and is read near zero; the rest are read
-# across their whole range.
+# Round areas that fall inside the swept sigma range, chosen for legibility
+# rather than by any rule -- this axis is read to size a capacitor, not to
+# interpolate.
+AREA_TICKS = (0.5, 1, 2, 5, 10, 20)
+
+# What each panel plots, and whether it needs a log axis. Yield spans decades
+# and is read near zero; the rest are read across their whole range.
 PANELS = (
     ("sigma_dnl_msb", "sigma(DNL) at MSB transition  [LSB]", False),
     ("p_missing", "P(missing code)", True),
@@ -99,6 +103,22 @@ def plot(path: pathlib.Path = BASELINE, out_dir: pathlib.Path = OUT_DIR):
                 color="grey",
             )
 
+        # Matching is the axis the physics depends on; area is one way to buy
+        # it. Shown as a second scale rather than as the variable, so a revised
+        # A_C relabels this plot instead of invalidating it.
+        top = ax.secondary_xaxis(
+            "top",
+            functions=(
+                lambda pct: area_for_sigma(np.maximum(pct, 1e-9) / 100, SKY130_CAP_A_C),
+                lambda area: sigma_from_area(np.maximum(area, 1e-9), SKY130_CAP_A_C) * 100,
+            ),
+        )
+        # Ticks are placed in area, not inherited from the sigma axis: area
+        # goes as 1/sigma^2, so transformed sigma ticks bunch into an
+        # unreadable smear at the low-sigma end.
+        top.set_xticks(AREA_TICKS)
+        top.set_xticklabels([f"{a:g}" for a in AREA_TICKS], fontsize=8)
+        top.set_xlabel("unit capacitor area  [um^2]", fontsize=9)
         ax.set_xlabel("unit capacitor matching  sigma_u/C_u  [%]")
         ax.set_ylabel(label)
         ax.grid(alpha=0.3)
@@ -106,7 +126,10 @@ def plot(path: pathlib.Path = BASELINE, out_dir: pathlib.Path = OUT_DIR):
 
     fig.suptitle(
         f"Binary-weighted SAR: mismatch vs linearity, yield and resolution "
-        f"({trials} arrays per point)"
+        f"({trials} arrays per point)\n"
+        f"top axis: unit area at A_C = {SKY130_CAP_A_C} %*um. Matching is set by "
+        f"area alone, so the flavour changes the capacitance in it, not the axis.",
+        fontsize=11,
     )
     fig.tight_layout()
     out_dir.mkdir(parents=True, exist_ok=True)

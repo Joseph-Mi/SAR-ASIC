@@ -195,10 +195,10 @@ tool-manifest:
 	  mv "$$tmp" docs/tool-manifest.txt || { rm -f "$$tmp"; exit 1; }
 	@echo "wrote docs/tool-manifest.txt"
 
-# Yosys appends build metadata after a '+' (a CMake build of the v0.67 release
-# tarball reports "0.67+post" where the image's build reports "0.67"). That
-# suffix describes the build, not the release, and the pin names the release --
-# so compare the part before the '+'.
+# Yosys appends build metadata after a '+', so a source build of a release
+# tarball and the image's build of the same release report different strings.
+# That suffix describes the build, not the release, and the pin names the
+# release -- so compare the part before the '+'.
 ## check-tools: fail unless installed versions match versions.env
 check-tools:
 	@got=$$($(VERILATOR) --version | awk '{print $$2}'); [ "$$got" = "$(VERILATOR_VERSION)" ] || { echo "verilator: want $(VERILATOR_VERSION), got $$got"; exit 1; }

@@ -1,9 +1,9 @@
 """M1's sizing sweep: how well must unit capacitors match, and at what resolution.
 
-The axis is sigma_u/C_u, not capacitor area. Area is one Pelgrom step away
-(`mismatch.area_for_sigma`), and that step needs a matching coefficient sky130
-does not publish reliably. Keeping the sweep in sigma means a revised
-coefficient re-reads the same results instead of invalidating them.
+The axis is sigma_u/C_u, not capacitor area. Area is one Pelgrom step away, and
+that step depends on which capacitor flavour and which process corner the design
+commits to. Keeping the sweep in sigma means those choices re-read the same
+results rather than invalidating them.
 
 What each point reports:
 
@@ -17,8 +17,8 @@ What each point reports:
 
 Every point is seeded from its own parameters rather than from its position in
 the sweep, so adding or reordering points leaves every other point's numbers
-untouched. A study whose results move when you extend it is a study nobody can
-compare against last week's.
+untouched. A study whose results move when you extend it cannot be compared
+against any earlier run of itself.
 """
 
 from __future__ import annotations

@@ -28,8 +28,8 @@ def test_a_points_stream_depends_only_on_its_coordinates(study):
     """Adding or reordering sweep points must not move the points already in it.
 
     Seeding from a running generator would make every result depend on the
-    sweep it happened to be run in, and nothing would be comparable to
-    anything from last week.
+    sweep it happened to be run in, and nothing would be comparable to any
+    earlier run.
     """
     first = rng_for(study, 8, 0.01).normal(size=4)
     again = rng_for(study, 8, 0.01).normal(size=4)

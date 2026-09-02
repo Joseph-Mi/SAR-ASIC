@@ -1,4 +1,4 @@
-"""ENOB is the claim "8-bit" makes. These pin what it is measured against."""
+"""ENOB is the claim a resolution makes. These pin what it is measured against."""
 
 import numpy as np
 import pytest
@@ -17,11 +17,10 @@ def test_a_perfect_array_is_worth_its_nominal_bits(n_bits):
     """The end-to-end check. A perfect N-bit array must measure N effective
     bits, because quantisation is the only error left in it.
 
-    The tolerance is not measurement slop. 6.02N + 1.76 assumes the
+    The tolerance is not measurement slop. The ideal-SNDR constants assume
     quantisation error is uniform and uncorrelated with the input, which a
-    coarse quantiser driven by a pure tone only approximately obeys -- the
-    residual grows at both ends of the range and is around a twentieth of a
-    bit at the resolutions here.
+    coarse quantiser driven by a pure tone only approximately obeys. The
+    residual grows at both ends of the resolution range.
     """
     assert np.isclose(enob_of(ideal_units(n_bits)), n_bits, atol=0.1)
 
@@ -35,8 +34,8 @@ def test_the_stimulus_lands_in_exactly_one_bin():
 
 @pytest.mark.parametrize("n_bits", RESOLUTIONS)
 def test_the_lookup_agrees_with_the_search_on_an_ideal_array(n_bits):
-    """The fast path exists to avoid 4096 binary searches, so it has to give
-    what 4096 binary searches would."""
+    """The fast path exists to avoid one binary search per sample, so it has
+    to give what those searches would."""
     units = ideal_units(n_bits)
     vin = coherent_sine(n_samples=256, cycles=31, vref=VREF)
     fast = codes_from_curve(vin, units, VREF)
@@ -88,8 +87,8 @@ def test_mismatch_costs_effective_bits():
 
 
 def test_sndr_and_enob_are_the_same_statement():
-    """6.02 dB is one bit. If these ever disagree, one of them has a stray
-    constant in it."""
+    """One is a restatement of the other. If they ever disagree, one of them
+    has picked up a stray constant."""
     assert np.isclose(
         enob(sndr_db(codes_from_curve(coherent_sine(), ideal_units(8)))), enob_of(ideal_units(8))
     )

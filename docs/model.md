@@ -162,12 +162,49 @@ Named here because an unnamed assumption is indistinguishable from an oversight.
   far better switching energy. One choice is embodied here without being argued.
 - **Single-ended only.** The comparator interface is differential. If the array
   follows, `dac_voltage` changes.
-- **A matching coefficient.** `sigma_from_area` deliberately has no default for
-  `A_C`, because sky130's open PDK does not publish one worth sizing silicon on.
-  Until a defensible value exists for MiM and for VPP, the sweep answers "what
-  matching do I need" and cannot yet answer "what capacitor do I draw". This is
-  the last thing standing between the study and an M1 decision, and it is a
-  literature task rather than a coding one.
+
+---
+
+## Where the matching coefficient comes from
+
+sky130 does state capacitor matching, but not anywhere a datasheet would put
+it. It is inside the device subcircuits, as a term proportional to
+`1/sqrt(area)` added to the nominal capacitance and gated by `MC_MM_SWITCH`.
+Read the current value straight out of the PDK rather than from here:
+
+```bash
+grep -n czero \
+  $PDK_ROOT/$PDK/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__cap_mim_m3_1.model.spice
+```
+
+The coefficient is the constant multiplying `(carea + cperim)/sqrt(wc*lc*mf)`,
+in percent-micrometres. VPP states its own in the same shape, close enough to
+MiM's that one value serves both. What the model uses is `SKY130_CAP_A_C`; this
+document deliberately does not repeat the number, because then there would be
+two of them.
+
+Three things make it easy to miss, all of which cost me time:
+
+- It lives under `libs.ref/sky130_fd_pr/spice/`. The files under
+  `libs.tech/ngspice/` only `.include` those, so grepping there finds nothing
+  and looks like proof that no matching data exists.
+- `mc_mm_switch` defaults to **0**. Without setting it, every device is
+  nominal, a Monte Carlo shows exactly zero spread, and the obvious conclusion
+  is wrong.
+- Reading an expression is not the same as trusting it. The deck in
+  `sandbox/cap-matching/` measures the spread in ngspice so the number in
+  `mismatch.py` is checked rather than assumed.
+
+Densities are a separate matter and differ a great deal between the two
+flavours -- `grep -rn camimc $PDK_ROOT/$PDK/libs.tech/ngspice/r+c/` for MiM's,
+per corner.
+
+The consequence is worth stating plainly, because it is not the obvious one.
+Matching depends on area alone and both flavours share a coefficient, so
+hitting a matching target costs the same area either way. MiM does not buy
+better matching -- it buys more capacitance in that area. For an array that is
+matching-limited and not noise-limited, that extra capacitance is not a
+benefit: it is slower settling and a larger charge kick on VREF.
 
 ---
 

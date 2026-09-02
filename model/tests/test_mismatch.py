@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from mismatch import (
+    SKY130_CAP_A_C,
     area_for_sigma,
     cap_for_area,
     gradient,
@@ -94,3 +95,19 @@ def test_area_and_sigma_invert_each_other():
 
 def test_capacitance_follows_area_at_fixed_density():
     assert np.isclose(cap_for_area(2.0, 1.5), 3.0)
+
+
+def test_the_coefficient_is_read_as_percent_not_fraction():
+    """A_C is quoted in percent-micrometres and sigma_from_area returns a
+    fraction, so a unit capacitor of one square micrometre must come back as
+    the coefficient over a hundred. Getting that conversion wrong scales every
+    area in the study by ten thousand and still looks plausible."""
+    assert np.isclose(sigma_from_area(1.0, SKY130_CAP_A_C), SKY130_CAP_A_C / 100)
+
+
+def test_the_sizing_direction_round_trips():
+    """A matching target becomes an area, and that area has to give the target
+    back. This is the direction the design decision actually runs."""
+    for target in (0.005, 0.010, 0.020):
+        area = area_for_sigma(target, SKY130_CAP_A_C)
+        assert np.isclose(sigma_from_area(area, SKY130_CAP_A_C), target)

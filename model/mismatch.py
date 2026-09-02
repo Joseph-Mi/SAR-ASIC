@@ -38,9 +38,9 @@ def random_units(n_bits: int, sigma_rel: float, rng, trials: int | None = None):
 def gradient(units, strength: float):
     """Apply a linear slope across the array, in physical order.
 
-    `strength` is the total fractional change from one end to the other, so
-    0.01 means the last unit is 1% larger than the first. Centred, so it moves
-    no total capacitance -- a gradient tilts matching without changing scale.
+    `strength` is the total fractional change from one end of the array to the
+    other. Centred, so it moves no total capacitance -- a gradient tilts
+    matching without changing scale.
 
     Applied before placement. A gradient is a property of the die, not of the
     branch that happens to own the unit.
@@ -65,6 +65,10 @@ def row_major(n_bits: int) -> np.ndarray:
     return np.arange(2**n_bits)
 
 
+# Capacitor matching coefficient, percent-micrometres.
+SKY130_CAP_A_C = 2.8
+
+
 def sigma_from_area(area, a_c: float) -> float:
     """Pelgrom: sigma_u/C_u = A_C / sqrt(area).
 
@@ -72,11 +76,11 @@ def sigma_from_area(area, a_c: float) -> float:
     capacitor matching coefficient in percent-micrometres, the usual unit for
     a quoted A_C. The result is a fraction, not a percentage.
 
-    There is deliberately no default for `a_c`. sky130's open PDK does not
-    publish a trustworthy capacitor matching coefficient, so any value used
-    here is an assumption the caller is making and has to be able to defend.
-    Passing it explicitly is what keeps that assumption visible in the study
-    that depends on it.
+    Deliberately no default, even though SKY130_CAP_A_C is right there. Which
+    capacitor flavour, and which process corner, is a choice the study is
+    making rather than one this function should make on its behalf -- and a
+    silent default is how an assumption stops being visible in the result that
+    depends on it.
     """
     return (a_c / 100.0) / np.sqrt(area)
 
