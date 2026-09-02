@@ -194,8 +194,36 @@ testbench netlist, so netlist the schematic first if `simulation/` is empty —
 see *Without the GUI* for that command. Results land in `simulation/`, which is
 ignored, so a sweep is always safe to re-run.
 
-Every knob and its default comes from `--help` on either subcommand. What is
-worth knowing before reading them is below.
+Every knob and its default comes from `--help` on either subcommand.
+
+Both widths are asked for directly and the ratio is reported, never requested.
+Two geometries sharing a ratio do not share a trip point — absolute width moves
+it too, through the source and drain sheet resistance — so a ratio is a result
+worth reading, not an input worth trusting.
+
+### Asking it a question
+
+| Question | Shape |
+|---|---|
+| Where does the trip point sit, and what centres it? | `sweep --wn ... --wp ... ...` |
+| What does channel length buy? | `sweep --lengths ... ...` |
+| Does the process corner move it? | `sweep --corner ss` |
+| Does temperature? | `sweep --temp ...` |
+| How much does one geometry scatter? | `mc --wn ... --wp ...` |
+| Does that scatter follow area? | `mc --pelgrom ...` |
+
+`sweep` takes lists and runs their full product, so widths and lengths can be
+explored together in one command. Every point lands in one deck, so a wide
+sweep costs what a single point costs — ask for more points than you think you
+need, and prefer one broad run to several narrow ones.
+
+The two commands write different shapes. `sweep` writes a row per geometry and
+is deterministic. `mc` writes a row per draw at a fixed geometry, so its output
+is a sample to summarise, not a result to read line by line.
+
+The corners that skew a trip point hardest are the mixed ones, `sf` and `fs`.
+They push the two devices in opposite directions, where `ss` and `ff` move both
+the same way and partly cancel in the ratio.
 
 Hand-editing a schematic between runs stops scaling once the question has two
 axes. It also puts every run one bad edit away from a corrupted cell: a width

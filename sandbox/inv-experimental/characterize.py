@@ -112,8 +112,10 @@ def mc_control(points: list[Point], runs: int) -> str:
 
 def cmd_sweep(args: argparse.Namespace) -> None:
     points = [
-        Point(i, args.wn, args.wn * ratio, length)
-        for i, (length, ratio) in enumerate(itertools.product(args.lengths, args.ratios))
+        Point(i, wn, wp, length)
+        for i, (length, wn, wp) in enumerate(
+            itertools.product(args.lengths, args.wn, args.wp)
+        )
     ]
     got = ngspice.run(
         deck(points, args.corner, False, vtc_control(points, args.temp)), WORKDIR
@@ -135,7 +137,7 @@ def cmd_sweep(args: argparse.Namespace) -> None:
             }
         )
         print(
-            f"L={p.length:<5g} Wp/Wn={p.wp / p.wn:<5g} "
+            f"L={p.length:<5g} Wn={p.wn:<5g} Wp={p.wp:<5g} ratio={p.wp / p.wn:<5g} "
             f"vm={rows[-1]['vm']:.4f}  gain={rows[-1]['gain_at_vm']:.2f}"
         )
 
@@ -152,9 +154,9 @@ def cmd_mc(args: argparse.Namespace) -> None:
     # and a spread measured at a different trip point is a different
     # measurement. Replicating the device leaves current density and every bias
     # untouched, which is what isolates area from everything else.
-    points = [Point(0, args.wn, args.wn * args.ratio, args.l)]
+    points = [Point(0, args.wn, args.wp, args.l)]
     if args.pelgrom > 1:
-        points.append(Point(1, args.wn, args.wn * args.ratio, args.l, int(args.pelgrom)))
+        points.append(Point(1, args.wn, args.wp, args.l, int(args.pelgrom)))
 
     got = ngspice.run(
         deck(points, args.corner, True, mc_control(points, args.runs)), WORKDIR
@@ -172,7 +174,8 @@ def cmd_mc(args: argparse.Namespace) -> None:
                 )
             sigmas.append(statistics.pstdev(draws))
             print(
-                f"Wn={p.wn:g} Wp={p.wp:g} L={p.length:g} mult={p.mult}  n={len(draws)}  "
+                f"Wn={p.wn:g} Wp={p.wp:g} ratio={p.wp / p.wn:g} L={p.length:g} "
+                f"mult={p.mult}  n={len(draws)}  "
                 f"mean={statistics.fmean(draws) * 1e3:.2f} mV  "
                 f"sigma={sigmas[-1] * 1e3:.3f} mV"
             )
@@ -198,14 +201,16 @@ def main() -> None:
         help="trip point and gain over Wp/Wn and L",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    s.add_argument("--wn", type=float, default=1.0, help="NMOS width, um")
     s.add_argument(
-        "--ratios", type=float, nargs="+", default=[1, 1.5, 2, 3, 4],
-        help="PMOS widths to try, as multiples of --wn",
+        "--wn", type=float, nargs="+", default=[1.0], help="NMOS widths to try, um"
+    )
+    s.add_argument(
+        "--wp", type=float, nargs="+", default=[1, 1.5, 2, 3, 4],
+        help="PMOS widths to try, um",
     )
     s.add_argument(
         "--lengths", type=float, nargs="+", default=[0.15, 0.3, 0.5, 1.0],
-        help="channel lengths to try, um, both devices",
+        help="channel lengths to try, um, applied to both devices",
     )
     s.add_argument("--corner", default="tt", help="model library section")
     s.add_argument("--temp", type=float, default=NOMINAL_TEMP, help="degrees C")
@@ -218,7 +223,7 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     m.add_argument("--wn", type=float, default=1.0, help="NMOS width, um")
-    m.add_argument("--ratio", type=float, default=4.0, help="PMOS width / NMOS width")
+    m.add_argument("--wp", type=float, default=4.0, help="PMOS width, um")
     m.add_argument("--l", type=float, default=0.15, help="channel length, um")
     m.add_argument("--runs", type=int, default=200, help="draws per geometry")
     m.add_argument("--corner", default="tt", help="model library section")
