@@ -182,6 +182,21 @@ one a testbench includes.
 
 ## Driving a sweep from Python
 
+```bash
+make shell
+cd sandbox/inv-experimental
+python3 characterize.py sweep
+python3 characterize.py mc --pelgrom 4
+```
+
+It runs inside the container, because that is where ngspice is. It reads the
+testbench netlist, so netlist the schematic first if `simulation/` is empty —
+see *Without the GUI* for that command. Results land in `simulation/`, which is
+ignored, so a sweep is always safe to re-run.
+
+Every knob and its default comes from `--help` on either subcommand. What is
+worth knowing before reading them is below.
+
 Hand-editing a schematic between runs stops scaling once the question has two
 axes. It also puts every run one bad edit away from a corrupted cell: a width
 typed over the length leaves a property the netlister silently drops, and the

@@ -188,31 +188,47 @@ def cmd_mc(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("sweep", help="trip point and gain over Wp/Wn and L")
-    s.add_argument("--wn", type=float, default=1.0)
-    s.add_argument("--ratios", type=float, nargs="+", default=[1, 1.5, 2, 3, 4])
-    s.add_argument("--lengths", type=float, nargs="+", default=[0.15, 0.3, 0.5, 1.0])
-    s.add_argument("--corner", default="tt")
-    s.add_argument("--temp", type=float, default=NOMINAL_TEMP)
-    s.add_argument("--out", default=WORKDIR / "sweep.csv")
+    s = sub.add_parser(
+        "sweep",
+        help="trip point and gain over Wp/Wn and L",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    s.add_argument("--wn", type=float, default=1.0, help="NMOS width, um")
+    s.add_argument(
+        "--ratios", type=float, nargs="+", default=[1, 1.5, 2, 3, 4],
+        help="PMOS widths to try, as multiples of --wn",
+    )
+    s.add_argument(
+        "--lengths", type=float, nargs="+", default=[0.15, 0.3, 0.5, 1.0],
+        help="channel lengths to try, um, both devices",
+    )
+    s.add_argument("--corner", default="tt", help="model library section")
+    s.add_argument("--temp", type=float, default=NOMINAL_TEMP, help="degrees C")
+    s.add_argument("--out", default=WORKDIR / "sweep.csv", help="one row per geometry")
     s.set_defaults(func=cmd_sweep)
 
-    m = sub.add_parser("mc", help="spread of the trip point under device mismatch")
-    m.add_argument("--wn", type=float, default=1.0)
-    m.add_argument("--ratio", type=float, default=4.0)
-    m.add_argument("--l", type=float, default=0.15)
-    m.add_argument("--runs", type=int, default=200)
-    m.add_argument("--corner", default="tt")
+    m = sub.add_parser(
+        "mc",
+        help="spread of the trip point under device mismatch",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    m.add_argument("--wn", type=float, default=1.0, help="NMOS width, um")
+    m.add_argument("--ratio", type=float, default=4.0, help="PMOS width / NMOS width")
+    m.add_argument("--l", type=float, default=0.15, help="channel length, um")
+    m.add_argument("--runs", type=int, default=200, help="draws per geometry")
+    m.add_argument("--corner", default="tt", help="model library section")
     m.add_argument(
         "--pelgrom",
         type=float,
         default=1.0,
-        help="repeat with multiplicity scaled by this factor",
+        help="also run with multiplicity scaled by this, to check sigma falls by its root",
     )
-    m.add_argument("--out", default=WORKDIR / "mc_vm.csv")
+    m.add_argument("--out", default=WORKDIR / "mc_vm.csv", help="one row per draw")
     m.set_defaults(func=cmd_mc)
 
     args = parser.parse_args()
