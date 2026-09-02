@@ -68,9 +68,20 @@ value="
 .control
 save all
 dc VIN 0 1.8 0.005
+
 let diff = v(out) - v(in)
 meas dc vm when diff=0
+
+let wn = @m.x1.xm1.msky130_fd_pr__nfet_01v8[w]
+let wp = @m.x1.xm2.msky130_fd_pr__pfet_01v8[w]
+let ln = @m.x1.xm1.msky130_fd_pr__nfet_01v8[l]
+let lp = @m.x1.xm2.msky130_fd_pr__pfet_01v8[l]
+let ratio = wp/wn
+
+echo \\"$&wn,$&wp,$&ln,$&lp,$&ratio,1.8,tt,27,$&vm\\" >> sweep_log.csv
+
 write tb_inv.raw
+wrdata vtc.csv v(out) diff
 .endc
 "}
 C {devices/spice_probe.sym} -260 -90 0 0 {name=p1 attrs=""}
