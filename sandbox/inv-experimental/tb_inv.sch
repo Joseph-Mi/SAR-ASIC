@@ -88,7 +88,12 @@ only_toplevel=true
 value="
 .control
 save all
-dc VIN 0 1.8 0.005
+
+set tempC = 27
+option temp = $tempC
+let supply = @VDD[dc]
+
+dc VIN 0 $&supply 0.005
 
 let diff = v(out) - v(in)
 meas dc vm when diff=0
@@ -103,7 +108,7 @@ let ln = @m.x1.xm1.msky130_fd_pr__nfet_01v8[l]
 let lp = @m.x1.xm2.msky130_fd_pr__pfet_01v8[l]
 let ratio = wp/wn
 
-echo \\"$&wn,$&wp,$&ln,$&lp,$&ratio,1.8,tt,27,$&vm,$&gain_at_vm,$&peakgain\\" >> sweep_log.csv
+echo \\"$&wn,$&wp,$&ln,$&lp,$&ratio,$&supply,$tempC,$&vm,$&gain_at_vm,$&peakgain\\" >> sweep_log.csv
 
 write tb_inv.raw
 wrdata vtc.csv v(out) diff gain
