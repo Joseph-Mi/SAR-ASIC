@@ -300,6 +300,21 @@ schematic is the most confusing artifact this flow can produce.
 
 ---
 
+## The clean script deletes in whatever directory you run it from
+
+The vendored example carries a `_clean.sh` that runs `rm -f *.spice` without
+first moving to its own directory. Run it from anywhere else and it deletes
+that directory's decks instead. A hand-written deck with no schematic behind it
+is gone for good, since nothing can regenerate it.
+
+It is also inert where it was meant to help: setting the local netlist
+directory moved generated netlists into `simulation/`, which it does not touch.
+So it now removes nothing it was written to remove, and something it was not.
+It is vendored and not ours to edit -- run it only from the directory it came
+in, or delete generated files by hand.
+
+---
+
 ## Starting a new experiment
 
 ```bash

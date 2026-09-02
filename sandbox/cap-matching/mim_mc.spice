@@ -4,10 +4,15 @@
 * which is why a naive sweep sees no spread at all and concludes the models
 * carry no matching information.
 *
+* The library is the one the PDK's own xschem setup selects, so a number from
+* here can be compared against a schematic-driven simulation. The other tree
+* under libs.tech carries a different MiM subcircuit with its own mismatch
+* coefficient, and the two do not agree.
+*
 * Capacitance is read from the AC current: with 1 V across an ideal capacitor,
 * |I| = omega*C. One frequency is enough because the device is linear here.
 
-.lib /foss/pdks/sky130A/libs.tech/ngspice/sky130.lib.spice tt
+.lib $PDK_ROOT/$PDK/libs.tech/combined/sky130.lib.spice tt
 .param mc_mm_switch=1
 
 X1 a 0 sky130_fd_pr__cap_mim_m3_1 w=1 l=1

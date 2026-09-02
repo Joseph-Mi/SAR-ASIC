@@ -5,22 +5,27 @@ what the whole array area rests on. It is not in a datasheet -- it sits inside
 the device subcircuits as a mismatch term proportional to 1/sqrt(area), gated
 by MC_MM_SWITCH:
 
-    libs.ref/sky130_fd_pr/spice/sky130_fd_pr__cap_mim_m3_1.model.spice   (MiM)
-    libs.ref/sky130_fd_pr/spice/sky130_fd_pr__cap_vpp_*.model.spice      (VPP)
+    grep -n sw_mm_cmim $PDK_ROOT/$PDK/libs.tech/combined/continuous/models_global.spice
+    grep -n carea      $PDK_ROOT/$PDK/libs.tech/combined/continuous/models_capacitors.spice
 
-    grep -n czero $PDK_ROOT/$PDK/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__cap_mim_m3_1.model.spice
+There is a second set of device models under libs.tech, and a third under
+libs.ref. They carry different MiM subcircuits with different mismatch
+coefficients, and they disagree. The deck reads the one the PDK's own xschem
+setup selects, which is what makes a number from here comparable with a
+schematic-driven simulation rather than an independent claim about the process.
 
 Reading an expression is not the same as trusting it, so mim_mc.spice measures
-the spread of a 1um x 1um MiM capacitor:
+the spread it predicts:
 
     ngspice -b mim_mc.spice 2>/dev/null | grep -oE 'c = [0-9.e+-]+' | awk '{print $3}' > /tmp/caps.txt
     python3 -c "import statistics as st; v=[float(x) for x in open('/tmp/caps.txt')]; \
       print(f'n={len(v)} mean={st.mean(v)*1e15:.3f} fF sigma/C={100*st.pstdev(v)/st.mean(v):.3f}%')"
 
-At one square micrometre the measured sigma/C should land on the coefficient
-itself. Repeated runs scatter around it by roughly the standard error of a
-spread estimated from that many samples, which is 1/sqrt(2N) of it -- so read
-several runs, not one run's digits.
+The mismatch term falls as 1/sqrt(area), so a device of unit area measures the
+coefficient directly -- which is why the deck sizes it that way, and what to
+preserve if you resize it. Repeated runs scatter around the coefficient by
+roughly the standard error of a spread estimated from that many samples, which
+is 1/sqrt(2N) of it, so read several runs rather than one run's digits.
 
 Runs are not reproducible: `set rndseed` does not survive the `reset` that
 redraws the device, so ngspice re-seeds itself. Worth knowing before trusting
@@ -28,7 +33,9 @@ any analog Monte Carlo in this flow to repeat.
 
 mc_mm_switch defaults to 0 in sky130.lib.spice. The deck sets it to 1. Without
 that the spread is exactly zero and the models look like they carry no matching
-information at all.
+information at all. mc_pr_switch is the other one, and it is a different
+question: process spread moves a whole wafer together, where matching is what
+separates two devices sitting side by side.
 
 No schematic and no xschemrc here -- there is nothing to draw. The deck exists
 to check one number the entire array sizing rests on.
