@@ -5,7 +5,7 @@ V {}
 S {}
 F {}
 E {}
-B 2 -550 -600 250 -250 {flags=graph
+B 2 -550 -790 250 -440 {flags=graph
 y1=-1
 y2=2
 ypos1=0
@@ -13,8 +13,8 @@ ypos2=2
 divy=6
 subdivy=1
 unity=1
-x1=0
-x2=1.8
+x1=-0.34703999
+x2=1.45296
 divx=6
 subdivx=1
 xlabmag=1.0
@@ -28,6 +28,27 @@ color="4 5 6"
 node="out
 in
 diff"}
+B 2 -550 -440 250 -240 {flags=graph
+y1=-30
+y2=5
+ypos1=0
+ypos2=2
+divy=7
+subdivy=1
+unity=1
+x1=-0.34703999
+x2=1.45296
+divx=6
+subdivx=1
+xlabmag=1.0
+ylabmag=1.0
+dataset=-1
+unitx=1
+logx=0
+logy=0
+hilight_wave=0
+color="7"
+node="gain"}
 N -260 20 -260 50 {lab=0}
 N -260 -50 -260 -40 {lab=vdd}
 N -190 -50 -190 -40 {lab=in}
@@ -72,16 +93,20 @@ dc VIN 0 1.8 0.005
 let diff = v(out) - v(in)
 meas dc vm when diff=0
 
+let gain = deriv(v(out))
+meas dc gain_at_vm find gain when diff=0
+let peakgain = vecmin(gain)
+
 let wn = @m.x1.xm1.msky130_fd_pr__nfet_01v8[w]
 let wp = @m.x1.xm2.msky130_fd_pr__pfet_01v8[w]
 let ln = @m.x1.xm1.msky130_fd_pr__nfet_01v8[l]
 let lp = @m.x1.xm2.msky130_fd_pr__pfet_01v8[l]
 let ratio = wp/wn
 
-echo \\"$&wn,$&wp,$&ln,$&lp,$&ratio,1.8,tt,27,$&vm\\" >> sweep_log.csv
+echo \\"$&wn,$&wp,$&ln,$&lp,$&ratio,1.8,tt,27,$&vm,$&gain_at_vm,$&peakgain\\" >> sweep_log.csv
 
 write tb_inv.raw
-wrdata vtc.csv v(out) diff
+wrdata vtc.csv v(out) diff gain
 .endc
 "}
 C {devices/spice_probe.sym} -260 -90 0 0 {name=p1 attrs=""}
