@@ -1,28 +1,17 @@
-"""Inverter sweeps and Monte Carlo, driven from the generated netlist.
+"""Trip point, small-signal gain and mismatch of the experimental inverter.
 
-The schematic is netlisted once and then treated as a template: this script
-lifts the cell's subcircuit out of it, restamps the device geometry, and hands
-a generated deck to ngspice. inv.sch is never opened. Rewriting the schematic to
-change a width means a crashed run leaves a half-edited cell on disk, and the
-schematic stays the single source of truth for topology either way.
+Contract: the testbench must have been netlisted, and that netlist must still
+define the cell as an instantiable subcircuit.
 
-Cost is dominated by one thing. Parsing the sky130 model library takes about
-45 s -- an `op` on a bare resistor with that .lib costs the same -- while the
-sweep itself is free. So the unit of work is the ngspice *process*, not the
-simulation, and both commands here are built to pay that toll once:
+The netlist is read as a parts bin rather than run as a deck: the model library
+and the cell come out of it, and the deck is built around them here. The
+schematic is never rewritten, so a run that dies partway leaves no half-edited
+cell behind, and the schematic stays the only thing that says what the circuit
+is.
 
-  sweep   every geometry is instantiated as its own subcircuit in one deck,
-          sharing one input source, and read out on its own output node.
-          One DC sweep, one parse, N results.
-  mc      draws are a dowhile around `reset`, which is what re-evaluates the
-          AGAUSS mismatch terms without reloading the library.
-
-W and L are written as instance parameters on the subcircuit call, which is what
-Monte Carlo requires. The mismatch terms are AGAUSS expressions evaluated inside
-the PDK's wrapper against the w and l it was called with. Reaching past the
-wrapper to alter the inner MOSFET's width would leave those terms sized for the
-original geometry, so sigma would hold still while the geometry moved -- a
-Pelgrom check that cannot fail, and therefore cannot pass.
+Every geometry under study is instantiated as its own subcircuit, sharing one
+input source and read out on its own node, so a sweep of any size costs one
+model library load.
 """
 
 from __future__ import annotations
@@ -30,34 +19,27 @@ from __future__ import annotations
 import argparse
 import csv
 import itertools
-import os
 import pathlib
-import re
 import statistics
-import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from tools import netlist, ngspice, sky130  # noqa: E402
+
 HERE = pathlib.Path(__file__).parent
-NETLIST = HERE / "simulation" / "tb_inv.spice"
-
-DEVICE = re.compile(
-    r"^(?P<head>X\S+(?:\s+\S+){4}\s+sky130_fd_pr__(?P<flavour>[np])fet_01v8)\s.*$",
-    re.M,
-)
-SUBCKT = re.compile(r"^\.subckt\s+inv\b.*?^\.ends\s*$", re.M | re.S)
-LIB = re.compile(r"^\.lib\s+(\S*sky130\.lib\.spice)\s+\w+\s*$", re.M)
-
-# ngspice opens every meas result with "name = value" at the start of a line.
-# Keying on the full name is what keeps gain_at_vm from being read as vm, and
-# the line is not end-anchored because a min/max measurement trails an "at=".
-RESULT = re.compile(r"^\s*(\w+)\s*=\s*([-+\d.eE]+)", re.M)
+WORKDIR = HERE / "simulation"
+NETLIST = WORKDIR / "tb_inv.spice"
+CELL = "inv"
 
 VDD = 1.8
 CLOAD = "10f"
+VIN_STEP = 0.005
+NOMINAL_TEMP = 27
 
 
 class Point:
-    """One geometry, and the node it is measured on."""
+    """One geometry under study, and the node it is measured on."""
 
     def __init__(self, index: int, wn: float, wp: float, length: float, mult: int = 1):
         self.index = index
@@ -68,144 +50,88 @@ class Point:
         self.cell = f"cell{index}"
         self.node = f"out{index}"
 
-
-def device_line(head: str, w: float, length: float, mult: int = 1, nf: int = 1) -> str:
-    """Restamp a device line, deriving junction geometry from W as the symbol does.
-
-    ad/as/pd/ps are the sky130 symbol's own expressions, evaluated here so a
-    resized device does not carry the previous width's junction areas into a
-    transient run.
-    """
-    ad = int((nf + 1) / 2) * w / nf * 0.29
-    pd = 2 * int((nf + 1) / 2) * (w / nf + 0.29)
-    area_s = int((nf + 2) / 2) * w / nf * 0.29
-    ps = 2 * int((nf + 2) / 2) * (w / nf + 0.29)
-    nr = 0.29 / w
-    return (
-        f"{head} L={length:g} W={w:g} nf={nf} ad={ad:g} as={area_s:g} "
-        f"pd={pd:g} ps={ps:g} nrd={nr:g} nrs={nr:g} sa=0 sb=0 sd=0 mult={mult:g}"
-    )
+    def params(self, match) -> dict[str, float]:
+        pull_down = "__nfet" in match.group("model")
+        return sky130.mosfet(
+            self.wn if pull_down else self.wp, self.length, self.mult
+        )
 
 
-class Template:
-    """The netlist as a parts bin: the model library, and the cell's subcircuit."""
-
-    def __init__(self, path: pathlib.Path = NETLIST):
-        text = path.read_text()
-        lib = LIB.search(text)
-        cell = SUBCKT.search(text)
-        if not lib or not cell:
-            sys.exit(f"{path} has no .lib line or no `inv` subcircuit -- re-netlist it")
-        self.lib_path = lib.group(1)
-        self.cell = cell.group(0)
-
-    def sized(self, point: Point) -> str:
-        def swap(m: re.Match) -> str:
-            is_n = m.group("flavour") == "n"
-            w = point.wn if is_n else point.wp
-            return device_line(m.group("head"), w, point.length, point.mult)
-
-        body = DEVICE.sub(swap, self.cell)
-        return re.sub(r"^\.subckt\s+inv\b", f".subckt {point.cell}", body, flags=re.M)
-
-    def deck(self, points: list[Point], corner: str, mismatch: bool, control: str) -> str:
-        lines = [
-            "* generated by characterize.py",
-            f".lib {self.lib_path} {corner}",
-            f".param mc_mm_switch={int(mismatch)}",
-            ".param mc_pr_switch=0",
-            "",
-            *(self.sized(p) for p in points),
-            "",
-            f"VDD vdd 0 {VDD}",
-            "VIN in 0 dc 0",
-        ]
-        for p in points:
-            lines.append(f"X{p.index} vdd {p.node} in 0 {p.cell}")
-            lines.append(f"C{p.index} {p.node} 0 {CLOAD}")
-        lines += ["", control, ".end", ""]
-        return "\n".join(lines)
-
-
-def ngspice(deck: str) -> dict[str, list[float]]:
-    """Run one deck and collect every measurement it printed, in order.
-
-    ngspice's exit status does not distinguish a converged run from a deck that
-    parsed and produced nothing, so a missing measurement is the failure signal.
-    """
-    # Unique per process: two concurrent runs sharing one scratch deck would
-    # silently simulate each other's geometry.
-    scratch = NETLIST.with_name(f"_run{os.getpid()}.spice")
-    scratch.write_text(deck)
-    proc = subprocess.run(
-        ["ngspice", "-b", scratch.name],
-        cwd=scratch.parent,
-        capture_output=True,
-        text=True,
-    )
-    results: dict[str, list[float]] = {}
-    for name, value in RESULT.findall(proc.stdout):
-        results.setdefault(name, []).append(float(value))
-    scratch.unlink(missing_ok=True)
-    if not results:
-        sys.exit(f"ngspice produced no measurements\n{proc.stdout}\n{proc.stderr}")
-    return results
+def deck(points: list[Point], corner: str, mismatch: bool, control: str) -> str:
+    source = NETLIST.read_text()
+    cell = ngspice.subckt(source, CELL)
+    lines = [
+        f".lib {ngspice.library(source)} {corner}",
+        f".param mc_mm_switch={int(mismatch)}",
+        ".param mc_pr_switch=0",
+        "",
+    ]
+    for point in points:
+        sized = netlist.restamp(cell, sky130.MOSFET, point.params)
+        lines.append(sized.replace(f".subckt {CELL} ", f".subckt {point.cell} ", 1))
+    lines += ["", f"VDD vdd 0 {VDD}", "VIN in 0 dc 0"]
+    for point in points:
+        lines.append(f"X{point.index} vdd {point.node} in 0 {point.cell}")
+        lines.append(f"C{point.index} {point.node} 0 {CLOAD}")
+    return "\n".join([*lines, "", control, ".end", ""])
 
 
 def vtc_control(points: list[Point], temp: float) -> str:
     lines = [".control", "set nomodcheck"]
-    if temp != 27:
+    if temp != NOMINAL_TEMP:
         lines.append(f"option temp = {temp:g}")
-    lines.append(f"dc VIN 0 {VDD} 0.005")
+    lines.append(f"dc VIN 0 {VDD} {VIN_STEP}")
     for p in points:
-        i = p.index
         lines += [
-            f"let diff{i} = v({p.node}) - v(in)",
-            f"meas dc vm{i} when diff{i}=0",
-            f"let slope{i} = deriv(v({p.node}))",
-            f"meas dc gain{i} find slope{i} when diff{i}=0",
-            f"meas dc peak{i} min slope{i}",
+            f"let diff{p.index} = v({p.node}) - v(in)",
+            f"meas dc vm{p.index} when diff{p.index}=0",
+            f"let slope{p.index} = deriv(v({p.node}))",
+            f"meas dc gain{p.index} find slope{p.index} when diff{p.index}=0",
+            f"meas dc peak{p.index} min slope{p.index}",
         ]
-    lines.append(".endc")
-    return "\n".join(lines)
+    return "\n".join([*lines, ".endc"])
 
 
 def mc_control(points: list[Point], runs: int) -> str:
-    body = [".control", "set nomodcheck", "let k = 0", f"dowhile k < {runs}", "  reset",
-            f"  dc VIN 0 {VDD} 0.005"]
+    """A draw per pass. `reset` is what re-evaluates the PDK's mismatch terms."""
+    lines = [
+        ".control",
+        "set nomodcheck",
+        "let k = 0",
+        f"dowhile k < {runs}",
+        "  reset",
+        f"  dc VIN 0 {VDD} {VIN_STEP}",
+    ]
     for p in points:
-        i = p.index
-        body += [
-            f"  let diff{i} = v({p.node}) - v(in)",
-            f"  meas dc vm{i} when diff{i}=0",
+        lines += [
+            f"  let diff{p.index} = v({p.node}) - v(in)",
+            f"  meas dc vm{p.index} when diff{p.index}=0",
         ]
-    body += ["  let k = k + 1", "end", ".endc"]
-    return "\n".join(body)
+    return "\n".join([*lines, "  let k = k + 1", "end", ".endc"])
 
 
 def cmd_sweep(args: argparse.Namespace) -> None:
-    template = Template()
     points = [
         Point(i, args.wn, args.wn * ratio, length)
         for i, (length, ratio) in enumerate(itertools.product(args.lengths, args.ratios))
     ]
-    got = ngspice(template.deck(points, args.corner, False, vtc_control(points, args.temp)))
+    got = ngspice.run(
+        deck(points, args.corner, False, vtc_control(points, args.temp)), WORKDIR
+    )
 
     rows = []
     for p in points:
-        i = p.index
         rows.append(
             {
                 "wn": p.wn,
                 "wp": p.wp,
-                "mult": p.mult,
                 "l": p.length,
                 "ratio": p.wp / p.wn,
                 "corner": args.corner,
                 "temp": args.temp,
-                "vm": got[f"vm{i}"][0],
-                "gain_at_vm": got[f"gain{i}"][0],
-                "peak_gain": got[f"peak{i}"][0],
+                "vm": got[f"vm{p.index}"][0],
+                "gain_at_vm": got[f"gain{p.index}"][0],
+                "peak_gain": got[f"peak{p.index}"][0],
             }
         )
         print(
@@ -221,17 +147,18 @@ def cmd_sweep(args: argparse.Namespace) -> None:
 
 
 def cmd_mc(args: argparse.Namespace) -> None:
-    template = Template()
-    # The Pelgrom leg scales mult, not W. The PDK spends its mismatch as
-    # slope/sqrt(l*w*mult), so all three raise area equally -- but W and L also
-    # move the operating point, and a sigma measured at a different Vm is not
-    # the same measurement. Replicating the device leaves current density, Vm
-    # and every bias untouched, which is the only leg that isolates area.
+    # The second leg scales multiplicity, not width or length. All three raise
+    # area by the same factor, but width and length also move the trip point,
+    # and a spread measured at a different trip point is a different
+    # measurement. Replicating the device leaves current density and every bias
+    # untouched, which is what isolates area from everything else.
     points = [Point(0, args.wn, args.wn * args.ratio, args.l)]
     if args.pelgrom > 1:
         points.append(Point(1, args.wn, args.wn * args.ratio, args.l, int(args.pelgrom)))
 
-    got = ngspice(template.deck(points, args.corner, True, mc_control(points, args.runs)))
+    got = ngspice.run(
+        deck(points, args.corner, True, mc_control(points, args.runs)), WORKDIR
+    )
 
     sigmas = []
     with open(args.out, "w", newline="") as f:
@@ -240,12 +167,14 @@ def cmd_mc(args: argparse.Namespace) -> None:
         for p in points:
             draws = got[f"vm{p.index}"]
             if len(draws) != args.runs:
-                sys.exit(f"expected {args.runs} draws, parsed {len(draws)}")
-            sigma = statistics.pstdev(draws)
-            sigmas.append(sigma)
+                raise ngspice.DeckError(
+                    f"asked for {args.runs} draws, deck returned {len(draws)}"
+                )
+            sigmas.append(statistics.pstdev(draws))
             print(
                 f"Wn={p.wn:g} Wp={p.wp:g} L={p.length:g} mult={p.mult}  n={len(draws)}  "
-                f"mean={statistics.fmean(draws) * 1e3:.2f} mV  sigma={sigma * 1e3:.3f} mV"
+                f"mean={statistics.fmean(draws) * 1e3:.2f} mV  "
+                f"sigma={sigmas[-1] * 1e3:.3f} mV"
             )
             for v in draws:
                 writer.writerow([p.wn, p.wp, p.length, p.mult, args.corner, v])
@@ -259,30 +188,34 @@ def cmd_mc(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__)
-    sub = p.add_subparsers(dest="cmd", required=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("sweep", help="Vm and gain over Wp/Wn and L")
+    s = sub.add_parser("sweep", help="trip point and gain over Wp/Wn and L")
     s.add_argument("--wn", type=float, default=1.0)
     s.add_argument("--ratios", type=float, nargs="+", default=[1, 1.5, 2, 3, 4])
     s.add_argument("--lengths", type=float, nargs="+", default=[0.15, 0.3, 0.5, 1.0])
     s.add_argument("--corner", default="tt")
-    s.add_argument("--temp", type=float, default=27)
-    s.add_argument("--out", default=HERE / "simulation" / "sweep.csv")
+    s.add_argument("--temp", type=float, default=NOMINAL_TEMP)
+    s.add_argument("--out", default=WORKDIR / "sweep.csv")
     s.set_defaults(func=cmd_sweep)
 
-    m = sub.add_parser("mc", help="spread of Vm under device mismatch")
+    m = sub.add_parser("mc", help="spread of the trip point under device mismatch")
     m.add_argument("--wn", type=float, default=1.0)
     m.add_argument("--ratio", type=float, default=4.0)
     m.add_argument("--l", type=float, default=0.15)
     m.add_argument("--runs", type=int, default=200)
     m.add_argument("--corner", default="tt")
-    m.add_argument("--pelgrom", type=float, default=1.0,
-                   help="repeat with mult scaled by this factor; sigma should fall by its root")
-    m.add_argument("--out", default=HERE / "simulation" / "mc_vm.csv")
+    m.add_argument(
+        "--pelgrom",
+        type=float,
+        default=1.0,
+        help="repeat with multiplicity scaled by this factor",
+    )
+    m.add_argument("--out", default=WORKDIR / "mc_vm.csv")
     m.set_defaults(func=cmd_mc)
 
-    args = p.parse_args()
+    args = parser.parse_args()
     args.func(args)
 
 

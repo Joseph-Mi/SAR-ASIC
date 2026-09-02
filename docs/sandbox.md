@@ -9,12 +9,12 @@ It exists because the alternative — learning xschem and ngspice on the
 comparator — means debugging your schematic and your understanding of the tool
 at the same time, and being unable to tell which one is wrong.
 
-Two subdirectories today:
-
 | Directory | What it is |
 |---|---|
 | `inv-example/` | Upstream's inverter, copied in whole. Read it, run it, do not edit it — it is the reference for what a working setup looks like. |
 | `inv-experimental/` | The same circuit rebuilt by hand. This is the one you break. |
+| `cap-matching/` | One question about the PDK's capacitor mismatch coefficient, and a deck that answers it. No schematic. |
+| `tools/` | Shared helpers. Agnostic mechanism only — running a deck, restamping instances — plus the PDK's device parameters. |
 
 The example is built on the thick-oxide `g5v0d10v5` devices; the experimental
 one on core `nfet_01v8` / `pfet_01v8`. The device name carries its own supply
@@ -177,6 +177,65 @@ A netlist whose `.subckt` line is commented out was netlisted as a *top-level*
 circuit rather than as an instantiable cell. That is what xschem produces when
 you netlist a cell directly, and it is fine — it just means that file is not the
 one a testbench includes.
+
+---
+
+## Driving a sweep from Python
+
+Hand-editing a schematic between runs stops scaling once the question has two
+axes. It also puts every run one bad edit away from a corrupted cell: a width
+typed over the length leaves a property the netlister silently drops, and the
+device then takes the model's default length while the schematic still reads as
+though it did not.
+
+So a sweep reads the netlist as a parts bin rather than running it. The model
+library line and the cell's subcircuit come out of it, the deck is built around
+them, and the schematic is never written to. What the schematic still owns is
+the topology — change the circuit there, and every sweep follows.
+
+### The model library dominates the cost
+
+Selecting the sky130 library takes roughly 45 seconds, and it is paid per
+ngspice process, not per analysis: an operating point on a bare resistor with
+that `.lib` costs the same as a full sweep. Two consequences shape every deck
+here.
+
+**A parameter sweep is one deck, not N decks.** Each geometry is instantiated as
+its own subcircuit, sharing one input source and read out on its own node. One
+sweep, one library load, N results — flat in the number of points, where a
+process per point is not.
+
+**A Monte Carlo loops around `reset`, not around a new process.** `reset` is
+what redraws the PDK's mismatch terms, and it keeps the library already loaded.
+
+### Reading a Monte Carlo
+
+`mc_mm_switch` enables local device mismatch — the variation between two
+devices on one die. `mc_pr_switch` is the global process spread, which moves a
+whole die together. A comparator sees the corner as common mode and rejects it,
+so mismatch is the switch that matters for offset.
+
+Neither is on by default, and a run without setting one shows exactly zero
+spread, which reads as a PDK carrying no matching data.
+
+Nothing about the geometry changes across draws. What is being read is the
+spread of a measured quantity, and its standard error is about `1/sqrt(2N)` of
+itself — so a few hundred draws pin the spread to a few percent, and two runs
+of the same deck disagree by about that much. Read several runs, not one run's
+digits.
+
+### Isolating area from bias
+
+Pelgrom predicts a spread falling as the square root of device area. Testing
+that by widening the device does not work: width moves the trip point too, so
+the two legs are measured at different operating points and the ratio comes out
+wrong in a way that looks like a broken model.
+
+Scale multiplicity instead. The PDK spends its mismatch as
+`slope/sqrt(l*w*mult)`, so replicating a device raises area exactly as widening
+it does — but current density, trip point and every bias hold still. The means
+of the two legs landing on top of each other is the evidence that nothing but
+area moved.
 
 ---
 
