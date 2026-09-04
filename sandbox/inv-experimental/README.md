@@ -14,8 +14,9 @@ writes to it.
 | `make layout` | build `inv.mag` and its device cells, discarding what was there |
 | `make drc` | geometry rules; must report zero |
 | `make lvs` | compare the layout against the schematic |
+| `make pex` | extract parasitics into a simulatable netlist |
 | `make clean` | extraction and comparison products only, never sources |
-| `make` | all three, in that order |
+| `make` | layout, then drc, then lvs |
 
 `make drc` runs in its own magic process on purpose. Counting in the session
 that built the cell reports the checks queued while building it rather than the
@@ -52,6 +53,18 @@ expand
 **Opening it read-only is safe; saving from the GUI is not.** The next
 `make layout` overwrites whatever was saved. To change the cell, change the
 generator.
+
+## Pointing a testbench at the extracted netlist
+
+The extracted subcircuit does not take its ports in the schematic's order, so
+the two are not interchangeable and a netlist swap miswires every net without
+complaining. A symbol whose pin order matches the extracted subcircuit, holding
+`spice_sym_def=".include inv.pex.spice"`, is what a post-layout testbench
+instantiates. The upstream example carries one to copy.
+
+The parasitics worth reading are the ones with no schematic counterpart at all:
+the schematic netlist holds no capacitors, so gate-to-drain feedback exists
+only after extraction.
 
 ## Why there are device cells in this directory
 

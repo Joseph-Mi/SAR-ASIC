@@ -7,7 +7,7 @@
 MAGIC ?= magic -dnull -noconsole
 CELL  ?= inv
 
-.PHONY: all layout drc lvs clean
+.PHONY: all layout drc lvs pex clean
 
 all: layout drc lvs
 
@@ -23,7 +23,14 @@ drc:
 lvs:
 	sak-lvs.sh -s $(CELL).sch -l $(CELL).mag -c $(CELL)
 
+## pex: extract parasitics into a netlist that can be simulated
+##      Kept out of `all`: it re-extracts what lvs already did, and nothing
+##      downstream consumes it until a testbench is pointed at it.
+pex:
+	sak-pex.sh $(CELL)
+
 ## clean: extraction and comparison products, never the sources
 clean:
 	rm -rf $(CELL).magic.lvs $(CELL)_magic.spice
 	rm -f *.ext *.spc *.res.ext *.nodes comp.out netgen.log *.lvs.report
+	rm -f *.pex.spice *.pex.log

@@ -9,3 +9,5 @@ inv.magic.lvs/
 comp.out
 netgen.log
 *.lvs.report
+*.pex.spice
+*.pex.log
