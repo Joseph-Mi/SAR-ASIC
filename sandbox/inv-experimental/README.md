@@ -15,7 +15,7 @@ writes to it.
 | `make drc` | geometry rules; must report zero |
 | `make lvs` | compare the layout against the schematic |
 | `make pex` | extract parasitics into a simulatable netlist |
-| `make sim` | delay of the drawn cell against the designed one |
+| `make sim` | delay of the drawn cell against the designed one, across load |
 | `make clean` | build products only, never sources |
 | `make` | all of the above, in that order |
 
@@ -75,16 +75,22 @@ they move, so re-read them rather than adjusting them by hand.
 ## Comparing the drawn cell against the designed one
 
 `make sim` puts both subcircuits in one deck, drives them from one source into
-equal loads, and measures both. The parasitics are then the only difference
-between the two results.
+equal loads, and sweeps the load. Reading a single load tells you almost
+nothing; the shape of the penalty against load is the result. It is largest
+where the cell drives little more than itself and falls away as an external
+load takes over, which is what says whether post-layout simulation matters for
+a given cell.
 
+Two things have to be equalised or the difference stops being the parasitics.
 The extracted subcircuit does not declare its terminals in the schematic's
-order, so wiring either up by position miswires it without complaining. Both
-are wired by terminal name instead.
+order, so both are wired by terminal name rather than by position. It also
+omits the source and drain sheet-resistance terms the schematic instance
+carries, so those are stripped from the schematic side; left in, they slow one
+side only and can make the drawn cell look faster than the designed one.
 
-The parasitics worth reading are the ones with no schematic counterpart: that
-netlist holds no capacitors at all, so gate-to-drain feedback exists only once
-there are shapes.
+What extraction adds is the interconnect. The device models already carry
+intrinsic overlap capacitance, so gate-to-drain feedback is visible in both --
+the extracted cell simply has the metal's share on top.
 
 ## Why there are device cells in this directory
 

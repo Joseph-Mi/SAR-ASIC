@@ -16,12 +16,16 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+import numpy as np  # noqa: E402
+
 from tools import netlist, ngspice, sky130  # noqa: E402
 
 HERE = pathlib.Path(__file__).parent
 WORKDIR = HERE / "simulation"
 NETLIST = WORKDIR / "tb_inv.spice"
 PEXLIST = HERE / "inv.pex.spice"
+WAVES = WORKDIR / "pex_waves.csv"
+PLOT = WORKDIR / "pex_compare.png"
 CELL = "inv"
 
 VDD = 1.8
@@ -30,7 +34,8 @@ VIN_STEP = 0.005
 NOMINAL_TEMP = 27
 EDGE = "100p"
 PULSE = f"pulse 0 {VDD} 1n {EDGE} {EDGE} 5n 10n"
-TRAN = "5p 20n"
+TRAN = "1p 12n"
+WINDOW = 300e-12
 
 
 class Point:
@@ -112,22 +117,15 @@ def instance(ref: str, subckt: str, cell: str, nets: dict[str, str]) -> str:
 
 
 def cmd_pex(args: argparse.Namespace) -> None:
-    """Delay of the drawn cell against the designed one, in a single run."""
+    """Delay of the drawn cell against the designed one, across load."""
     if not PEXLIST.exists():
         raise ngspice.DeckError(f"{PEXLIST.name} not found -- run `make pex` first")
     source = NETLIST.read_text()
-    sch = ngspice.subckt(source, CELL)
+    # Extraction does not write the source and drain sheet-resistance terms
+    # that the schematic instance carries. Left in, they slow one side only and
+    # the difference stops being the parasitics.
+    sch = re.sub(r"\s+nr[ds]=\S+", "", ngspice.subckt(source, CELL))
     pex = ngspice.subckt(PEXLIST.read_text(), CELL)
-
-    control = [".control", "set nomodcheck", f"tran {TRAN}"]
-    for tag in ("sch", "pex"):
-        control += [
-            f"meas tran fall_{tag} trig v(in) val={VDD / 2} rise=1 "
-            f"targ v(out_{tag}) val={VDD / 2} fall=1",
-            f"meas tran rise_{tag} trig v(in) val={VDD / 2} fall=1 "
-            f"targ v(out_{tag}) val={VDD / 2} rise=1",
-        ]
-    control.append(".endc")
 
     lines = [
         f".lib {ngspice.library(source)} {args.corner}",
@@ -140,28 +138,109 @@ def cmd_pex(args: argparse.Namespace) -> None:
         f"VDD vdd 0 {VDD}",
         f"VIN in 0 {PULSE}",
     ]
-    for tag, sub, cell in (("sch", sch, "inv_sch"), ("pex", pex, "inv_pex")):
-        # By name: an extracted subcircuit declares its terminals in a
-        # different order, and wiring by position miswires it silently.
-        lines.append(
-            instance(
-                f"X{tag}",
-                sub,
-                cell,
-                {"Vdd": "vdd", "out": f"out_{tag}", "in": "in", "Vss": "0"},
+    control = [".control", "set nomodcheck", f"tran {TRAN}"]
+    for i, load in enumerate(args.loads):
+        for tag, sub, cell in (("sch", sch, "inv_sch"), ("pex", pex, "inv_pex")):
+            node = f"out_{tag}{i}"
+            # By name: an extracted subcircuit declares its terminals in a
+            # different order, and wiring by position miswires it silently.
+            lines.append(
+                instance(
+                    f"X{tag}{i}",
+                    sub,
+                    cell,
+                    {"Vdd": "vdd", "out": node, "in": "in", "Vss": "0"},
+                )
             )
-        )
-        lines.append(f"C{tag} out_{tag} 0 {CLOAD}")
+            lines.append(f"C{tag}{i} {node} 0 {load}f")
+            control += [
+                f"meas tran fall_{tag}{i} trig v(in) val={VDD / 2} rise=1 "
+                f"targ v({node}) val={VDD / 2} fall=1",
+                f"meas tran rise_{tag}{i} trig v(in) val={VDD / 2} fall=1 "
+                f"targ v({node}) val={VDD / 2} rise=1",
+            ]
+    control.append(f"wrdata {WAVES.name} v(in) v(out_sch0) v(out_pex0)")
+    control.append(".endc")
     lines += ["", "\n".join(control), ".end", ""]
 
     got = ngspice.run("\n".join(lines), WORKDIR)
-    for edge in ("fall", "rise"):
-        a = got[f"{edge}_sch"][0]
-        b = got[f"{edge}_pex"][0]
+
+    rows = []
+    for i, load in enumerate(args.loads):
+        row = {"load_ff": load}
+        for edge in ("fall", "rise"):
+            row[f"{edge}_sch_ps"] = got[f"{edge}_sch{i}"][0] * 1e12
+            row[f"{edge}_pex_ps"] = got[f"{edge}_pex{i}"][0] * 1e12
+            row[f"{edge}_penalty_pct"] = (
+                100 * (row[f"{edge}_pex_ps"] - row[f"{edge}_sch_ps"]) / row[f"{edge}_sch_ps"]
+            )
+        rows.append(row)
         print(
-            f"{edge}  schematic={a * 1e12:7.2f} ps   extracted={b * 1e12:7.2f} ps   "
-            f"{100 * (b - a) / a:+.1f}%"
+            f"CL={load:>5g} fF   fall {row['fall_sch_ps']:6.1f} -> "
+            f"{row['fall_pex_ps']:6.1f} ps ({row['fall_penalty_pct']:+5.1f}%)   "
+            f"rise {row['rise_sch_ps']:6.1f} -> {row['rise_pex_ps']:6.1f} ps "
+            f"({row['rise_penalty_pct']:+5.1f}%)"
         )
+
+    with open(args.out, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"\n{args.out}\n{WAVES}")
+    if args.plot:
+        draw(rows, args.loads[0])
+
+
+def draw(rows: list[dict], smallest: float) -> None:
+    """Delay against load, and the waveform pair at the lightest load.
+
+    matplotlib is imported here rather than at module scope so this file stays
+    importable where it is not installed.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+
+    load = [r["load_ff"] for r in rows]
+    for edge, style in (("fall", "-"), ("rise", "--")):
+        ax1.plot(
+            load, [r[f"{edge}_sch_ps"] for r in rows], style, color="C0", label=f"{edge} schematic"
+        )
+        ax1.plot(
+            load, [r[f"{edge}_pex_ps"] for r in rows], style, color="C3", label=f"{edge} extracted"
+        )
+    ax1.set_xscale("log")
+    ax1.set_xlabel("load capacitance (fF)")
+    ax1.set_ylabel("propagation delay (ps)")
+    ax1.set_title("Delay vs load")
+    ax1.legend(fontsize=8)
+    ax1.grid(alpha=0.3)
+
+    cols = np.loadtxt(WAVES)
+    time, vin, vsch, vpex = cols[:, 0], cols[:, 1], cols[:, 3], cols[:, 5]
+
+    # One edge, not the whole run: the shift under study is a few picoseconds
+    # in a run of nanoseconds and is not visible at full scale.
+    edge = int(np.argmax(vin > VDD / 2))
+    lo, hi = time[edge] - WINDOW, time[edge] + WINDOW
+    keep = (time >= lo) & (time <= hi)
+
+    ax2.plot(time[keep] * 1e12, vin[keep], color="0.5", label="in")
+    ax2.plot(time[keep] * 1e12, vsch[keep], color="C0", label="out schematic")
+    ax2.plot(time[keep] * 1e12, vpex[keep], color="C3", label="out extracted")
+    ax2.axhline(VDD / 2, color="0.7", lw=0.8, ls=":")
+    ax2.set_xlabel("time (ps)")
+    ax2.set_ylabel("volts")
+    ax2.set_title(f"One falling edge at {smallest:g} fF")
+    ax2.legend(fontsize=8)
+    ax2.grid(alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig(PLOT, dpi=130)
+    print(PLOT)
 
 
 def cmd_sweep(args: argparse.Namespace) -> None:
@@ -285,6 +364,15 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     x.add_argument("--corner", default="tt", help="model library section")
+    x.add_argument(
+        "--loads",
+        type=float,
+        nargs="+",
+        default=[1, 2, 5, 10, 20, 50],
+        help="load capacitances to try, fF",
+    )
+    x.add_argument("--plot", action="store_true", help="also draw a figure")
+    x.add_argument("--out", default=WORKDIR / "pex_delay.csv", help="one row per load")
     x.set_defaults(func=cmd_pex)
 
     args = parser.parse_args()
