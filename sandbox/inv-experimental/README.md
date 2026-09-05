@@ -15,8 +15,9 @@ writes to it.
 | `make drc` | geometry rules; must report zero |
 | `make lvs` | compare the layout against the schematic |
 | `make pex` | extract parasitics into a simulatable netlist |
-| `make clean` | extraction and comparison products only, never sources |
-| `make` | layout, then drc, then lvs |
+| `make sim` | delay of the drawn cell against the designed one |
+| `make clean` | build products only, never sources |
+| `make` | all of the above, in that order |
 
 `make drc` runs in its own magic process on purpose. Counting in the session
 that built the cell reports the checks queued while building it rather than the
@@ -54,17 +55,36 @@ expand
 `make layout` overwrites whatever was saved. To change the cell, change the
 generator.
 
-## Pointing a testbench at the extracted netlist
+## How the cell is put together
 
-The extracted subcircuit does not take its ports in the schematic's order, so
-the two are not interchangeable and a netlist swap miswires every net without
-complaining. A symbol whose pin order matches the extracted subcircuit, holding
-`spice_sym_def=".include inv.pex.spice"`, is what a post-layout testbench
-instantiates. The upstream example carries one to copy.
+Both devices keep their guard ring: it is the bulk tie, and a floating bulk is
+the first thing LVS rejects. What is dropped is the solid metal over that ring,
+which otherwise leaves nothing routed out of the device anywhere to go. One
+edge of each ring is carried up to metal1 instead and serves as that device's
+supply rail, leaving the other three as local interconnect, free to be crossed.
 
-The parasitics worth reading are the ones with no schematic counterpart at all:
-the schematic netlist holds no capacitors, so gate-to-drain feedback exists
-only after extraction.
+The gate contacts are placed facing each other, so the input is a single
+column. The output cannot share that column, so it steps aside and climbs
+outside it. Each source runs outward onto its own guard ring, at the same
+offset within its own device's frame, which keeps the two halves symmetric.
+
+The pad coordinates in the generator are read out of the generated device
+cells. They are not derivable and not stable: change a device parameter and
+they move, so re-read them rather than adjusting them by hand.
+
+## Comparing the drawn cell against the designed one
+
+`make sim` puts both subcircuits in one deck, drives them from one source into
+equal loads, and measures both. The parasitics are then the only difference
+between the two results.
+
+The extracted subcircuit does not declare its terminals in the schematic's
+order, so wiring either up by position miswires it without complaining. Both
+are wired by terminal name instead.
+
+The parasitics worth reading are the ones with no schematic counterpart: that
+netlist holds no capacitors at all, so gate-to-drain feedback exists only once
+there are shapes.
 
 ## Why there are device cells in this directory
 
@@ -73,10 +93,11 @@ cells, not library cells. sky130's transistors are parameterised, so no drawn
 cell exists in the PDK for a given width, length, finger count and guard ring
 choice. Magic synthesises one on demand and names it by a suffix.
 
-They are outputs of the generator, and `inv.mag` refers to them by name, so
-they live beside it and are committed with it. Deleting one leaves `inv.mag`
-referring to a cell that cannot be read, which is what an empty layout with two
-missing children looks like.
+They are outputs of the generator, which rebuilds them and `inv.mag` together
+and bit-identically -- same cell names, same geometry -- so none of the three is
+committed. Deleting one on its own leaves `inv.mag` naming a cell that cannot be
+read, which is what an empty layout with two named boxes looks like; `make
+layout` restores the set.
 
 ## Checking the device sizing
 

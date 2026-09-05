@@ -11,3 +11,10 @@ netgen.log
 *.lvs.report
 *.pex.spice
 *.pex.log
+
+# The layout regenerates bit-identically from gen_inv.tcl, so the generator is
+# the only source of truth for it. A committed copy could fall behind an edited
+# generator and still pass every check, which is the one state worth making
+# unrepresentable. All three rebuild together; none is committed.
+inv.mag
+sky130_fd_pr__*fet_01v8_*.mag

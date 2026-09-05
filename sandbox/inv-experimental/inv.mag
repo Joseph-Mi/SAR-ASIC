@@ -1,7 +1,7 @@
 magic
 tech sky130A
 magscale 1 2
-timestamp 1788413433
+timestamp 1788642681
 << checkpaint >>
 rect -1471 -1539 1471 2344
 << metal1 >>
@@ -12,11 +12,11 @@ rect -29 101 29 695
 rect -120 23 -21 69
 rect 21 -249 67 -119
 use sky130_fd_pr__nfet_01v8_Q2DK6P  nmos0
-timestamp 1788413433
+timestamp 1788642681
 transform 1 0 0 0 1 0
 box -211 -279 211 279
 use sky130_fd_pr__pfet_01v8_WYDX9M  pmos0
-timestamp 1788413433
+timestamp 1788642681
 transform 1 0 0 0 1 800
 box -211 -284 211 284
 << labels >>

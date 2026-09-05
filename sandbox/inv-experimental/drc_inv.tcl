@@ -1,8 +1,5 @@
-# Checks the written layout. Deliberately a separate magic run: counting in
-# the session that built the cell reports checks queued during construction
-# rather than the state of what reached disk.
-#
-#   magic -dnull -noconsole drc_inv.tcl
+# A separate run from the one that built the cell: counting in that session
+# reports checks queued during construction, not what reached disk.
 
 drc on
 drc euclidean on

@@ -1,18 +1,5 @@
-# Builds the inverter layout from nothing, headlessly and reproducibly.
-#
-#   magic -dnull -noconsole gen_inv.tcl
-#
-# Units are the trap here. Coordinates handed to magic are lambda; coordinates
-# magic reports, and the ones in a .mag file, are internal units, twice as fine.
-# Everything below is held in internal units and converted on the way out, so
-# the numbers in this file can be compared directly against a .mag.
-#
-# The guard ring stays on both devices -- it is the bulk tie, and a floating
-# bulk is the first thing LVS rejects. What is dropped is the solid metal ring
-# over it, which leaves nothing routed out of the device anywhere to go.
-# Instead a single edge of each ring is carried up to metal1: the bottom edge
-# on the NMOS, the top edge on the PMOS. That edge is then the supply rail, and
-# the remaining three stay local interconnect, free to be crossed.
+# Coordinates given to magic are lambda; coordinates magic reports are internal
+# units, twice as fine. Everything here is internal, converted on the way out.
 
 set DY 800
 
@@ -20,8 +7,6 @@ set N_HALF_Y 226
 set P_HALF_Y 231
 set HALF_X   158
 
-# Pads of the generated devices, relative to each device origin, {x1 y1 x2 y2}.
-# Read out of the device cells, not assumed: different parameters move them.
 set N_B  {-153 -249  153 -203}
 set N_D  { -67 -131  -21   69}
 set N_S  {  21 -131   67   69}
@@ -48,9 +33,6 @@ proc rel {pad dy} {
     list $x1 [expr {$y1 + $dy}] $x2 [expr {$y2 + $dy}]
 }
 
-# A device lands with its fixed bounding box centred on the point given, so the
-# placement is a pure function of the box and needs no move afterwards. The
-# assertion is what catches a parameter change that resizes that box.
 proc place {gencell inst ox oy hx hy params} {
     ibox [expr {$ox - $hx}] [expr {$oy - $hy}] [expr {$ox - $hx}] [expr {$oy - $hy}]
     eval [list magic::gencell $gencell $inst] $params
@@ -84,11 +66,8 @@ lassign [rel $P_D $DY] pdx1 pdy1 pdx2 pdy2
 lassign [rel $P_S $DY] psx1 psy1 psx2 psy2
 lassign [rel $P_B $DY] pbx1 pby1 pbx2 pby2
 
-# The gate contacts were placed facing each other, so the input is one column.
 strap $ngx1 $ngy1 $ngx2 $pgy2
 
-# The output cannot share that column, so it steps left of the gate and climbs
-# outside it. OUT_X is clear of both the gate strap and the drain pads.
 set OUT_X1 -120
 set OUT_X2  -92
 set STUB 46
@@ -96,16 +75,13 @@ strap $OUT_X1 [expr {$ndy2 - $STUB}] $ndx2 $ndy2
 strap $OUT_X1 [expr {$ndy2 - $STUB}] $OUT_X2 [expr {$pdy1 + $STUB + 24}]
 strap $OUT_X1 [expr {$pdy1 + 24}] $pdx2 [expr {$pdy1 + $STUB + 24}]
 
-# Each source runs outward onto its own guard ring, which carries the rail.
-# Both take the same offset within their own device's frame.
 strap $nsx1 $nby1 $nsx2 [expr {$nsy1 + 12}]
 strap $psx1 [expr {$psy2 - 12}] $psx2 $pby2
 
 pin in  0 [expr {($ngy2 + $pgy1) / 2}]
 pin out [expr {($OUT_X1 + $OUT_X2) / 2}] [expr {($ndy2 + $pdy1) / 2}]
-# The rails are labelled on the parent's own source straps. The guard-ring
-# metal they land on belongs to the device cell, and a label placed over it
-# from here attaches to empty space instead of to the net.
+# A label attaches to empty space unless the metal beneath it belongs to this
+# cell rather than to a child.
 pin Vss [expr {($nsx1 + $nsx2) / 2}] [expr {($nby1 + $nby2) / 2}]
 pin Vdd [expr {($psx1 + $psx2) / 2}] [expr {($psy2 + $pby2) / 2}]
 

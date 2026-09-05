@@ -281,7 +281,8 @@ that by widening the device does not work: width moves the trip point too, so
 the two legs are measured at different operating points and the ratio comes out
 wrong in a way that looks like a broken model.
 
-Scale multiplicity instead. The PDK spends its mismatch as
+Scale multiplicity instead of width or length: all three raise area, but only
+multiplicity leaves the trip point and every bias where they were. The PDK spends its mismatch as
 `slope/sqrt(l*w*mult)`, so replicating a device raises area exactly as widening
 it does — but current density, trip point and every bias hold still. The means
 of the two legs landing on top of each other is the evidence that nothing but

@@ -2,10 +2,6 @@
 
 Contract: the testbench must have been netlisted, and that netlist must still
 define the cell as an instantiable subcircuit.
-
-The netlist supplies the model library and the cell; the deck is built here.
-Nothing writes back to the schematic, so a run that dies partway cannot leave a
-half-edited cell behind.
 """
 
 from __future__ import annotations
@@ -14,6 +10,7 @@ import argparse
 import csv
 import itertools
 import pathlib
+import re
 import statistics
 import sys
 
@@ -24,12 +21,16 @@ from tools import netlist, ngspice, sky130  # noqa: E402
 HERE = pathlib.Path(__file__).parent
 WORKDIR = HERE / "simulation"
 NETLIST = WORKDIR / "tb_inv.spice"
+PEXLIST = HERE / "inv.pex.spice"
 CELL = "inv"
 
 VDD = 1.8
 CLOAD = "10f"
 VIN_STEP = 0.005
 NOMINAL_TEMP = 27
+EDGE = "100p"
+PULSE = f"pulse 0 {VDD} 1n {EDGE} {EDGE} 5n 10n"
+TRAN = "5p 20n"
 
 
 class Point:
@@ -102,6 +103,67 @@ def mc_control(points: list[Point], runs: int) -> str:
     return "\n".join([*lines, "  let k = k + 1", "end", ".endc"])
 
 
+def rename(subckt: str, new: str) -> str:
+    return re.sub(rf"(?m)^(\.subckt\s+){re.escape(CELL)}\b", rf"\g<1>{new}", subckt)
+
+
+def instance(ref: str, subckt: str, cell: str, nets: dict[str, str]) -> str:
+    return f"{ref} " + " ".join(nets[p] for p in ngspice.ports(subckt)) + f" {cell}"
+
+
+def cmd_pex(args: argparse.Namespace) -> None:
+    """Delay of the drawn cell against the designed one, in a single run."""
+    if not PEXLIST.exists():
+        raise ngspice.DeckError(f"{PEXLIST.name} not found -- run `make pex` first")
+    source = NETLIST.read_text()
+    sch = ngspice.subckt(source, CELL)
+    pex = ngspice.subckt(PEXLIST.read_text(), CELL)
+
+    control = [".control", "set nomodcheck", f"tran {TRAN}"]
+    for tag in ("sch", "pex"):
+        control += [
+            f"meas tran fall_{tag} trig v(in) val={VDD / 2} rise=1 "
+            f"targ v(out_{tag}) val={VDD / 2} fall=1",
+            f"meas tran rise_{tag} trig v(in) val={VDD / 2} fall=1 "
+            f"targ v(out_{tag}) val={VDD / 2} rise=1",
+        ]
+    control.append(".endc")
+
+    lines = [
+        f".lib {ngspice.library(source)} {args.corner}",
+        ".param mc_mm_switch=0",
+        ".param mc_pr_switch=0",
+        "",
+        rename(sch, "inv_sch"),
+        rename(pex, "inv_pex"),
+        "",
+        f"VDD vdd 0 {VDD}",
+        f"VIN in 0 {PULSE}",
+    ]
+    for tag, sub, cell in (("sch", sch, "inv_sch"), ("pex", pex, "inv_pex")):
+        # By name: an extracted subcircuit declares its terminals in a
+        # different order, and wiring by position miswires it silently.
+        lines.append(
+            instance(
+                f"X{tag}",
+                sub,
+                cell,
+                {"Vdd": "vdd", "out": f"out_{tag}", "in": "in", "Vss": "0"},
+            )
+        )
+        lines.append(f"C{tag} out_{tag} 0 {CLOAD}")
+    lines += ["", "\n".join(control), ".end", ""]
+
+    got = ngspice.run("\n".join(lines), WORKDIR)
+    for edge in ("fall", "rise"):
+        a = got[f"{edge}_sch"][0]
+        b = got[f"{edge}_pex"][0]
+        print(
+            f"{edge}  schematic={a * 1e12:7.2f} ps   extracted={b * 1e12:7.2f} ps   "
+            f"{100 * (b - a) / a:+.1f}%"
+        )
+
+
 def cmd_sweep(args: argparse.Namespace) -> None:
     points = [
         Point(i, wn, wp, length)
@@ -137,8 +199,6 @@ def cmd_sweep(args: argparse.Namespace) -> None:
 
 
 def cmd_mc(args: argparse.Namespace) -> None:
-    # Multiplicity, not width or length: all three raise area, but only
-    # multiplicity leaves the trip point and every bias where they were.
     points = [Point(0, args.wn, args.wp, args.l)]
     if args.pelgrom > 1:
         points.append(Point(1, args.wn, args.wp, args.l, args.pelgrom))
@@ -218,6 +278,14 @@ def main() -> None:
     )
     m.add_argument("--out", default=WORKDIR / "mc_vm.csv", help="one row per draw")
     m.set_defaults(func=cmd_mc)
+
+    x = sub.add_parser(
+        "pex",
+        help="delay of the drawn cell against the designed one",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    x.add_argument("--corner", default="tt", help="model library section")
+    x.set_defaults(func=cmd_pex)
 
     args = parser.parse_args()
     args.func(args)

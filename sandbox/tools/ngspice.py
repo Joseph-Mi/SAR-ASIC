@@ -2,10 +2,6 @@
 
 Contract: a deck handed to `run` prints its results through `meas` or `print`,
 and the caller owns a writable working directory for the scratch file.
-
-Selecting the model library costs far more than any analysis and is paid per
-process, so a sweep belongs in one deck and a Monte Carlo in a loop around
-`reset`.
 """
 
 from __future__ import annotations
@@ -15,9 +11,8 @@ import pathlib
 import re
 import subprocess
 
-#: ngspice opens every result with "name = value" at a line start. The name is
-#: captured whole so one measurement is not read as another whose name it ends;
-#: the line is not end-anchored because min and max trail their sweep position.
+#: Names are captured whole so one result is not read as another whose name it
+#: ends; not end-anchored because min and max trail their sweep position.
 RESULT = re.compile(r"^\s*(\w+)\s*=\s*([-+\d.eE]+)", re.M)
 
 LIBRARY = re.compile(r"^\.lib\s+(\S*sky130\.lib\.spice)\s+\w+\s*$", re.M)
@@ -41,6 +36,16 @@ def subckt(netlist: str, name: str) -> str:
     if not found:
         raise DeckError(f"netlist defines no subcircuit named {name}")
     return found.group(0)
+
+
+def ports(subckt: str) -> list[str]:
+    """The terminal names of a subcircuit, in the order it declares them.
+
+    An extracted subcircuit rarely lists its terminals in the order the
+    schematic did. Wiring one up by position silently miswires it, so callers
+    map by name and take the order from here.
+    """
+    return re.match(r"^\.subckt\s+\S+\s+(.*)$", subckt, re.M).group(1).split()
 
 
 def run(deck: str, workdir: pathlib.Path) -> dict[str, list[float]]:
