@@ -4,19 +4,14 @@ from __future__ import annotations
 
 MOSFET = r"sky130_fd_pr__[np]fet_01v8"
 
-#: Diffusion extension past the gate, micrometres, as the PDK's own symbol
-#: expressions spend it.
 DIFF_EXT = 0.29
 
 
 def mosfet(w: float, length: float, mult: int = 1, nf: int = 1) -> dict[str, float]:
     """Core FET parameters, with junction geometry derived from the width.
 
-    Stale junction area and perimeter would carry the wrong capacitance into a
-    transient, so both are recomputed rather than carried over.
-
-    Width and length go on the subcircuit call where the PDK wrapper sees them:
-    its mismatch terms are drawn against the geometry it was called with.
+    The PDK wrapper draws its mismatch terms against the geometry it is called
+    with, so width and length belong on the subcircuit call.
     """
     return {
         "L": length,
