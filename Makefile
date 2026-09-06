@@ -22,7 +22,8 @@ VERILATOR    ?= verilator
 RUFF         ?= ruff
 YOSYS        ?= yosys
 VERIBLE_FMT  ?= verible-verilog-format
-VERIBLE_LINT ?= verible-verilog-lint --rules_config=hdl/lint/verible.rules
+VERIBLE_LINT ?= verible-verilog-lint
+VERIBLE_LINT_FLAGS ?= --rules_config=hdl/lint/verible.rules
 
 # Container. DESIGNS is bind-mounted to /foss/designs, so it must be the PARENT
 # of this repo -- that is what puts us at /foss/designs/$(DESIGN_NAME) inside.
@@ -223,7 +224,7 @@ lint: lint-rtl lint-py
 ## lint-rtl: verilator lint, verible style lint, yosys structural check
 lint-rtl:
 	@for f in $(RTL_SOURCES); do echo "lint $$f"; $(VERILATOR_LINT) --top-module $$(basename $$f .v) $$f || exit 1; done
-	@if [ -n "$(RTL_SOURCES)" ]; then $(VERIBLE_LINT) $(RTL_SOURCES); fi
+	@if [ -n "$(RTL_SOURCES)" ]; then $(VERIBLE_LINT) $(VERIBLE_LINT_FLAGS) $(RTL_SOURCES); fi
 	@if [ -n "$(RTL_SOURCES)" ]; then $(YOSYS) -qp "$(YOSYS_CHECK)"; fi
 
 ## lint-py: ruff

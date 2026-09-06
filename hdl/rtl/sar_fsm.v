@@ -24,12 +24,13 @@ module sar_fsm #(
   localparam integer N_STATES = 4;
   localparam integer ST_W = $clog2(N_STATES);
 
-  localparam [ST_W-1:0] ST_IDLE = 2'd0;
-  localparam [ST_W-1:0] ST_SAMPLE = 2'd1;
-  localparam [ST_W-1:0] ST_TRIAL = 2'd2;
-  localparam [ST_W-1:0] ST_DONE = 2'd3;
+  localparam [ST_W-1:0] ST_IDLE = 0;
+  localparam [ST_W-1:0] ST_SAMPLE = 1;
+  localparam [ST_W-1:0] ST_TRIAL = 2;
+  localparam [ST_W-1:0] ST_DONE = 3;
 
-  localparam integer IDX_W = $clog2(N_BITS);
+  // $clog2 is zero at a width of one, which would declare a null vector.
+  localparam integer IDX_W = (N_BITS > 1) ? $clog2(N_BITS) : 1;
 
   reg [ST_W-1:0] state, next_state;
   reg [IDX_W-1:0] bit_index;
@@ -96,8 +97,8 @@ module sar_fsm #(
             dac_b_o <= cmp_out_i ? trial : settled;
             code_o  <= cmp_out_i ? trial : settled;
           end else begin
-            dac_b_o <= (cmp_out_i ? trial : settled)
-                       | ({{(N_BITS-1){1'b0}}, 1'b1} << (bit_index - {{(IDX_W-1){1'b0}}, 1'b1}));
+            dac_b_o <= (cmp_out_i ? trial : settled) |
+                ({{(N_BITS - 1) {1'b0}}, 1'b1} << (bit_index - {{(IDX_W - 1) {1'b0}}, 1'b1}));
             bit_index <= bit_index - {{(IDX_W - 1) {1'b0}}, 1'b1};
           end
         end
