@@ -180,7 +180,8 @@ Two things that are easy to get wrong:
 
 - **M0** — Container running, `tt06-analog-relax-osc` LVS test clean, tag recorded.
 - **M1** — Python Monte Carlo model: unit cap size, resolution, MiM vs VPP decided.
-- **M2** — Interface frozen: 11 wires, Xschem `.sym` committed, ports locked.
+- **M2** — Interface frozen: declared once, Xschem `.sym` committed and checked
+  against it, floorplan budget fixed.
 - **M3** — Architecture converges in ngspice with ideal switches and comparator.
 - **M4** — Digital half: FSM, SPI, clock divider, all six DFT modes, cocotb green.
 - **M5** — StrongARM sized, Monte Carlo offset known, preamp decision made.
