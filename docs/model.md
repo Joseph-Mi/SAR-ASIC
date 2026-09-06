@@ -179,8 +179,8 @@ grep -n carea \
   $PDK_ROOT/$PDK/libs.tech/combined/continuous/models_capacitors.spice
 ```
 
-The coefficient is the term divided by `sqrt(wc*lc*mult)`, in
-percent-micrometres. VPP states its own in the same shape, close enough to
+The coefficient is the constant multiplying `1/sqrt(wc*lc*mult)` in the
+capacitance expression, in percent-micrometres. VPP states its own in the same shape, close enough to
 MiM's that one value serves both. What the model uses is `SKY130_CAP_A_C`; this
 document deliberately does not repeat the number, because then there would be
 two of them.
@@ -196,9 +196,10 @@ number came from matters more than the digits do.
 
 Three things make it easy to miss, all of which cost me time:
 
-- It lives under `libs.ref/sky130_fd_pr/spice/`. The files under
-  `libs.tech/ngspice/` only `.include` those, so grepping there finds nothing
-  and looks like proof that no matching data exists.
+- The tree that ships it is not the one most paths lead to. `libs.tech/ngspice/`
+  only `.include`s the superseded originals, so grepping either that directory
+  or the continuous models for the other's spelling finds nothing and looks
+  like proof that no matching data exists.
 - `mc_mm_switch` defaults to **0**. Without setting it, every device is
   nominal, a Monte Carlo shows exactly zero spread, and the obvious conclusion
   is wrong.

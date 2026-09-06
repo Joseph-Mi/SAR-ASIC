@@ -351,12 +351,12 @@ def cmd_mc(args: argparse.Namespace) -> None:
             for v in draws:
                 writer.writerow([p.wn, p.wp, p.length, p.mult, args.corner, v])
 
-    if args.plot:
-        draw_mc(spread)
     if len(sigmas) == 2:
         area = points[1].mult / points[0].mult
         print(f"\nsigma ratio {sigmas[0] / sigmas[1]:.3f}  (Pelgrom predicts {area**0.5:.3f})")
     print(f"draws -> {args.out}")
+    if args.plot:
+        draw_mc(spread)
 
 
 def main() -> None:

@@ -41,7 +41,7 @@ class Study:
     """Every knob, named once."""
 
     resolutions: tuple[int, ...] = (8, 10, 12)
-    sigmas: tuple[float, ...] = (0.005, 0.010, 0.015, 0.020, 0.030, 0.040)
+    sigmas: tuple[float, ...] = (0.001, 0.002, 0.005, 0.010, 0.020, 0.040)
     trials: int = 10000
     # ENOB costs an FFT per array rather than a matmul per batch, so it is
     # measured on a subset. The spread across arrays is small next to the
