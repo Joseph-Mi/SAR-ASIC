@@ -173,15 +173,26 @@ it. It is inside the device subcircuits, as a term proportional to
 Read the current value straight out of the PDK rather than from here:
 
 ```bash
-grep -n czero \
-  $PDK_ROOT/$PDK/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__cap_mim_m3_1.model.spice
+grep -n sw_mm_cmim \
+  $PDK_ROOT/$PDK/libs.tech/combined/continuous/models_global.spice
+grep -n carea \
+  $PDK_ROOT/$PDK/libs.tech/combined/continuous/models_capacitors.spice
 ```
 
-The coefficient is the constant multiplying `(carea + cperim)/sqrt(wc*lc*mf)`,
-in percent-micrometres. VPP states its own in the same shape, close enough to
+The coefficient is the term divided by `sqrt(wc*lc*mult)`, in
+percent-micrometres. VPP states its own in the same shape, close enough to
 MiM's that one value serves both. What the model uses is `SKY130_CAP_A_C`; this
 document deliberately does not repeat the number, because then there would be
 two of them.
+
+**Read it from the continuous models, not the originals.** The process ships two
+sets. The originals are micro-binned -- characterised at particular widths and
+lengths, and by SkyWater's own note able to "diverge considerably" at other
+sizes, which is every size an array picks for itself. The continuous set was
+recharacterised to be valid across geometry and replaces them; the PDK's own
+xschem configuration selects it, and the originals are left orphaned. The two
+state matching coefficients that differ by roughly six times, so which tree the
+number came from matters more than the digits do.
 
 Three things make it easy to miss, all of which cost me time:
 

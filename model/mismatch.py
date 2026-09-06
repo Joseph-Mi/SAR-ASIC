@@ -66,7 +66,7 @@ def row_major(n_bits: int) -> np.ndarray:
 
 
 # Capacitor matching coefficient, percent-micrometres.
-SKY130_CAP_A_C = 2.8
+SKY130_CAP_A_C = 0.47
 
 
 def sigma_from_area(area, a_c: float) -> float:
