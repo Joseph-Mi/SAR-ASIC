@@ -1,8 +1,8 @@
-# 8-bit SAR ADC (Tiny Tapeout, Sky130)
+# SAR ADC (Tiny Tapeout, Sky130)
 
 ## What we're building
 
-A mixed-signal 8-bit charge-redistribution SAR ADC on a Tiny Tapeout analog tile
+A mixed-signal charge-redistribution SAR ADC on a Tiny Tapeout analog tile
 (2x2, fallback 1x2). A binary-weighted capacitor array serves as both
 sample-and-hold and internal DAC; a StrongARM latch comparator makes bit
 decisions; a Verilog FSM runs the binary search and hands results out over the
@@ -179,8 +179,9 @@ Two things that are easy to get wrong:
 ## Milestones
 
 - **M0** — Container running, `tt06-analog-relax-osc` LVS test clean, tag recorded.
-- **M1** — Python Monte Carlo model: unit cap size, 8 vs 10 bit, MiM vs VPP decided.
-- **M2** — Interface frozen: 11 wires, Xschem `.sym` committed, ports locked.
+- **M1** — Python Monte Carlo model: unit cap size, resolution, MiM vs VPP decided.
+- **M2** — Interface frozen: declared once, Xschem `.sym` committed and checked
+  against it, floorplan budget fixed.
 - **M3** — Architecture converges in ngspice with ideal switches and comparator.
 - **M4** — Digital half: FSM, SPI, clock divider, all six DFT modes, cocotb green.
 - **M5** — StrongARM sized, Monte Carlo offset known, preamp decision made.
@@ -204,7 +205,7 @@ Digital -> analog:
 
 | Wire | Meaning |
 |---|---|
-| `dac_b[7:0]` | bottom-plate select per binary branch (VREF or GND) |
+| `dac_b` | bottom-plate select, one per binary branch (VREF or GND) |
 | `sample` | sampling phase, drives bottom-plate sampling switches |
 | `cmp_clk` | StrongARM strobe (rising = evaluate, low = precharge) |
 
@@ -214,24 +215,31 @@ Analog -> digital:
 |---|---|
 | `cmp_out`, `cmp_out_n` | differential latch outputs; equal = metastable |
 
-Eleven wires. Freeze the `.sym` around that and the two halves decouple.
+The bus is as wide as the resolution, and neither its width nor the number of
+wires is written down twice: the interface module declares them, the symbol is
+drawn to match, and a test fails when the two disagree. Freeze the `.sym`
+around this and the two halves decouple.
 
 ---
 
 ## Key numbers
 
-Worst-case DNL is at the MSB transition (code 127->128), where every LSB cap
+Worst-case DNL is at the MSB transition, where every LSB cap
 switches off and the MSB switches on — no shared devices, mismatch maximally
 exposed:
 
     sigma_DNL_MSB = sqrt(2^N - 1) * (sigma_u / C_u)   [LSB]
 
-N=8 gives sqrt(255) ~ 16x amplification. Wanting 3-sigma < 1 LSB means
-sigma_u/C_u < ~2%, which is loose. N=10 gives ~32x *and* quarters the LSB — that
-is why 10 bits is much harder, and the model should confirm it before we commit.
+Amplification therefore grows with resolution, and each added bit shrinks the
+LSB as well, which is why raising resolution costs more than it first appears.
+The model sweeps this rather than asserting it; read the committed study for
+where the trade lands, and do not restate its numbers here.
 
-kT/C is a non-issue at 8 bits: sigma_noise < LSB/6 ~ 1.2 mV needs only
-C_total > ~3 fF. Matching and manufacturability set the unit cap, not noise.
+Whether kT/C matters is a function of resolution: the noise budget scales with
+the square of the LSB, so a constraint that is irrelevant at low resolution
+becomes real a few bits up. At the resolutions under consideration the unit
+capacitor is set by the smallest geometry the process will draw, not by
+matching and not by noise -- both have margin at minimum size.
 
 ---
 
@@ -262,7 +270,7 @@ make shell first, then:
     /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
   /sky130_fd_pr__cap_mim_m3_1.model.spice
 
-  # The VPP equivalent, same shape, quotes 0.0283
+  # The VPP equivalent, same shape
   grep -n 'ctot_a =' \
     /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
   /sky130_fd_pr__cap_vpp_04p4x04p6_m1m2_noshield.m
