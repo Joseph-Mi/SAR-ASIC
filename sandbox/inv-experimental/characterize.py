@@ -26,6 +26,7 @@ NETLIST = WORKDIR / "tb_inv.spice"
 PEXLIST = HERE / "inv.pex.spice"
 WAVES = WORKDIR / "pex_waves.csv"
 PLOT = WORKDIR / "pex_compare.png"
+MC_PLOT = WORKDIR / "mc_spread.png"
 CELL = "inv"
 
 VDD = 1.8
@@ -191,6 +192,52 @@ def cmd_pex(args: argparse.Namespace) -> None:
         draw(rows, args.loads[0])
 
 
+def draw_mc(spread: list[tuple[str, list[float]]]) -> None:
+    """The distribution, and how well a run of this length pins its own width.
+
+    matplotlib is imported here rather than at module scope so this file stays
+    importable where it is not installed.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+
+    for i, (label, draws) in enumerate(spread):
+        mv = np.array(draws) * 1e3
+        sigma = mv.std()
+        ax1.hist(mv, bins=25, alpha=0.55, color=f"C{i}", label=f"{label}  sigma={sigma:.2f} mV")
+        ax1.axvline(mv.mean(), color=f"C{i}", lw=1.2, ls="--")
+        run = np.array([mv[: n + 1].std() for n in range(len(mv))])
+        n = np.arange(1, len(mv) + 1)
+        ax2.plot(n, run, color=f"C{i}", label=label)
+        ax2.fill_between(
+            n,
+            sigma * (1 - 1 / np.sqrt(2 * n)),
+            sigma * (1 + 1 / np.sqrt(2 * n)),
+            color=f"C{i}",
+            alpha=0.15,
+        )
+
+    ax1.set_xlabel("trip point (mV)")
+    ax1.set_ylabel("draws")
+    ax1.set_title("Distribution of Vm under device mismatch")
+    ax1.legend(fontsize=8)
+    ax1.grid(alpha=0.3)
+
+    ax2.set_xlabel("draws")
+    ax2.set_ylabel("running sigma (mV)")
+    ax2.set_title("How well a run of this length pins its own spread")
+    ax2.legend(fontsize=8)
+    ax2.grid(alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig(MC_PLOT, dpi=130)
+    print(MC_PLOT)
+
+
 def draw(rows: list[dict], smallest: float) -> None:
     """Delay against load, and the waveform pair at the lightest load.
 
@@ -285,6 +332,7 @@ def cmd_mc(args: argparse.Namespace) -> None:
     got = ngspice.run(deck(points, args.corner, True, mc_control(points, args.runs)), WORKDIR)
 
     sigmas = []
+    spread = []
     with open(args.out, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["wn", "wp", "l", "mult", "corner", "vm"])
@@ -293,6 +341,7 @@ def cmd_mc(args: argparse.Namespace) -> None:
             if len(draws) != args.runs:
                 raise ngspice.DeckError(f"asked for {args.runs} draws, deck returned {len(draws)}")
             sigmas.append(statistics.pstdev(draws))
+            spread.append((f"Wn={p.wn:g} Wp={p.wp:g} mult={p.mult}", draws))
             print(
                 f"Wn={p.wn:g} Wp={p.wp:g} ratio={p.wp / p.wn:g} L={p.length:g} "
                 f"mult={p.mult}  n={len(draws)}  "
@@ -306,6 +355,8 @@ def cmd_mc(args: argparse.Namespace) -> None:
         area = points[1].mult / points[0].mult
         print(f"\nsigma ratio {sigmas[0] / sigmas[1]:.3f}  (Pelgrom predicts {area**0.5:.3f})")
     print(f"draws -> {args.out}")
+    if args.plot:
+        draw_mc(spread)
 
 
 def main() -> None:
@@ -355,6 +406,7 @@ def main() -> None:
         default=1,
         help="also run with multiplicity scaled by this, to check sigma falls by its root",
     )
+    m.add_argument("--plot", action="store_true", help="also draw a figure")
     m.add_argument("--out", default=WORKDIR / "mc_vm.csv", help="one row per draw")
     m.set_defaults(func=cmd_mc)
 

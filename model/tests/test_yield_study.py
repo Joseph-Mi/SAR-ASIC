@@ -7,6 +7,9 @@ import pytest
 from metrics import sigma_dnl_msb_analytic
 from yield_study import BASELINE, Study, format_table, rng_for, sweep
 
+#: Failures a point needs before its rate is worth comparing against another's.
+MIN_EVENTS_FOR_RATIO = 100
+
 
 @pytest.fixture(scope="module")
 def study():
@@ -55,15 +58,26 @@ def test_missing_codes_only_get_worse_as_matching_degrades(study, rows):
         assert p == sorted(p)
 
 
-def test_ten_bits_costs_a_factor_of_two_in_matching(rows):
+def test_ten_bits_costs_a_factor_of_two_in_matching(study, rows):
     """M1's actual question. Two more bits double the mismatch amplification,
-    so the same yield needs half the sigma -- not a quarter, not an eighth."""
+    so the same yield needs half the sigma -- not a quarter, not an eighth.
+
+    The points come from the sweep rather than being written down, and only
+    where enough arrays failed for a ratio to mean anything: a handful of
+    events carries counting noise wider than the effect under test.
+    """
     by_point = {(r["n_bits"], round(r["sigma_rel"], 6)): r["p_missing"] for r in rows}
-    for sigma in (0.015, 0.020):
-        ten = by_point[(10, sigma)]
-        eight = by_point[(8, round(2 * sigma, 6))]
-        assert ten > 0.0
+    compared = 0
+    for sigma in sorted({round(r["sigma_rel"], 6) for r in rows}):
+        ten = by_point.get((10, sigma))
+        eight = by_point.get((8, round(2 * sigma, 6)))
+        if ten is None or eight is None:
+            continue
+        if min(ten, eight) * study.trials < MIN_EVENTS_FOR_RATIO:
+            continue
+        compared += 1
         assert np.isclose(ten, eight, rtol=0.5)
+    assert compared, "sweep spans no sigma pair with enough failures to compare"
 
 
 def test_the_analytic_ratio_is_what_drives_that(study):

@@ -66,7 +66,13 @@ def row_major(n_bits: int) -> np.ndarray:
 
 
 # Capacitor matching coefficient, percent-micrometres.
-SKY130_CAP_A_C = 2.8
+SKY130_CAP_A_C = 0.47
+
+# Smallest unit the process will draw, square micrometres, per flavour. Matching
+# improves with area, so the smaller of these is the worst matching an array can
+# be built to have: no unit can be made small enough to do worse.
+SKY130_CAP_MIN_AREA_MIM = 4.00
+SKY130_CAP_MIN_AREA_VPP = 3.24
 
 
 def sigma_from_area(area, a_c: float) -> float:
