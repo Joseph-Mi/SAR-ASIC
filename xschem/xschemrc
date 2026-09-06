@@ -1,0 +1,10 @@
+# Read by xschem when launched from this directory, INSTEAD of ~/.xschem/xschemrc
+# -- so the PDK rc must be sourced explicitly or the sky130 symbol libraries are
+# not on XSCHEM_LIBRARY_PATH and every device netlists as "IS MISSING".
+source $env(PDK_ROOT)/$env(PDK)/libs.tech/xschem/xschemrc
+
+# Write netlists to ./simulation (singular) beside the schematic, rather than
+# the default $HOME/.xschem/simulations. Two reasons: $HOME is container-local
+# and dies with the container, and having one netlist location instead of two
+# is what stops a stale copy being simulated by mistake.
+set local_netlist_dir 1
