@@ -68,6 +68,11 @@ def row_major(n_bits: int) -> np.ndarray:
 # Capacitor matching coefficient, percent-micrometres.
 SKY130_CAP_A_C = 0.47
 
+# Smallest unit capacitor the process will draw, square micrometres. Matching
+# improves with area, so this sets the worst matching an array can be built to
+# have, and a target below it asks for a device that cannot be made.
+SKY130_CAP_MIN_AREA = 3.24
+
 
 def sigma_from_area(area, a_c: float) -> float:
     """Pelgrom: sigma_u/C_u = A_C / sqrt(area).

@@ -214,8 +214,11 @@ def draw_mc(spread: list[tuple[str, list[float]]]) -> None:
         n = np.arange(1, len(mv) + 1)
         ax2.plot(n, run, color=f"C{i}", label=label)
         ax2.fill_between(
-            n, sigma * (1 - 1 / np.sqrt(2 * n)), sigma * (1 + 1 / np.sqrt(2 * n)),
-            color=f"C{i}", alpha=0.15,
+            n,
+            sigma * (1 - 1 / np.sqrt(2 * n)),
+            sigma * (1 + 1 / np.sqrt(2 * n)),
+            color=f"C{i}",
+            alpha=0.15,
         )
 
     ax1.set_xlabel("trip point (mV)")
