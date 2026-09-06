@@ -239,6 +239,10 @@ model:
 study:
 	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/yield_study.py $(ARGS)
 
+## noise: regenerate the comparator noise artifact -- commit the diff
+noise:
+	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/noise_study.py $(ARGS)
+
 ## plots: draw the committed sweep into build/model/
 plots:
 	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/plots.py
@@ -263,4 +267,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-unit verify-integration verify-system verify clean
+.PHONY: noise help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-unit verify-integration verify-system verify clean
