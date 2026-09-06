@@ -1,4 +1,4 @@
-"""Draw the committed sweep.
+"""Draw the committed sweeps.
 
 Reads the committed artifact rather than re-running the study, so a plot always
 shows exactly the numbers under review. Regenerating the artifact and then
@@ -14,6 +14,8 @@ from __future__ import annotations
 import pathlib
 
 import numpy as np
+from noise_study import BASELINE as NOISE_BASELINE
+from noise_study import GROSS_ERROR_ONSET_LSB
 
 from mismatch import (
     SKY130_CAP_A_C,
@@ -164,5 +166,70 @@ def plot(path: pathlib.Path = BASELINE, out_dir: pathlib.Path = OUT_DIR):
     return target
 
 
+def plot_noise(path: pathlib.Path = NOISE_BASELINE, out_dir: pathlib.Path = OUT_DIR):
+    """What the comparator has to be, for each resolution worth considering."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    header, rows = read_table(path)
+    resolutions = sorted({r["n_bits"] for r in rows})
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4.4))
+
+    for n_bits in resolutions:
+        picked = [r for r in rows if r["n_bits"] == n_bits]
+        x = [r["noise_lsb"] for r in picked]
+        ax1.plot(x, [r["n_bits"] - r["enob_rms"] for r in picked], "o-", label=f"{n_bits} bits")
+        # Same convention as the mismatch figure: a point where nothing was
+        # seen is an upper bound, not a zero, and is drawn hollow at the floor.
+        gross = np.array([r["p_gross"] for r in picked])
+        floor = 1.0 / float(header["conversions"])
+        seen = gross > 0
+        ax2.semilogy(np.array(x)[seen], gross[seen], "o-", label=f"{n_bits} bits")
+        ax2.semilogy(
+            np.array(x)[~seen],
+            np.full((~seen).sum(), floor),
+            "o",
+            mfc="none",
+            color=ax2.lines[-1].get_color(),
+        )
+        ax3.semilogy(x[1:], [r["noise_uv"] for r in picked[1:]], "o-", label=f"{n_bits} bits")
+
+    # The three curves land on top of each other, which is the result: measured
+    # against its own LSB, a comparator costs the same wherever it is used.
+    ax1.set_xlabel("comparator noise  [LSB rms]")
+    ax1.set_ylabel("bits lost")
+    ax1.set_title("Cost is the same at every resolution")
+
+    ax2.axvline(GROSS_ERROR_ONSET_LSB, color="grey", lw=0.8, ls="--")
+    ax2.axhline(1.0 / float(header["conversions"]), color="grey", lw=0.6, ls=":")
+    ax2.set_xlabel("comparator noise  [LSB rms]")
+    ax2.set_ylabel("P(missed by more than one code)")
+    ax2.set_title("Where a wrong early bit starts costing 2^k")
+
+    # The same fraction of an LSB, priced in volts. This is the axis a
+    # comparator is designed against, and the only one resolution moves.
+    ax3.set_xlabel("comparator noise  [LSB rms]")
+    ax3.set_ylabel("the same noise, in microvolts")
+    ax3.set_title("What that costs in volts")
+
+    for ax in (ax1, ax2, ax3):
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8)
+
+    fig.suptitle(
+        f"Comparator noise against resolution ({header['conversions']} conversions per point)\n"
+        f"degradation tracks the LSB, so resolution is bought in comparator volts",
+        fontsize=11,
+    )
+    fig.tight_layout()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / "noise.png"
+    fig.savefig(target, dpi=130)
+    return target
+
+
 if __name__ == "__main__":
     print(plot())
+    print(plot_noise())
