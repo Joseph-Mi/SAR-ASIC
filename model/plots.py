@@ -14,8 +14,6 @@ from __future__ import annotations
 import pathlib
 
 import numpy as np
-from noise_study import BASELINE as NOISE_BASELINE
-from noise_study import GROSS_ERROR_ONSET_LSB
 
 from mismatch import (
     SKY130_CAP_A_C,
@@ -24,6 +22,8 @@ from mismatch import (
     area_for_sigma,
     sigma_from_area,
 )
+from noise_study import BASELINE as NOISE_BASELINE
+from noise_study import GROSS_ERROR_ONSET_LSB
 from yield_study import BASELINE
 
 OUT_DIR = pathlib.Path("build/model")

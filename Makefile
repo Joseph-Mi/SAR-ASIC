@@ -22,7 +22,7 @@ VERILATOR    ?= verilator
 RUFF         ?= ruff
 YOSYS        ?= yosys
 VERIBLE_FMT  ?= verible-verilog-format
-VERIBLE_LINT ?= verible-verilog-lint
+VERIBLE_LINT ?= verible-verilog-lint --rules_config=hdl/lint/verible.rules
 
 # Container. DESIGNS is bind-mounted to /foss/designs, so it must be the PARENT
 # of this repo -- that is what puts us at /foss/designs/$(DESIGN_NAME) inside.

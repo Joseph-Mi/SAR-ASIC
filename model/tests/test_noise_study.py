@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
 from noise_study import (
     GROSS_ERROR_ONSET_LSB,
     QUANTISATION_RMS_LSB,
