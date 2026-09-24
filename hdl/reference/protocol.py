@@ -3,10 +3,15 @@
 `sar_convert` says what the answers are. This says when they happen, which is
 what cocotb needs: a testbench compares waveforms, not return values.
 
-The sequence is 1 sample cycle + N bit trials + 1 done cycle = N + 2, which is
-the termination bound the FSM is held to. Fixing that shape here rather than in
-the testbench means the model, not the test, owns the contract -- a test that
-defines its own expectation cannot catch the RTL disagreeing with the model.
+Each bit trial is two cycles, not one. The comparator is a clocked latch: it
+evaluates on the strobe's rising edge and precharges while the strobe is low,
+so a strobe that stays high across trials takes one decision and repeats it.
+Settling the array and raising the strobe therefore occupy separate cycles,
+which also gives the array a whole cycle to settle before anything is decided.
+
+Fixing that shape here rather than in the testbench means the model, not the
+test, owns the contract -- a test that defines its own expectation cannot catch
+the RTL disagreeing with the model.
 
 No comparator logic lives here. The decisions come from `sar_convert` and the
 trial codes are reconstructed from its trace, so there is exactly one place a
@@ -20,7 +25,8 @@ from dataclasses import dataclass
 from sar import n_bits_of, sar_convert
 
 SAMPLE = "sample"
-TRIAL = "trial"
+SETTLE = "settle"
+EVALUATE = "evaluate"
 DONE = "done"
 
 
@@ -54,9 +60,10 @@ def conversion_sequence(vin, unit_caps, vref: float = 1.0, **comparator) -> list
     for i, decision in enumerate(trace):
         bit_index = n_bits - 1 - i
         trial = settled | (1 << bit_index)
+        steps.append(Step(phase=SETTLE, sample=0, dac_b=trial, cmp_clk=0, bit_index=bit_index))
         steps.append(
             Step(
-                phase=TRIAL,
+                phase=EVALUATE,
                 sample=0,
                 dac_b=trial,
                 cmp_clk=1,
@@ -72,7 +79,7 @@ def conversion_sequence(vin, unit_caps, vref: float = 1.0, **comparator) -> list
 
 def trace_of(steps: list[Step]) -> list[int]:
     """The bit decisions, MSB first, as `sar_convert` would return them."""
-    return [s.decision for s in steps if s.phase == TRIAL]
+    return [s.decision for s in steps if s.phase == EVALUATE]
 
 
 def code_of(steps: list[Step]) -> int:

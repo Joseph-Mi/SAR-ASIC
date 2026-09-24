@@ -1,0 +1,20 @@
+# Verible lint configuration. One reviewable place for every suppression, the
+# same rule this repo applies to Verilator waivers, and every entry says why.
+#
+# Verible's default set encodes a SystemVerilog style guide. The RTL here is
+# Verilog-2005 by design decision, so the rules that mandate SystemVerilog
+# constructs cannot be satisfied and are not defects.
+
+# Would require `always_comb`, which is SystemVerilog. Latch inference is
+# instead prevented structurally by default-assigning every output at the top
+# of each combinational block, and caught by `yosys check -assert`.
+-always-comb
+
+# Would require a storage type on a sized localparam, for which Verilog-2005
+# offers no keyword: `logic` and `bit` are SystemVerilog. Unsized constants do
+# carry `integer`, which the language does have.
+-explicit-parameter-storage-type
+
+# Expects CamelCase localparams, from the same SystemVerilog guide. This repo
+# names constants in upper snake case throughout.
+-parameter-name-style

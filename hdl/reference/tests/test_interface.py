@@ -12,9 +12,16 @@ import pathlib
 import re
 
 import pytest
+
 from interface import N_BITS, PORTS, declarations
 
-SYMBOL = pathlib.Path(__file__).resolve().parents[3] / "xschem" / "sar_analog.sym"
+REPO = pathlib.Path(__file__).resolve().parents[3]
+SYMBOL = REPO / "xschem" / "sar_analog.sym"
+RTL_DIR = REPO / "hdl" / "rtl"
+
+#: A resolution default in the RTL. Synthesis reads these, not the value a
+#: testbench passes in, so a stale one ships even when every test is green.
+RTL_N_BITS = re.compile(r"^\s*parameter\s+(?:integer\s+)?N_BITS\s*=\s*(\d+)", re.M)
 
 #: Terminals in a symbol file, one per line: `B <n> <coords...> {name=.. dir=..}`
 TERMINAL = re.compile(r"^B\s+(?:\S+\s+){5}\{name=(?P<name>\S+)\s+dir=(?P<dir>\w+)\}", re.M)
@@ -54,3 +61,19 @@ def test_the_reference_is_its_own_terminal(declared):
     """The array pulls charge from the reference on every bit trial, so it does
     not share a terminal with the supply that has to recover in time."""
     assert {"vref", "vdd"} <= set(declared)
+
+
+def test_the_rtl_defaults_to_the_declared_resolution():
+    """A testbench overrides the parameter; synthesis does not. The default is
+    what reaches silicon, so it is the one that has to agree."""
+    sources = sorted(RTL_DIR.rglob("*.v"))
+    if not sources:
+        pytest.skip("no RTL yet")
+    declared = [
+        (path.name, int(m.group(1)))
+        for path in sources
+        for m in RTL_N_BITS.finditer(path.read_text())
+    ]
+    assert declared, "RTL exists but declares no resolution to check"
+    for name, value in declared:
+        assert value == N_BITS, f"{name} defaults to {value}, contract says {N_BITS}"
