@@ -3,6 +3,11 @@
 // Contract: the comparator answer must be stable for the whole cycle in which
 // cmp_clk_o is high; it is captured on the rising edge that ends that cycle.
 // Termination does not depend on the answers.
+//
+// code_o and metastable_o read together, and only while done_o is high. The
+// code holds the previous result until the last trial replaces it, and the
+// next start clears the flag, so a reader that samples either at another time
+// gets the wrong conversion's answer.
 
 module sar_fsm #(
     parameter integer N_BITS = 10
@@ -21,13 +26,14 @@ module sar_fsm #(
     output reg               metastable_o
 );
 
-  localparam integer N_STATES = 4;
+  localparam integer N_STATES = 5;
   localparam integer ST_W = $clog2(N_STATES);
 
   localparam [ST_W-1:0] ST_IDLE = 0;
   localparam [ST_W-1:0] ST_SAMPLE = 1;
-  localparam [ST_W-1:0] ST_TRIAL = 2;
-  localparam [ST_W-1:0] ST_DONE = 3;
+  localparam [ST_W-1:0] ST_SETTLE = 2;
+  localparam [ST_W-1:0] ST_EVAL = 3;
+  localparam [ST_W-1:0] ST_DONE = 4;
 
   // $clog2 is zero at a width of one, which would declare a null vector.
   localparam integer IDX_W = (N_BITS > 1) ? $clog2(N_BITS) : 1;
@@ -47,8 +53,9 @@ module sar_fsm #(
     next_state = state;
     case (state)
       ST_IDLE:   if (start_i) next_state = ST_SAMPLE;
-      ST_SAMPLE: next_state = ST_TRIAL;
-      ST_TRIAL:  if (bit_index == {IDX_W{1'b0}}) next_state = ST_DONE;
+      ST_SAMPLE: next_state = ST_SETTLE;
+      ST_SETTLE: next_state = ST_EVAL;
+      ST_EVAL:   next_state = (bit_index == {IDX_W{1'b0}}) ? ST_DONE : ST_SETTLE;
       ST_DONE:   next_state = ST_IDLE;
       default:   next_state = ST_IDLE;
     endcase
@@ -69,7 +76,7 @@ module sar_fsm #(
     end else begin
       state     <= next_state;
       sample_o  <= (next_state == ST_SAMPLE);
-      cmp_clk_o <= (next_state == ST_TRIAL);
+      cmp_clk_o <= (next_state == ST_EVAL);
       ready_o   <= (next_state == ST_IDLE);
       done_o    <= (next_state == ST_DONE);
 
@@ -87,7 +94,7 @@ module sar_fsm #(
           dac_b_o <= settled | ({{(N_BITS - 1) {1'b0}}, 1'b1} << bit_index);
         end
 
-        ST_TRIAL: begin
+        ST_EVAL: begin
           // This cycle's decision, but the word driven out is the one the
           // next trial needs.
           if (cmp_out_i) settled <= trial;

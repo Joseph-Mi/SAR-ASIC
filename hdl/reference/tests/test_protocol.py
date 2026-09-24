@@ -3,7 +3,15 @@
 import numpy as np
 import pytest
 
-from protocol import DONE, SAMPLE, TRIAL, code_of, conversion_sequence, trace_of
+from protocol import (
+    DONE,
+    EVALUATE,
+    SAMPLE,
+    SETTLE,
+    code_of,
+    conversion_sequence,
+    trace_of,
+)
 from sar import ideal_units, n_bits_of, sar_convert
 
 RESOLUTIONS = (4, 8, 10)
@@ -15,10 +23,34 @@ def units(request):
     return ideal_units(request.param)
 
 
-def test_a_conversion_takes_n_plus_two_cycles(units):
-    """The FSM's termination bound. A conversion that needs more has hung."""
+def test_a_conversion_takes_two_cycles_per_bit_plus_two(units):
+    """The FSM's termination bound. A conversion that needs more has hung.
+
+    Two cycles a bit because the comparator must precharge between decisions,
+    plus the sample cycle at the front and the done cycle at the back.
+    """
     steps = conversion_sequence(0.3 * VREF, units, VREF)
-    assert len(steps) == n_bits_of(units) + 2
+    assert len(steps) == 2 * n_bits_of(units) + 2
+
+
+def test_the_strobe_rises_once_per_bit(units):
+    """A strobe held high across trials takes one decision and repeats it, so
+    the count of its rising edges is the count of independent decisions."""
+    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    clk = [s.cmp_clk for s in steps]
+    rises = sum(1 for a, b in zip(clk, clk[1:], strict=False) if a == 0 and b == 1)
+    assert rises == n_bits_of(units)
+
+
+def test_the_strobe_is_low_while_the_array_settles(units):
+    """Every evaluate is preceded by a settle at the same code, so the array is
+    never asked to move and be decided on in the same cycle."""
+    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    for before, step in zip(steps, steps[1:], strict=False):
+        if step.phase == EVALUATE:
+            assert before.phase == SETTLE
+            assert before.cmp_clk == 0
+            assert before.dac_b == step.dac_b
 
 
 def test_the_phases_run_sample_then_trials_then_done(units):
@@ -26,7 +58,7 @@ def test_the_phases_run_sample_then_trials_then_done(units):
     phases = [s.phase for s in steps]
     assert phases[0] == SAMPLE
     assert phases[-1] == DONE
-    assert set(phases[1:-1]) == {TRIAL}
+    assert set(phases[1:-1]) == {SETTLE, EVALUATE}
 
 
 def test_sample_and_strobe_never_overlap(units):
@@ -43,7 +75,7 @@ def test_the_comparator_is_strobed_once_per_bit(units):
 
 def test_trials_walk_the_bits_msb_first(units):
     steps = conversion_sequence(0.3 * VREF, units, VREF)
-    trials = [s for s in steps if s.phase == TRIAL]
+    trials = [s for s in steps if s.phase == EVALUATE]
     assert [s.bit_index for s in trials] == list(range(n_bits_of(units) - 1, -1, -1))
 
 
@@ -53,7 +85,7 @@ def test_each_trial_word_is_the_settled_bits_plus_the_one_under_test(units):
     steps = conversion_sequence(0.3 * VREF, units, VREF)
     settled = 0
     for step in steps:
-        if step.phase != TRIAL:
+        if step.phase != EVALUATE:
             continue
         assert step.dac_b == settled | (1 << step.bit_index)
         if step.decision:

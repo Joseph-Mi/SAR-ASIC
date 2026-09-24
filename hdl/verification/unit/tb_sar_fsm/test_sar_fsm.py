@@ -15,7 +15,7 @@ from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 
 from interface import N_BITS
-from protocol import SAMPLE, TRIAL, code_of, conversion_sequence
+from protocol import EVALUATE, SAMPLE, code_of, conversion_sequence
 from sar import ideal_units
 from tb_common import rtl, run
 
@@ -61,18 +61,17 @@ async def begin(dut):
     await FallingEdge(dut.clk_i)
 
 
-async def run_conversion(dut, decisions):
-    """One conversion, answering trial j during trial j. Returns every cycle."""
+async def run_conversion(dut, steps):
+    """Walk the model's cycles, answering each evaluate as it happens."""
     await begin(dut)
-    seen = [pins(dut)]
-    for decision in decisions:
-        await RisingEdge(dut.clk_i)
-        await FallingEdge(dut.clk_i)
+    seen = []
+    for i, step in enumerate(steps):
+        if i:
+            await RisingEdge(dut.clk_i)
+            await FallingEdge(dut.clk_i)
         seen.append(pins(dut))
-        answer(dut, decision)
-    await RisingEdge(dut.clk_i)
-    await FallingEdge(dut.clk_i)
-    seen.append(pins(dut))
+        if step.phase == EVALUATE:
+            answer(dut, step.decision)
     return seen
 
 
@@ -84,8 +83,7 @@ async def every_cycle_matches_the_model(dut):
 
     for vin in PROBE_INPUTS:
         steps = conversion_sequence(vin, units, VREF)
-        decisions = [s.decision for s in steps if s.phase == TRIAL]
-        seen = await run_conversion(dut, decisions)
+        seen = await run_conversion(dut, steps)
 
         expected = [(s.sample, s.dac_b, s.cmp_clk) for s in steps]
         assert seen == expected, f"vin={vin}: pin sequence diverged"
@@ -142,7 +140,7 @@ async def a_stuck_comparator_still_terminates(dut):
             await RisingEdge(dut.clk_i)
             await FallingEdge(dut.clk_i)
             cycles += 1
-            assert cycles <= N_BITS + 2, f"stuck at {stuck} did not terminate"
+            assert cycles <= 2 * N_BITS + 2, f"stuck at {stuck} did not terminate"
 
         expected = (1 << N_BITS) - 1 if stuck else 0
         assert int(dut.code_o.value) == expected, f"stuck at {stuck}: wrong code"
@@ -160,11 +158,12 @@ async def equal_latch_outputs_raise_metastable(dut):
 
     dut.cmp_out_i.value = 1
     dut.cmp_out_n_i.value = 1
-    await RisingEdge(dut.clk_i)
-    await FallingEdge(dut.clk_i)
-    await RisingEdge(dut.clk_i)
-    await FallingEdge(dut.clk_i)
-    assert int(dut.metastable_o.value) == 1
+    for _ in range(2 * N_BITS + 2):
+        await RisingEdge(dut.clk_i)
+        await FallingEdge(dut.clk_i)
+        if int(dut.metastable_o.value):
+            return
+    raise AssertionError("an unresolved latch was never flagged")
 
 
 @cocotb.test()

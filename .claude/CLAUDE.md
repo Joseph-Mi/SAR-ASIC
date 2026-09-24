@@ -164,7 +164,10 @@ Two things that are easy to get wrong:
 ## Verification
 
 - cocotb + Verilator on the SAR FSM, including deliberately hostile comparator
-  responses (all-ones, all-zeros, random) — the FSM must still terminate in N+2.
+  responses (all-ones, all-zeros, random) — the FSM must still terminate, in the
+  bound the protocol model declares. A bit trial is two cycles: the comparator
+  precharges while the array settles and evaluates on the strobe, so a strobe
+  held across trials would decide once and repeat itself.
 - Every combinational `always @(*)` block default-assigns all outputs at the top,
   then overrides. Latch inference becomes structurally impossible.
 - `yosys -p "read_verilog ...; hierarchy -top sar_top; proc; check -assert"` in
@@ -208,6 +211,7 @@ Digital -> analog:
 | `dac_b` | bottom-plate select, one per binary branch (VREF or GND) |
 | `sample` | sampling phase, drives bottom-plate sampling switches |
 | `cmp_clk` | StrongARM strobe (rising = evaluate, low = precharge) |
+| `force_en`, `force_hi` | forced-input mode: enable, and which rail. An enable and a level rather than one control per rail, so no encoding shorts the reference to ground |
 
 Analog -> digital:
 
@@ -318,3 +322,9 @@ Lives entirely in the digital half, costs near-zero area:
   first commit is a gigabyte of waveforms.
 - Treat `.sym` like a C header: freeze the interface early, parallelize after.
 
+## Tinytapeout Analog Requirements
+https://tinytapeout.com/specs/analog/
+analog R2R DAC: https://youtu.be/DQAA4MrG8pM?si=YeRKnLGhNBUwcbCK: https://github.com/mattvenn/tt06-analog-r2r-dac (github for it)
+
+## Tinytapeout GPIO Pins
+https://tinytapeout.com/specs/gpio/
