@@ -60,9 +60,7 @@ def conversion_sequence(vin, unit_caps, vref: float = 1.0, **comparator) -> list
     for i, decision in enumerate(trace):
         bit_index = n_bits - 1 - i
         trial = settled | (1 << bit_index)
-        steps.append(
-            Step(phase=SETTLE, sample=0, dac_b=trial, cmp_clk=0, bit_index=bit_index)
-        )
+        steps.append(Step(phase=SETTLE, sample=0, dac_b=trial, cmp_clk=0, bit_index=bit_index))
         steps.append(
             Step(
                 phase=EVALUATE,

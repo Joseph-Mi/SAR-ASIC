@@ -8,6 +8,7 @@ Pins are read on the falling edge. Registered outputs settle on the rising one,
 so reading there races the update being checked.
 """
 
+import random
 from pathlib import Path
 
 import cocotb
@@ -30,6 +31,14 @@ VREF = 1.0
 PROBE_INPUTS = (0.0, 0.5 * VREF, 0.999 * VREF, 0.123 * VREF, 0.876 * VREF)
 
 STUCK_ANSWERS = (0, 1)
+
+#: Conversions run back to back with no idle gap. Enough to expose anything the
+#: FSM carries between them; nothing here models wear-out, which no part of this
+#: flow does.
+SOAK_CONVERSIONS = 200
+
+#: Fixed so a failing soak replays.
+SOAK_SEED = 7
 
 
 def pins(dut):
@@ -180,6 +189,25 @@ async def reset_returns_it_to_ready(dut):
     assert int(dut.done_o.value) == 0
     assert int(dut.sample_o.value) == 0
     assert int(dut.dac_b_o.value) == 0
+
+
+@cocotb.test()
+async def back_to_back_conversions_do_not_drift(dut):
+    """Continuous operation is the mode this runs in, and it is not the same as
+    a single conversion: anything the FSM fails to clear on start accumulates
+    only here."""
+    await start_clock(dut)
+    units = ideal_units(N_BITS)
+    rng = random.Random(SOAK_SEED)
+
+    for i in range(SOAK_CONVERSIONS):
+        steps = conversion_sequence(rng.uniform(0.0, VREF), units, VREF)
+        seen = await run_conversion(dut, steps)
+        assert seen == [(s.sample, s.dac_b, s.cmp_clk) for s in steps], f"run {i}: diverged"
+        assert int(dut.code_o.value) == code_of(steps), f"run {i}: wrong code"
+        assert int(dut.metastable_o.value) == 0, f"run {i}: spurious metastable"
+        await RisingEdge(dut.clk_i)
+        await FallingEdge(dut.clk_i)
 
 
 def test_sar_fsm():

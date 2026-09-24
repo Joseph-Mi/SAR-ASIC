@@ -33,11 +33,19 @@ class Port:
 
 
 #: Driven by the digital half. The array's bottom plates, the sampling phase,
-#: and the comparator strobe.
+#: the comparator strobe, and the forced-input controls.
+#:
+#: Forcing is an enable plus a level rather than one control per rail. Two
+#: independent controls can both be asserted, which shorts the reference to
+#: ground; with a level there is no encoding that does so. Both low is the
+#: reset state and is normal operation, so the mode is only ever entered
+#: deliberately.
 TO_ANALOG = (
     Port("dac_b", "in", N_BITS),
     Port("sample", "in"),
     Port("cmp_clk", "in"),
+    Port("force_en", "in"),
+    Port("force_hi", "in"),
 )
 
 #: Returned to the digital half. Both latch outputs cross, so that the two
