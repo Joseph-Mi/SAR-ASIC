@@ -1,0 +1,8 @@
+tt_analog_2x2.def is TinyTapeout's, copied unmodified from
+
+    TinyTapeout/tt-support-tools  tech/sky130A/def/analog/tt_analog_2x2.def
+
+It is vendored so the floorplan budget can be checked against the same file it
+was derived from, and so a shuttle-side change to the template shows up as a
+diff here rather than as a surprise at submission. Do not edit it. Refresh it
+by re-copying, and re-derive the budget when it moves.
