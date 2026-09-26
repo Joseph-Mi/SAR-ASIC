@@ -281,8 +281,36 @@ Checked by mutation: a 0.1 LSB comparator offset fails it, 0.01 LSB passes.
 Also proven: moving the pin after sampling changes no code (the comparator
 never sees the pin).
 
-Step 4 is split: 4a finite resistance (done), 4b Vcm source (pin vs divider,
-next), 4c sampling phases (one `sample` wire vs two).
+Step 4 is split: 4a finite resistance (done), 4b Vcm source (done), 4c
+sampling phases (one `sample` wire vs two, next).
+
+Step 4b (`model/common_mode.py` + `sim/tests/test_vcm_source.py`) done:
+- What a threshold sees is Vcm(at end of sampling) - Vcm(at the decision).
+  A steady but 10%-wrong Vcm converts exactly as the model; sampling to one
+  Vcm and comparing against another fails (mutation-checked).
+- Sampling kicks Vcm by charge ~ C_total * (Vin_new - Vin_previous): the kick
+  is the *input's change between conversions*, not VREF. Same inputs through
+  the same divider: in order they convert, zig-zagged they don't -- predicted
+  by `drift_within_conversion` before the circuit confirmed it. A memory
+  effect that grows with input frequency.
+- A divider hung on the VREF pin draws its static current through the pin R:
+  the array's reference sags (`loaded_reference`) = gain error. Circuit
+  matches the model at the sagged reference, not the source's.
+- Illustrative real numbers (C_total 8 pF assumed, VREF 1.8 V, 50 ns sample,
+  1/2 LSB): a bare divider stiff enough for a full-scale jump needs R_th
+  <= ~820 ohm, ~0.55 mA / ~1 mW static; on the VREF pin that sags 3 LSB at
+  10 ohm, 30 LSB at 100 ohm, 135 LSB at 500 ohm. A light 45 uA divider needs
+  ~1.3 nF decoupling (160x the array) -- not buildable on-chip -- and even a
+  1 LSB/conversion input shifts it 0.5 LSB bare.
+- Recommendation (not yet a DD -- Joseph decides): Vcm on its own `ua` pin,
+  driven off-chip with off-chip decoupling. Its kick then settles through
+  R_pin * C_total, the same law as Vin sampling, which already binds -- no new
+  constraint, no on-chip current, costs one pin (vin, vref, vcm = 3 of 6).
+  The alternative is an on-chip buffer, which is an M5-style small-signal
+  design (loop stability, output impedance), not an M3 one.
+- Harness lessons: the open-loop replay must replay the same model it is graded
+  against (`sweep.convert(model_vref=...)`), and only a replay's *first*
+  disagreeing decision means anything -- `mismatches` reports that bit.
 
 Step 4a (`model/settling.py` + `sim/tests/test_settle.py`) done:
 - Law: residual = step * e^(-t/tau); `settle_time(tau, step, tol)`. The
@@ -469,11 +497,11 @@ Delete each one when it is fixed.
   ~0.9 the baseline implies. Below gross-error onset the answer is the dithered
   quantiser, sqrt(q^2 + sigma_n^2). Fix = model + test, regenerate
   `noise_baseline.txt`. M5's preamp decision reads this table — fix it first.
-- **Vcm source: pin or on-chip divider?** DD-08 decided the top plate is
-  referenced to Vcm; where Vcm comes from is open. A pin costs one of the six
-  usable `ua` pins and adds the pin R to its settling; a divider costs static
-  current and its own settling. M3 Step 4 measures both. `sar.py`'s physics and
-  `docs/model.md` still describe ground sampling until M3 Step 1 lands.
+- **Vcm source: decide.** Measured in M3 Step 4b (see there): an on-chip passive
+  divider is poor on every axis -- ~mA static current, gain error if hung on
+  the VREF pin, nF of decoupling otherwise. Recommended: Vcm on its own `ua`
+  pin with off-chip decoupling. Needs Joseph's call, then a DD and an
+  `interface.py` + `.sym` change (the symbol test enforces both).
 - **One `sample` wire vs bottom-plate sampling's two phases.** Either the analog
   block makes the non-overlap locally or the interface grows. Decide in M3.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.

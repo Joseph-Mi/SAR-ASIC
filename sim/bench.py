@@ -92,6 +92,8 @@ class Bench:
     #: Switch on-resistances, passed to the block.
     ron_unit: float = analog.IDEAL_RON
     ron_top: float = analog.IDEAL_RON
+    #: Where the common mode comes from, passed to the block.
+    vcm: analog.IdealVcm | analog.Divider = field(default_factory=analog.IdealVcm)
     #: Phases whose results are read; None reads every one. A sweep of many
     #: conversions in one run reads only the phases it checks, because every
     #: read is a measurement the simulator has to evaluate.
@@ -117,6 +119,14 @@ def _pwl(values: list[float], phase: float) -> str:
     return "PWL(" + " ".join(f"{t:.{TIME_DIGITS}g} {v:.9g}" for t, v in points) + ")"
 
 
+def _pin(name: str, source: str, resistance: float) -> list[str]:
+    """A source reaching its pin through `resistance`, or directly at zero --
+    so a test that means no pin gets none, not a small one."""
+    if not resistance:
+        return [f"V{name} {name} 0 {source}"]
+    return [f"V{name} {name}_src 0 {source}", f"R{name} {name}_src {name} {resistance:.9g}"]
+
+
 def _node(terminal: str) -> str:
     """Testbench net for a terminal: brackets are not portable in node names."""
     return terminal.replace("[", "_").replace("]", "")
@@ -129,15 +139,15 @@ def deck(bench: Bench) -> str:
     s = bench.supplies
     lines = [
         f"* {NAME} bench",
-        analog.subckt(bench.n_bits, bench.unit, bench.c_par, bench.ron_unit, bench.ron_top),
+        analog.subckt(
+            bench.n_bits, bench.unit, bench.c_par, bench.ron_unit, bench.ron_top, bench.vcm
+        ),
         "Vvss vss 0 0",
         f"Vvdd vdd 0 {s.vdd}",
-        f"Vvref vref_src 0 {s.vref}",
-        f"Rvref vref_src vref {max(bench.r_vref, analog.IDEAL_RON):.9g}",
+        *_pin("vref", str(s.vref), bench.r_vref),
     ]
     pin = [s.vin if p.vin is None else p.vin for p in bench.phases]
-    lines.append(f"Vvin vin_src 0 {_pwl(pin, bench.phase)}")
-    lines.append(f"Rvin vin_src vin {max(bench.r_vin, analog.IDEAL_RON):.9g}")
+    lines += _pin("vin", _pwl(pin, bench.phase), bench.r_vin)
 
     drives = {
         "sample": [p.sample for p in bench.phases],
