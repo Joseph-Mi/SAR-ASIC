@@ -12,25 +12,32 @@ path. It is a capacitor array, a comparator, and a state machine, working in
 three moves.
 
 **Sample.** Every unit capacitor's bottom plate connects to the input; the top
-plate is held at ground. The charge sitting on the top plate is `-C_total * Vin`.
+plate is held at the common mode `Vcm`. The charge sitting on the top plate is
+`C_total * (Vcm - Vin)`.
 
 **Hold.** The top-plate switch opens. That node is now *floating* -- no DC path
-anywhere -- so its charge is trapped for the rest of the conversion. With the
-bottom plates returned to ground, the top plate sits at `-Vin`.
+anywhere -- so its charge is trapped for the rest of the conversion.
 
-**Redistribute.** Switch some subset S of the bottom plates to VREF. Charge is
-conserved, because the node floats, so the top plate moves to
+**Redistribute.** Switch some subset S of the bottom plates to VREF and the rest
+to ground. Charge is conserved, because the node floats, so the top plate moves
+to
 
 ```
-V_top  =  -Vin  +  VREF * C_S / C_total
+V_top  =  Vcm  -  Vin  +  VREF * C_S / C_total
 ```
 
-and the comparator asks whether that is above zero -- which is exactly asking
-whether `VREF * C_S/C_total` is above `Vin`. Binary search on S, MSB branch
+and the comparator asks whether that is below `Vcm` -- which is exactly asking
+whether `Vin` is above `VREF * C_S/C_total`. Binary search on S, MSB branch
 first, N trials, done.
 
-That is the whole converter. The second term is `dac_voltage`, and everything
-else in the repo is bookkeeping around it.
+That is the whole converter. The last term is `dac_voltage`; the whole
+expression is `top_plate_voltage`; everything else in the repo is bookkeeping
+around it.
+
+`Vcm` cancels out of the comparison, so any constant would decide the same
+codes. It is chosen for where it puts the node: `VCM_FRACTION` of the reference
+keeps every trial between the rails. [sar-primer.md](sar-primer.md) walks
+through why, with numbers.
 
 ### The consequence everything else follows from
 
@@ -151,9 +158,14 @@ the third cross-check with it.
 
 Named here because an unnamed assumption is indistinguishable from an oversight.
 
-- **Top-plate parasitic.** A real array has capacitance from the floating node
-  to substrate and routing. It does not distort, being common to every code,
-  but it attenuates full scale. Gain error, currently taken as zero.
+- **What a top-plate parasitic costs.** Capacitance from the floating node to
+  a fixed potential is in `top_plate_voltage` as `c_par`, and it moves no
+  threshold: at every decision the node is back at `Vcm`, where it was
+  sampled, so the parasitic holds the same charge it started with -- linear or
+  not. What it does is divide the swing the comparator sees by
+  `C_total / (C_total + c_par)`, which scales the comparator's offset and noise,
+  referred to the input, up by the inverse. Its cost lands in the comparator
+  budget, not in gain or linearity.
 - **kT/C sampling noise.** `cmp_noise_rms` covers the comparator only. Nothing
   models the noise trapped on the array at the instant of sampling. Its budget
   shrinks with the square of the LSB, so whether it binds depends on
