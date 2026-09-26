@@ -322,7 +322,36 @@ Also proven: moving the pin after sampling changes no code (the comparator
 never sees the pin).
 
 Step 4 is split: 4a finite resistance (done), 4b Vcm source (done), 4c
-sampling phases (done). Next: Step 5, closed loop with `sar_fsm.v`.
+sampling phases (done). Step 5, closed loop (done). Next: Step 6, close M3.
+
+Step 5 (`sim/cosim.py`, `sim/loop.py`, `sim/tests/test_cosim.py`,
+`hdl/verification/integration/tb_sar_loop/test_sar_loop.py`) done:
+- `sar_fsm.v` runs inside ngspice as an XSPICE `d_cosim` element, compiled by
+  ngspice's `vlnggen` script (Verilator underneath), with `adc_bridge` /
+  `dac_bridge` as the input gates / output drivers at the boundary. ~0.1 s per
+  10-bit conversion; the whole integration suite is ~20 s including builds.
+- `vlnggen` gotchas: (1) ngspice eats leading-dash args, so parameters go
+  after `--` (`ngspice -b vlnggen -- -GN_BITS=4 sar_fsm.v`); (2) the element's
+  pin order is Verilator's storage order (1-bit ports first, then 16-bit
+  buses at 10 bits; declaration order at 4 bits) -- `cosim.build` parses the
+  generated `inputs.h`/`outputs.h` every build; (3) `d_cosim` wants a third
+  (inout) port list, `null` when empty; (4) the `.so` path must be absolute
+  (ngspice runs in the scratch dir); (5) script lives at
+  `<ngspice prefix>/share/ngspice/scripts/vlnggen` -- check it exists in the
+  IIC image (`ls $(dirname $(readlink -f $(which ngspice)))/../share/ngspice/scripts/`).
+- Solver stall found: an edge in a PWL at the same instant as a PULSE edge,
+  each computing the time its own way, lands two breakpoints ~1e-19 s apart
+  and ngspice never advances (only at clock periods whose multiples don't
+  round the same way both routes). Start/vin/reset edges now sit a quarter
+  cycle off the clock (`loop.START_OFFSET`).
+- Tests: every threshold at 4 bits, every carry at 10 bits, flag never raised,
+  top plate never below the model's lowest between sampling and result
+  (DD-08's contract, the RTL's side), and the pin settling law's clock converts
+  while half of it does not (the FSM samples for exactly one clock).
+  Mutation-checked: scrambled bus bit order -> 10/23 codes wrong; an FSM that
+  detours through all-ground after sampling -> top plate to -0.5 V, caught.
+- Ideal-switch block only. With the real generator the loop is badly wrong --
+  see the float-window open finding.
 
 Step 4c (`model/injection.py`, `sim/devices.py`, `sim/tests/test_sampling_phases.py`,
 plus the Vcm pin from DD-10) done:
@@ -574,6 +603,21 @@ Delete each one when it is fixed.
   MiM bottom-plate parasitic to substrate (anchors the island -- 20% halved the
   dip in a quick try), a PMOS/transmission-gate top switch, and bounding the
   float time. Belongs with switch sizing (M5/M6), measured with sky130.
+  **Worse than the 2.9 LSB says:** that was measured holding only the final
+  word. In whole conversions (closed loop, and the open-loop replay agrees)
+  the dip sits under the early trials, where the off top switch leaks, and
+  the first wrong decision comes at trial 3-5: codes off by tens of LSB
+  (vin 0.95 V: 925 vs 972). The loop tests run the ideal block until this is
+  fixed; adding `sampling=analog.NonOverlap()` to them is the acceptance test.
+- **Entering sampling, the array floats to ground.** The FSM clears `dac_b`
+  on the same edge `sample` rises. With the generator the conversion switches
+  stay on until `phi_conv` falls, so for that window every bottom plate is at
+  ground with the top plate floating: it drops to Vcm - Vin(prev) + ...,
+  measured -0.4 V at high inputs, forward-biasing the top switch's junction.
+  Harmless to the new sample (the top switch re-drives the node), but it is
+  substrate current and a kick on Vcm. Candidate fix: the FSM holds `dac_b`
+  through sampling (the block ignores it then) -- a protocol/model change
+  first (`protocol.py` has SAMPLE with dac_b = 0), then the unit tests, then RTL.
 - **Result output format (M4).** The code is 10 bits, `uo_out` is 8. Leaning:
   parallel -- code[7:0] on `uo_out`, code[9:8] + ready on `uio` -- readable as
   a number by anything; SPI (or `ui_in`) for configuration and DFT modes.
