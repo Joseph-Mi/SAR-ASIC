@@ -177,6 +177,40 @@ Two things that are easy to get wrong:
 - CI runs the same pinned container image as local dev. Consider mirroring the
   tag to GHCR if Actions pull times get annoying — the image is ~20 GB.
 
+### Understanding the digital half beyond simulation
+
+Simulation shows it does the right thing for the inputs tried. The rest:
+
+| Question | Tool | What it says |
+|---|---|---|
+| Right for *every* input? | SymbiYosys (`sby`) formal — check it is in the image | proves properties, e.g. "DONE is always reached within the protocol's cycle bound"; the hostile-comparator tests only sample this |
+| What hardware was built? | `yosys stat` / `show` | cell and flop counts, the actual gates |
+| Limiting path | OpenSTA (inside LibreLane) | critical path = slowest flop-to-flop chain; its slack sets the max clock |
+| Current-limited nets | STA max-slew / max-cap checks | a small gate on a big load charges slowly (I = C dV/dt) |
+| Unbalanced clock network | CTS report | skew between flops -> hold violations |
+| Supply current | OpenROAD IR-drop | whether the power stripes droop under switching |
+
+**The imbalance that matters most is at the boundary.** `dac_b[MSB]` drives half
+the array's bottom plates and `dac_b[0]` drives one unit: a 2^(N-1):1 load
+spread across one bus. The macro drives one small inverter per bit; the analog
+side owns per-branch tapered buffer chains sized to each branch's load.
+LibreLane's SDC must `set_load` those outputs, or STA reports slack that does
+not exist.
+
+Digital area check (floorplan assumption #1): rough RTL for SPI, register file,
+divider (right flop count, not right behaviour), then `yosys stat -liberty` on
+the whole tree under the `tt_um_*` top. Bottom-up flop count says ~3x the FSM.
+Make the divider a clock-enable tick, not a divided clock — one clock domain.
+
+### Parasitics and junctions — three ways to get a number
+
+1. **Hand**: MATH.md formulas + PDK params (its grep). Says whether to worry.
+2. **Simulate**: DC-bias the node, 1 V AC source, C = |I|/(2 pi f V) — the
+   `sandbox/cap-matching/` trick. Sweep the DC bias to get C(V) directly, with
+   every junction the models carry. `.op` also prints per-device caps
+   (`@m.xm1.msky130_fd_pr__nfet_01v8[cgd]`).
+3. **Extract**: Magic `extract` -> `ext2spice` (`sak-pex.sh`). 2 vs 3 = routing.
+
 ---
 
 ## Milestones
@@ -186,6 +220,7 @@ Two things that are easy to get wrong:
 - **M2** — Interface frozen: declared once, Xschem `.sym` committed and checked
   against it, floorplan budget fixed.
 - **M3** — Architecture converges in ngspice with ideal switches and comparator.
+  Broken down under "M3 — what it is made of" below.
 - **M4** — Digital half: FSM, SPI, clock divider, all six DFT modes, cocotb green.
 - **M5** — StrongARM sized, Monte Carlo offset known, preamp decision made.
 - **M6** — Cap array laid out (scripted), DRC clean.
@@ -199,6 +234,30 @@ M4 has no analog dependency and runs fully parallel from M2 onward.
 digital macro gets, over-budget it deliberately, and give LibreLane a hard
 `DIE_AREA`. Finding out at M8 that the macro doesn't fit means redoing layout
 under deadline.
+
+### M3 — what it is made of
+
+The question M3 answers: does the architecture work in a circuit simulator, and
+does the frozen interface survive contact with it? Treat the `.sym` as "frozen
+pending M3" — M3 is the evidence the interface is right.
+
+1. **Schematic** (xschem): real PDK capacitors for the array, ideal `sw`
+   switches, behavioural comparator (B-source `v(top) > v(vcm)`).
+2. **Control**: PWL waveforms generated from `protocol.py` first; then the real
+   `sar_fsm.v` through `spicebind`/cocotb co-sim.
+3. **Pass criterion**: over a Vin sweep, ngspice's codes equal `sar_convert`'s.
+   The same model-first gate the RTL answers to.
+4. **Then add realism, one item per run**, and record what each one costs:
+   - top plate sampled to Vcm, not ground (MATH.md, "Top plate at Vcm")
+   - TT pin series R on `vin` and `vref` (value from the TT analog spec)
+   - a top-plate parasitic C -> gain error vs the model's zero-gain-error assumption
+   - one `sample` wire vs two non-overlapping phases (bottom-plate sampling)
+5. **Outputs**: settling margin per bit trial against the conversion clock
+   (MATH.md, "Settling through the pin"); Vref recovery after the MSB trial;
+   a yes/no on each interface question. If the interface changes, change
+   `interface.py` then, before M4 grows around it.
+
+In MATH.md's fidelity ladder ("How each number is obtained"), M3 is level 2.
 
 ---
 
@@ -244,6 +303,19 @@ the square of the LSB, so a constraint that is irrelevant at low resolution
 becomes real a few bits up. At the resolutions under consideration the unit
 capacitor is set by the smallest geometry the process will draw, not by
 matching and not by noise -- both have margin at minimum size.
+
+**MiM vs VPP** — sky130's two capacitor flavours for the array.
+- *MiM* (metal-insulator-metal, `cap_mim_m3_*`): an extra thin-dielectric layer
+  and plate sandwiched between two metal layers. High capacitance per area.
+- *VPP* (vertical parallel plate, `cap_vpp_*`): interdigitated fingers in the
+  ordinary metal stack, coupling through their sidewalls. No extra layer, lower
+  density.
+
+Matching depends on area, and both share a coefficient, so MiM does not match
+better — it buys more farads in the same area. More farads: less kT/C, but
+slower settling and a bigger charge kick on Vref. Fewer farads (VPP): faster,
+but top-plate parasitics become a larger fraction, so junction C(V) costs more
+INL. Decided with M3's settling numbers and MATH.md's kT/C line.
 
 ---
 
@@ -299,6 +371,38 @@ make shell first, then:
   %')
   "
 ```
+
+## Open findings
+
+Delete each one when it is fixed.
+
+- **Noise study overstates comparator cost.** `effective_bits` adds the
+  comparator's code error to quantisation noise in power, assuming the two are
+  independent. They are not: noise flips a code only near a threshold, where
+  the quantisation error was already largest (correlation measured ~ -0.5).
+  Measured against the true Vin, 0.25 LSB of noise costs ~0.4 bit, not the
+  ~0.9 the baseline implies. Below gross-error onset the answer is the dithered
+  quantiser, sqrt(q^2 + sigma_n^2). Fix = model + test, regenerate
+  `noise_baseline.txt`. M5's preamp decision reads this table — fix it first.
+- **Top plate sampled to ground** in `sar.py`'s physics. On silicon that node
+  swings negative (switch junctions forward-bias; StrongARM can't compare near
+  0 V). Sample to Vcm instead. Ratios unchanged, so DNL/yield results survive,
+  but Vcm needs a pin or an on-chip divider -> interface question for M3.
+- **One `sample` wire vs bottom-plate sampling's two phases.** Either the analog
+  block makes the non-overlap locally or the interface grows. Decide in M3.
+- **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
+- **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
+  DRC pitch may not fit the analog strip once power-stripe margins come off.
+  Check capm/met3 spacing rules before layout; the digital budget has slack.
+- **Coefficient recipe below points at `libs.ref`**; `docs/model.md` says read
+  the continuous models (the originals differ ~6x). Trust model.md.
+- **Prose test walks every file.** `test_no_document_restates_the_resolution`
+  does `rglob("*")` and filters after; once LibreLane `runs/` exist that is
+  slow. Switch to `git ls-files` — tracked is "ours" by definition.
+- **Values still restated in docs:** `docs/floorplan.md` numbers vs a future
+  LibreLane config.
+
+---
 
 ## Design for test (non-negotiable)
 

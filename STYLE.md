@@ -234,7 +234,7 @@ honor. Nothing more — no filename banner (it goes stale on rename), no author,
 no date, no change log.
 
 ```verilog
-// Successive-approximation control FSM. One bit trial per cycle, MSB first.
+// Successive-approximation control FSM, MSB first.
 //
 // Contract: comp_i must be stable for the full cycle following dac_set_o.
 ```
