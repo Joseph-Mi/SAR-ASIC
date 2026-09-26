@@ -32,6 +32,15 @@ NAME = "sar_analog"
 IDEAL_RON = 1.0
 IDEAL_ROFF = 1e12
 
+#: How fast an ideal bottom-plate switch settles its own capacitance, in
+#: seconds -- a hundredth of any edge a bench drives. Each branch's switch is
+#: scaled to its branch, so this holds for every branch. It is a time rather
+#: than a resistance because a resistance that is "small" for one unit is
+#: vanishing for the largest branch: a bottom plate switched between two ideal
+#: sources in far under a picosecond is an event the solver cannot always
+#: resolve while transistors elsewhere are mid-transition.
+IDEAL_UNIT_TAU = 1e-12
+
 #: The comparator's hold capacitor. It is driven by an ideal difference
 #: amplifier, so its size sets nothing but the solver's view of it.
 HOLD_FARADS = 1e-15
@@ -75,10 +84,18 @@ class MosSwitches:
     given resistance. The top switch passes Vcm and the input switches Vin;
     each input switch is its unit width times its branch's units, so every
     branch settles alike, as with the ideal ones.
+
+    An input switch is a transmission gate: an NMOS and a PMOS side by side,
+    driven by opposite lines. Vin spans the reference, and an NMOS alone
+    conducts less the higher the voltage it passes -- near the top of the
+    range it has barely more gate drive than its threshold, and a sample of a
+    high input does not settle. The PMOS conducts best exactly there. Set
+    `w_unit_p` to zero for an NMOS alone.
     """
 
     w_top: float = 2.0
     w_unit: float = 0.5
+    w_unit_p: float = 1.0
     length: float = 0.15
 
 
@@ -119,11 +136,14 @@ class NonOverlap:
     #: or a slow corner, made explicit.
     top_line_load: float = 0.0
     bottom_line_load: float = 0.0
+    bottom_n_line_load: float = 0.0
 
 
 #: The phase generator's buffer depths. The input switches' gates are the
 #: largest load in the block -- one unit's width for every unit of the array --
-#: so their line gets the deeper taper. Even depths keep the polarity.
+#: so their line gets the deeper taper. Even depths keep the polarity; the
+#: PMOS line's buffer is one stage shorter, and starts one taper step larger,
+#: to end inverted at the same size.
 TOP_BUFFER_STAGES = 2
 BOTTOM_BUFFER_STAGES = 4
 CONVERT_BUFFER_STAGES = 2
@@ -139,6 +159,14 @@ CONVERT_BUFFER_STAGES = 2
 SENSE_W_N = 2.0
 SENSE_W_P = 0.42
 SENSE_L_P = 1.0
+
+#: The same for a PMOS switch's line, mirrored: a PMOS is off when its gate is
+#: high, so its line reads as off only above a switching point pulled up
+#: toward the supply less the PMOS threshold, by a strong PMOS against an NMOS
+#: weakened by length.
+SENSE_P_W_P = 4.0
+SENSE_P_W_N = 0.42
+SENSE_P_L_N = 1.0
 
 #: An ideal delay's characteristic impedance, matched at its far end so the
 #: delayed edge arrives once and clean.
@@ -174,11 +202,12 @@ def _nor(dev, name: str, a: str, b: str, y: str, g: GateSizes) -> list[str]:
     ]
 
 
-def _buffer(dev, name: str, a: str, y: str, stages: int, g: GateSizes) -> list[str]:
+def _buffer(dev, name: str, a: str, y: str, stages: int, g: GateSizes, first: int = 0) -> list[str]:
+    """A tapered chain of `stages` inverters, the first `first` taper steps up."""
     lines, node = [], a
     for i in range(stages):
         nxt = y if i == stages - 1 else f"{name}_s{i}"
-        lines += _inverter(dev, f"{name}{i}", node, nxt, g, g.fanout**i)
+        lines += _inverter(dev, f"{name}{i}", node, nxt, g, g.fanout ** (first + i))
         node = nxt
     return lines
 
@@ -196,16 +225,43 @@ def _still_on(dev, name: str, line: str, out: str, g: GateSizes) -> list[str]:
     ]
 
 
+def _nor3(dev, name: str, a: str, b: str, c: str, y: str, g: GateSizes) -> list[str]:
+    """The three-input NOR: three PMOS in series, three NMOS in parallel."""
+    return [
+        dev.pmos(f"{name}pa", f"{name}_m1", a, "vdd", "vdd", 3 * g.w_p, g.length),
+        dev.pmos(f"{name}pb", f"{name}_m2", b, f"{name}_m1", "vdd", 3 * g.w_p, g.length),
+        dev.pmos(f"{name}pc", y, c, f"{name}_m2", "vdd", 3 * g.w_p, g.length),
+        dev.nmos(f"{name}na", y, a, "vss", "vss", g.w_n, g.length),
+        dev.nmos(f"{name}nb", y, b, "vss", "vss", g.w_n, g.length),
+        dev.nmos(f"{name}nc", y, c, "vss", "vss", g.w_n, g.length),
+    ]
+
+
+def _still_on_p(dev, name: str, line: str, out: str, g: GateSizes) -> list[str]:
+    """`out` is high until `line` has risen to where its PMOS switch is off.
+
+    A skewed inverter reads the line against its high switching point; its
+    output is already high while the switch is on, and two plain inverters
+    sharpen it without changing that.
+    """
+    return [
+        dev.pmos(f"{name}sp", f"{name}_hi", line, "vdd", "vdd", SENSE_P_W_P, g.length),
+        dev.nmos(f"{name}sn", f"{name}_hi", line, "vss", "vss", SENSE_P_W_N, SENSE_P_L_N),
+        *_buffer(dev, f"{name}r", f"{name}_hi", out, 2, g),
+    ]
+
+
 def _generator(scheme: NonOverlap) -> list[str]:
     """Three phases from `sample`, each able to change only after the one it
     must follow has finished, because it takes that one's own line as input.
 
     phi_top follows `sample` through a buffer. phi_bot is high while `sample`
     or phi_top is high and phi_conv is low: it cannot fall before the top
-    switch's line has fallen, nor rise before phi_conv's has. phi_conv is high
-    while `sample` and phi_bot are both low: it cannot rise before the input
-    switches' line has fallen. phi_bot and phi_conv, each gated by the other,
-    are the cross-coupled pair.
+    switch's line has fallen, nor rise before phi_conv's has. phi_bot_n, the
+    input switches' PMOS line, is its complement from the same source. phi_conv
+    is high while `sample` is low and both input lines are off: it cannot rise
+    before the input switches have let go on both sides. phi_bot and phi_conv,
+    each gated by the other, are the cross-coupled pair.
 
     Every "has fallen" is read by an off-detector on the line the switches'
     gates hang on, so a phase waits for the line itself -- its wire, its load,
@@ -215,9 +271,26 @@ def _generator(scheme: NonOverlap) -> list[str]:
     dev, g = scheme.devices, scheme.gates
     loads = [
         (line, c)
-        for line, c in (("phi_top", scheme.top_line_load), ("phi_bot", scheme.bottom_line_load))
+        for line, c in (
+            ("phi_top", scheme.top_line_load),
+            ("phi_bot", scheme.bottom_line_load),
+            ("phi_bot_n", scheme.bottom_n_line_load),
+        )
         if c
     ]
+    complement = (
+        []
+        if not scheme.switches.w_unit_p
+        else [
+            *_buffer(dev, "bbotn", "bot_pre", "phi_bot_n", BOTTOM_BUFFER_STAGES - 1, g, first=1),
+            *_still_on_p(dev, "sbotn", "phi_bot_n", "botn_on", g),
+        ]
+    )
+    conversion = (
+        _nor3(dev, "nor_cnv", "sample", "bot_on", "botn_on", "cnv_pre", g)
+        if scheme.switches.w_unit_p
+        else _nor(dev, "nor_cnv", "sample", "bot_on", "cnv_pre", g)
+    )
     return [
         *_buffer(dev, "btop", "sample", "phi_top", TOP_BUFFER_STAGES, g),
         *[f"C{line}_line {line} vss {c:.6e}" for line, c in loads],
@@ -227,7 +300,8 @@ def _generator(scheme: NonOverlap) -> list[str]:
         *_nor(dev, "nor_held", "sample", "top_on", "held_n", g),
         *_nor(dev, "nor_bot", "held_n", "cnv_on", "bot_pre", g),
         *_buffer(dev, "bbot", "bot_pre", "phi_bot", BOTTOM_BUFFER_STAGES, g),
-        *_nor(dev, "nor_cnv", "sample", "bot_on", "cnv_pre", g),
+        *complement,
+        *conversion,
         *_buffer(dev, "bcnv", "cnv_pre", "phi_conv", CONVERT_BUFFER_STAGES, g),
     ]
 
@@ -235,6 +309,16 @@ def _generator(scheme: NonOverlap) -> list[str]:
 #: Ideal capacitors of a round size: with ideal switches only the ratios reach
 #: a result, so the farads are arbitrary until a realism step makes them count.
 DEFAULT_UNIT = Ideal(1e-15)
+
+#: The on-resistance of an ideal bottom-plate switch sized for one unit. A
+#: larger unit settles proportionally slower, and still far inside an edge.
+IDEAL_RON_UNIT = IDEAL_UNIT_TAU / DEFAULT_UNIT.farads
+
+#: An ideal unit of about sky130's smallest MiM: its minimum area at a typical
+#: density. Where transistors touch the array its size counts -- a switch's
+#: charge and resistance act against the array's capacitance -- and a unit too
+#: light for its switches exaggerates every effect.
+MIM_SIZED = Ideal(8e-15)
 
 
 def terminals(n_bits: int = N_BITS) -> list[str]:
@@ -267,7 +351,7 @@ def subckt(
     n_bits: int = N_BITS,
     unit: Ideal | Mim | None = None,
     c_par: float = 0.0,
-    ron_unit: float = IDEAL_RON,
+    ron_unit: float = IDEAL_RON_UNIT,
     ron_top: float = IDEAL_RON,
     sampling: Gapped | NonOverlap | None = None,
 ) -> str:
@@ -292,6 +376,13 @@ def subckt(
     half = "0.5*v(vdd,vss)"
     high = lambda node: f"u(v({node},vss)-{half})"  # noqa: E731
     low = lambda node: f"u({half}-v({node},vss))"  # noqa: E731
+    # The generator's lines are driven by transistors and cross a threshold
+    # gradually. A step taken on one at one exact voltage turns every switch it
+    # controls at one instant -- a discontinuity the solver cannot step past
+    # when the jump it causes couples back to the line through the switches'
+    # gates. Switches on such a line read it as a fraction of the supply, and
+    # switch on their own hysteresis.
+    level = lambda node: f"v({node},vss)/v(vdd,vss)"  # noqa: E731
 
     lines = [
         f"* {NAME}: ideal switches, behavioural comparator",
@@ -320,10 +411,11 @@ def subckt(
         if isinstance(sampling, Gapped):
             lines += _delayed("sample", "phi_top", -sampling.gap)
             lines += _delayed("sample", "phi_bot", sampling.gap)
+            lines.append("Ephi_bot_n phi_bot_n vss vdd phi_bot 1")
             converting = low("phi_bot")
         else:
             lines += _generator(sampling)
-            converting = high("phi_conv")
+            converting = level("phi_conv")
         lines.append(dev.nmos("top", "top", "phi_top", "vcm", "vss", sw.w_top, sw.length))
     lines.append(f"Bc_cnv c_cnv vss V = {converting}")
 
@@ -346,6 +438,12 @@ def subckt(
                     f"in{tag}", bottom, "phi_bot", "vs", "vss", sw.w_unit, sw.length, units
                 )
             )
+            if sw.w_unit_p:
+                lines.append(
+                    sampling.devices.pmos(
+                        f"inp{tag}", bottom, "phi_bot_n", "vs", "vdd", sw.w_unit_p, sw.length, units
+                    )
+                )
         if is_dummy:
             lines.append(f"S_gnd{tag} {bottom} vss c_cnv vss {model}")
             continue

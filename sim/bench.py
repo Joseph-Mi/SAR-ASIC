@@ -42,6 +42,23 @@ MAX_STEP = 0.01
 #: switches' hard edges without buying anything a test can see.
 RELTOL = 1e-4
 
+#: The solver's charge tolerance, as a fraction of the charge one LSB is on
+#: the smallest unit capacitor a bench builds. The simulator's default is fixed
+#: in coulombs and exceeds that charge on a realistic array: with transistors
+#: on the floating top plate, whose charge the solver integrates step by step,
+#: a single edge then moved the top plate by a visible fraction of an LSB.
+CHARGE_FRACTION = 0.01
+
+
+def options(block) -> str:
+    """The solver options a block's netlist needs."""
+    smallest = analog.DEFAULT_UNIT.farads
+    if isinstance(block.unit, analog.Ideal):
+        smallest = min(smallest, block.unit.farads)
+    chgtol = CHARGE_FRACTION * smallest * block.supplies.vref
+    return f".options reltol={RELTOL} chgtol={chgtol:.6g}"
+
+
 #: Times are written with this many significant digits. A long sweep runs to
 #: tens of microseconds while its edges and read points are a fraction of a
 #: nanosecond apart, so fewer digits round a read into the wrong phase, or past
@@ -120,7 +137,7 @@ class Bench:
     r_vin: float = 0.0
     r_vref: float = 0.0
     #: Switch on-resistances, passed to the block.
-    ron_unit: float = analog.IDEAL_RON
+    ron_unit: float = analog.IDEAL_RON_UNIT
     ron_top: float = analog.IDEAL_RON
     #: How the block samples: ideal switches, or transistors and how their
     #: phases are made. Passed to the block.
@@ -229,7 +246,7 @@ def deck(bench: Bench) -> str:
 
     stop = len(bench.phases) * bench.phase
     step = MAX_STEP * bench.phase
-    lines.append(f".options reltol={RELTOL}")
+    lines.append(options(bench))
     lines += [
         ".control",
         f"tran {step:.{TIME_DIGITS}g} {stop:.{TIME_DIGITS}g} 0 {step:.{TIME_DIGITS}g}",
