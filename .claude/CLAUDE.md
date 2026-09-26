@@ -271,19 +271,30 @@ Progress: Step 0 (DD-08 Vcm, DD-09 harness in `sim/`) done. Step 1
 precharge-high outputs, Vcm = `VCM_FRACTION`*vref internally, force mode;
 `sim/bench.py` drives it phase by phase; `sim/tests/test_analog.py` replays
 `protocol.py` open loop) done — which is most of Step 3 too: every top-plate
-voltage and every decision matches the model at 4 and 10 bits. Next: Step 3's
-remainder is a Vin *sweep* (many inputs, near code edges) as the pass
-criterion; then Step 4 realism.
+voltage and every decision matches the model at 4 and 10 bits. The MiM
+variant (`analog.Mim`: `w`/`l`/`m`, top-then-bottom) verified in the container.
+Step 3 (`sim/tests/test_sweep.py`) done: the pass criterion. Inputs sit
+`EDGE_OFFSET_LSB` either side of thresholds -- every threshold at 6 bits, every
+carry plus a random spread at `N_BITS` -- and the circuit's codes must equal
+the model's, i.e. its thresholds are within that offset of the model's.
+Checked by mutation: a 0.1 LSB comparator offset fails it, 0.01 LSB passes.
+Also proven: moving the pin after sampling changes no code (the comparator
+never sees the pin). Next: Step 4 realism.
 
-Solver note: ngspice's default reltol (1e-3) let the floating top plate drift
-~40 uV at 10 bits; 1e-4 gives ~1 uV at the same speed; 1e-5 stalls on the
-ideal switches' edges. `bench.RELTOL` holds that choice.
-
-Unverified until run in the container: the MiM variant (`analog.Mim`, instance
-params `w`/`l`/`m`, terminal order top-then-bottom) — the PDK test skips
-without sky130. If it fails on an unknown parameter or a ratio, check the
-`sky130_fd_pr__cap_mim_m3_1` subckt line for its param names and which pin is
-capm.
+Solver notes, all measured:
+- ngspice's default reltol (1e-3) let the floating top plate drift ~40 uV at
+  10 bits; 1e-4 gives ~1 uV at the same speed; 1e-5 stalls on the ideal
+  switches' edges. `bench.RELTOL`.
+- Times need ~12 significant digits: at 5, a read 0.5 ns before a phase end
+  rounds by 1 ns at tens of microseconds -- into the wrong phase or past the
+  run. `bench.TIME_DIGITS`.
+- One simulation of a whole sweep (thousands of ideal-switch edges) eventually
+  aborts with "timestep too small"; the same conversions in batches of tens
+  never do. Smoothing the switch controls (tanh) did not fix it and tripled
+  run time. `test_sweep.BATCH`.
+- Aperture: the pin must not move on the edge that ends sampling -- the switch
+  opens mid-move and samples a blend. A real constraint on the pin's driver,
+  worth remembering for the Vin source spec in Step 4.
 
 Step 1 overturned a belief: a top-plate parasitic to a fixed potential moves
 **no threshold**, linear or not. At every decision the node is back at Vcm,
