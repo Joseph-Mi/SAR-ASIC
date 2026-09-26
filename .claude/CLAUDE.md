@@ -336,6 +336,15 @@ Step 5 (`sim/cosim.py`, `sim/loop.py`, `sim/tests/test_cosim.py`,
   IIC image (ngspice 46): the argument reached Verilator as `--mdir`,
   lowercased by ngspice's command interpreter (not reproduced on 42, even
   with ngbehavior=hsa -- cause unconfirmed; bypassing makes it moot).
+  ngspice 46's `d_cosim` never initialises its record of the last value it
+  drove on each output (`cm_event_alloc(1, ...)`, no memset). A first change
+  that matches the leftover bytes is taken as no change and never reaches
+  the wire: in the IIC image `dac_b_o[2]`'s first rise was dropped, the
+  first 4-bit conversion read 4 for 0 (the FSM itself was right -- the
+  word on the wire lacked bit 2). 42 happens to get zeros. Fix: `build`
+  compiles a patched copy of the glue whose `previous_output` starts at 2,
+  so its first scan reports every output and overwrites the garbage
+  (`cosim.reporting_every_output`). Worth reporting upstream.
   Other gotchas that stand: the element's pin order is Verilator's storage
   order (1-bit ports first, then 16-bit buses at 10 bits; declaration order
   at 4 bits) -- parsed from `Vlng.h` every build; `d_cosim` wants a third

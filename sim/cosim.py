@@ -35,6 +35,22 @@ ORDER_FILES = {"IN": "inputs.h", "OUT": "outputs.h", "INOUT": "inouts.h"}
 PREFIX = "Vlng"
 
 
+#: Where the glue declares what it last reported on each output, and what it
+#: is given in its place. The simulator side compares every reported change
+#: against its own record of the last value it drove, and in some releases
+#: that record starts as uninitialised memory: a first change that happens to
+#: match the garbage is taken for no change and never reaches the wire. The
+#: glue's own record starts at zero, so it reports nothing until an output
+#: moves. Starting it at a value no bit can have makes its first scan report
+#: every output, which sets the simulator's record before anything moves.
+REPORTED = "static unsigned char previous_output[outs + inouts];"
+REPORTED_UNKNOWN = (
+    REPORTED
+    + "\nstatic const bool reported_unknown ="
+    + " (std::memset(previous_output, 2, sizeof previous_output), true);"
+)
+
+
 class BuildError(RuntimeError):
     """A module that did not compile into a loadable element."""
 
@@ -86,6 +102,13 @@ class Library:
     outputs: list[str]
 
 
+def reporting_every_output(glue_source: str) -> str:
+    """The glue, changed so its first scan reports every output."""
+    if REPORTED not in glue_source:
+        raise BuildError(f"the glue no longer declares: {REPORTED}")
+    return "#include <cstring>\n" + glue_source.replace(REPORTED, REPORTED_UNKNOWN)
+
+
 def _run(command: list[str], workdir: pathlib.Path, what: str) -> None:
     proc = subprocess.run(command, cwd=workdir, capture_output=True, text=True)
     if proc.returncode:
@@ -112,6 +135,8 @@ def build(source: pathlib.Path, workdir: pathlib.Path, parameters: dict | None =
     design.append(str(source.resolve()))
 
     _run([*verilator, "--cc", *design], workdir, "translating the Verilog")
+    patched = objects / "verilator_shim.cpp"
+    patched.write_text(reporting_every_output((src / "verilator_shim.cpp").read_text()))
     files = order_files((objects / f"{PREFIX}.h").read_text())
     for direction, name in ORDER_FILES.items():
         (objects / name).write_text(files[direction])
@@ -128,7 +153,7 @@ def build(source: pathlib.Path, workdir: pathlib.Path, parameters: dict | None =
             "--build",
             "--exe",
             str(src / "verilator_main.cpp"),
-            str(src / "verilator_shim.cpp"),
+            str(patched),
             *design,
         ],
         workdir,

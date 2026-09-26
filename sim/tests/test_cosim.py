@@ -79,3 +79,15 @@ def test_the_boundary_names_are_what_the_controller_ports_reduce_to():
         assert loop.wire(f"{port.name}_o") == port.name
     for port in TO_DIGITAL:
         assert loop.wire(f"{port.name}_i") == port.name
+
+
+def test_the_glue_starts_with_every_output_unreported():
+    glue = f"int a;\n{cosim.REPORTED}\nint b;\n"
+    patched = cosim.reporting_every_output(glue)
+    assert cosim.REPORTED_UNKNOWN in patched
+    assert patched.startswith("#include <cstring>")
+
+
+def test_glue_without_the_record_is_refused():
+    with pytest.raises(cosim.BuildError, match="previous_output"):
+        cosim.reporting_every_output("int a;\n")
