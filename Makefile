@@ -54,6 +54,7 @@ RTL_DIR   := hdl/rtl
 REF_DIR   := hdl/reference
 MODEL_DIR := model
 VERIF_DIR := hdl/verification
+SIM_DIR   := sim
 BUILD_DIR := build
 WAIVERS   := hdl/lint/waivers.vlt
 
@@ -248,6 +249,10 @@ noise:
 plots:
 	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/plots.py
 
+## verify-analog: ngspice harness -- tests needing ngspice skip without it
+verify-analog:
+	@$(PYTHON) -m pytest $(SIM_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
+
 ## verify-unit: cocotb unit tests
 verify-unit:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/unit $(PYTEST_ARGS); $(ALLOW_EMPTY)
@@ -261,11 +266,11 @@ verify-system:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/system $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## verify: model, then every verification level, in order
-verify: model verify-unit verify-integration verify-system
+verify: model verify-analog verify-unit verify-integration verify-system
 
 ## clean: remove generated output
 clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: noise help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-unit verify-integration verify-system verify clean
+.PHONY: noise help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-analog verify-unit verify-integration verify-system verify clean

@@ -15,10 +15,12 @@ import statistics
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "sim"))
 
 import numpy as np  # noqa: E402
 
-from tools import netlist, ngspice, sky130  # noqa: E402
+import ngspice  # noqa: E402
+from tools import netlist, sky130  # noqa: E402
 
 HERE = pathlib.Path(__file__).parent
 WORKDIR = HERE / "simulation"
