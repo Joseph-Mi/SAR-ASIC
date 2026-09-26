@@ -95,6 +95,45 @@ verify-analog` runs `sim/`'s tests. Tests needing the simulator skip where
 ngspice is absent -- CI has none -- so the parser and generators stay checked
 everywhere and the circuit runs are checked in the container.
 
+**DD-10 — Vcm is its own analog pin, driven and decoupled off-chip.**
+M3 Step 4b measured every on-chip option: a divider stiff enough costs ~mA of
+static current; hung on the VREF pin it sags the reference into a gain error of
+tens of LSB; a light one needs nF of decoupling, which the tile cannot hold; a
+buffer is a new small-signal design. Off-chip, a divider from the Vref source
+plus a 1-10 uF ceramic at the pin (or a bench supply) costs nothing on-chip,
+and the pin's kick settles through R_pin * C_total -- the same law as sampling
+Vin, which already binds. Only its steadiness within a conversion matters, not
+its accuracy (proven: a 10%-wrong steady Vcm converts identically). Bonus: a
+settable Vcm is a zero-area DFT knob -- sweep it to measure comparator offset
+vs common mode, and to find where the top plate starts to leak.
+Pins: `vin`, `vref`, `vcm` = 3 of the 6 usable `ua`.
+
+**DD-11 — Bottom-plate sampling, phases made inside the analog block by a
+self-timed generator from the one `sample` wire.**
+When sampling ends, the top switch (holding the top plate at Vcm) must let go
+*before* the input switches (holding the bottom plates at Vin). Every MOS
+switch dumps its channel charge when it turns off; the top switch passes a
+constant Vcm, so its dump is the same every conversion -- an offset, removable.
+The input switches' dump depends on Vin -- distortion -- and with the top plate
+already sealed it lands on bottom plates that are about to be driven to
+VREF/GND anyway, so it never reaches the sample. Measured (Step 4c): top first
+leaves ~0.1 LSB that varies with Vin; together ~0.9; bottoms first ~1.7.
+
+How the generator guarantees the order: three NOR gates, two of them
+cross-coupled. phi_top (top switch) follows `sample`. phi_bot (input switches)
+= NOR(NOR(sample, top_still_on), conv_still_on): it cannot fall until the top
+line is off, nor rise until the conversion line is off. phi_conv (conversion
+switches) = NOR(sample, bot_still_on): it cannot rise until the input line is
+off. Each "still_on" is an off-detector on the line the switches' gates
+actually hang on -- a skewed inverter (strong NMOS, weak PMOS) whose switching
+point sits near the transistor threshold, below where the switch conducts --
+so each phase waits for the previous switch to be *really* off, however slow
+its wire, load or corner. Like a relay baton: runner 2 cannot leave until the
+baton is in hand, whereas a delay chain is runner 2 leaving on a stopwatch.
+The first version read the lines at the NOR's mid-supply threshold and failed
+a slowed-line test; the off-detectors are what made the order hold by
+construction. Keeps the interface frozen; timing lives next to the switches.
+
 ---
 
 ## Environment
@@ -282,7 +321,20 @@ Also proven: moving the pin after sampling changes no code (the comparator
 never sees the pin).
 
 Step 4 is split: 4a finite resistance (done), 4b Vcm source (done), 4c
-sampling phases (one `sample` wire vs two, next).
+sampling phases (done). Next: Step 5, closed loop with `sar_fsm.v`.
+
+Step 4c (`model/injection.py`, `sim/devices.py`, `sim/tests/test_sampling_phases.py`,
+plus the Vcm pin from DD-10) done:
+- Real MOS switches for top and input (generic BSIM4 here; sky130 via
+  `devices.Sky130(corner)` -- the corner tests need the PDK and have not run
+  yet). Measured at the decision point, realistic 8 fF unit: see DD-11 numbers.
+- Offset doubles with the top switch's width (the model's channel charge).
+- Generator: every edge ordered at VDD +-10% and -40/27/125 C; ordering held
+  with a line slowed >5x; the top switch's step is the same for every input
+  (varies 0.0007 LSB). Mutation-checked: without the off-detectors, fails.
+- Confirmed with real devices: holding the array at all-zeros after sampling
+  drives the top plate to Vcm - Vin, below ground, and the off top switch leaks
+  -- DD-08's "go straight to the first trial word" contract.
 
 Step 4b (`model/common_mode.py` + `sim/tests/test_vcm_source.py`) done:
 - What a threshold sees is Vcm(at end of sampling) - Vcm(at the decision).
@@ -497,13 +549,20 @@ Delete each one when it is fixed.
   ~0.9 the baseline implies. Below gross-error onset the answer is the dithered
   quantiser, sqrt(q^2 + sigma_n^2). Fix = model + test, regenerate
   `noise_baseline.txt`. M5's preamp decision reads this table — fix it first.
-- **Vcm source: decide.** Measured in M3 Step 4b (see there): an on-chip passive
-  divider is poor on every axis -- ~mA static current, gain error if hung on
-  the VREF pin, nF of decoupling otherwise. Recommended: Vcm on its own `ua`
-  pin with off-chip decoupling. Needs Joseph's call, then a DD and an
-  `interface.py` + `.sym` change (the symbol test enforces both).
-- **One `sample` wire vs bottom-plate sampling's two phases.** Either the analog
-  block makes the non-overlap locally or the interface grows. Decide in M3.
+- **The float window after sampling.** With the generator, between the input
+  switches reaching off and the conversion switches closing, the whole array
+  floats: the input switches' injection drags it and the top plate dips to
+  about -0.3 V. The conversion error at the decision point then varies
+  ~2.9 LSB with Vin (vs ~0.1 with ideal-timed top-first). A leak-free top
+  switch halves it (-> ~1.3), so part is the NMOS top switch conducting
+  subthreshold while below ground; the rest is not yet explained. Candidates:
+  complementary or dummy input switches (cancel the injection), a realistic
+  MiM bottom-plate parasitic to substrate (anchors the island -- 20% halved the
+  dip in a quick try), a PMOS/transmission-gate top switch, and bounding the
+  float time. Belongs with switch sizing (M5/M6), measured with sky130.
+- **Result output format (M4).** The code is 10 bits, `uo_out` is 8. Leaning:
+  parallel -- code[7:0] on `uo_out`, code[9:8] + ready on `uio` -- readable as
+  a number by anything; SPI (or `ui_in`) for configuration and DFT modes.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
 - **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
   DRC pitch may not fit the analog strip once power-stripe margins come off.

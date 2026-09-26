@@ -21,6 +21,8 @@ import ngspice
 from bench import Bench, Phase, Supplies
 from common_mode import divider, drift_within_conversion, loaded_reference
 from interface import N_BITS
+from sar import VCM_FRACTION
+from settling import settle_time
 from sweep import EDGE_OFFSET_LSB, VDD, VREF, convert, lsb, mismatches, model
 
 pytestmark = pytest.mark.skipif(shutil.which("ngspice") is None, reason="ngspice not on PATH")
@@ -38,7 +40,7 @@ WRONG_BY = 0.05
 #: LSB or two, well over it for one of tens.
 SAMPLE_OVER_TAU = 5.0
 TAU = bench.PHASE / SAMPLE_OVER_TAU
-FRACTION = analog.VCM_FRACTION
+FRACTION = VCM_FRACTION
 R_TOTAL = TAU / (C_TOTAL * FRACTION * (1 - FRACTION))
 
 #: A block of consecutive codes near mid-scale. In order, the input moves by
@@ -95,7 +97,7 @@ def holds(inputs, tmp_path, vref_model: float = VREF, **bench_args) -> bool:
 
 @pytest.mark.parametrize("sign", [-1, +1])
 def test_a_steady_but_wrong_vcm_converts_exactly_as_the_model(sign, tmp_path):
-    vcm = analog.IdealVcm(FRACTION + sign * WRONG_BY)
+    vcm = bench.IdealVcm(FRACTION + sign * WRONG_BY)
     assert holds(in_order(), tmp_path, vcm=vcm)
 
 
@@ -112,8 +114,8 @@ def test_the_divider_tap_recovers_through_its_halves_in_parallel(tmp_path):
             Supplies(vdd=VDD, vref=VREF),
             N_BITS,
             phase=k * TAU,
-            vcm=analog.Divider(R_TOTAL, FRACTION),
-            probes={"m_vcm": "v(xdut.vcm)"},
+            vcm=bench.Divider(R_TOTAL, FRACTION),
+            probes={"m_vcm": "v(vcm)"},
         )
         gaps.append(abs(ngspice.run(bench.deck(b), tmp_path)["m_vcm"][-1] - settled))
     measured = (settled_for(LONG * TAU) - settled_for(SHORT * TAU)) / math.log(gaps[0] / gaps[1])
@@ -139,7 +141,7 @@ def test_the_kick_is_the_input_moving_not_the_reference(tmp_path):
     assert predicted_shift(largest_step(ordered) + slack) < tolerance
     assert predicted_shift(largest_step(jumping)) > tolerance
 
-    divided = analog.Divider(R_TOTAL, FRACTION)
+    divided = bench.Divider(R_TOTAL, FRACTION)
     assert holds(ordered, tmp_path, vcm=divided)
     assert not holds(jumping, tmp_path, vcm=divided)
 
@@ -153,6 +155,19 @@ def test_a_divider_on_the_reference_pin_is_a_gain_error(tmp_path):
     assert loaded_reference(VREF, R_TOTAL, r_pin) == pytest.approx(sagged)
 
     inputs = in_order(sagged)
-    divided = analog.Divider(R_TOTAL, FRACTION)
+    divided = bench.Divider(R_TOTAL, FRACTION)
     assert holds(inputs, tmp_path, vref_model=sagged, vcm=divided, r_vref=r_pin)
     assert not holds(inputs, tmp_path, vref_model=VREF, vcm=divided, r_vref=r_pin)
+
+
+def test_the_pin_converts_what_defeated_the_divider_given_the_sampling_law(tmp_path):
+    """Driven off-chip and decoupled there, the pin's only cost is its own
+    resistance: the kick settles through it with the whole array, the same
+    law as sampling Vin. Given that law's phase, the zig-zag the divider could
+    not convert converts; given half of it, it does not."""
+    r_pin = TAU / C_TOTAL
+    law = settle_time(r_pin * C_TOTAL, VREF, EDGE_OFFSET_LSB * lsb(N_BITS))
+    jumping = zig_zag(in_order())
+    pinned = bench.PinVcm(r_pin, FRACTION)
+    assert holds(jumping, tmp_path, vcm=pinned, phase=law)
+    assert not holds(jumping, tmp_path, vcm=pinned, phase=law / 2)

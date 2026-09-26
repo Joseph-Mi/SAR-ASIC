@@ -12,6 +12,7 @@ C {ipin.sym} -200 -40 0 0 {name=p4 lab=force_en}
 C {ipin.sym} -200 0 0 0 {name=p5 lab=force_hi}
 C {ipin.sym} -200 40 0 0 {name=p6 lab=vin}
 C {ipin.sym} -200 80 0 0 {name=p7 lab=vref}
+C {ipin.sym} -200 120 0 0 {name=p12 lab=vcm}
 C {opin.sym} 200 -160 0 0 {name=p8 lab=cmp_out}
 C {opin.sym} 200 -120 0 0 {name=p9 lab=cmp_out_n}
 C {iopin.sym} 0 -80 0 0 {name=p10 lab=vdd}

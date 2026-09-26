@@ -161,7 +161,7 @@ source at the start of every sample; whatever drives the pin has to absorb it.
 |---|---|---|
 | `Vin` | the signal being measured; varies | an analog pin, from outside |
 | `VREF` | full scale: the height of the ruler. `Vin` is converted over 0 to `VREF` | its own analog pin |
-| `Vcm` | the top plate's reference: where the ruler's zero is placed. Fixed, never the signal | a pin or an on-chip divider -- open |
+| `Vcm` | the top plate's reference: where the ruler's zero is placed. Fixed, never the signal | its own analog pin, driven and decoupled off-chip |
 | `VDD` | the supply the transistors run from | the supply pin |
 
 **`VREF` is not `VDD`**, even if the two end up at the same voltage. The array
@@ -189,7 +189,7 @@ plus or minus half the reference around the sampling reference:
 | Junction diodes on the node | every NMOS switch touching the node has an n+ region in the grounded substrate. Below roughly -0.5 V that diode conducts, and the sealed charge leaks: the conversion is wrong near full scale | stay reverse-biased |
 | NMOS-input comparator | both inputs near 0 V, below threshold: nothing to amplify | both inputs mid-rail, biased on |
 | Sampling switch | full gate drive | less gate drive: size it up, or use a transmission gate |
-| Extra voltage | none | `Vcm` has to be generated |
+| Extra voltage | none | `Vcm` has to be supplied |
 
 The design references to `Vcm` (`VCM_FRACTION` in `sar.py`): ground breaks the
 two things the converter depends on -- sealed charge and a working comparator
@@ -199,6 +199,37 @@ One rule survives the choice: leaving the sample phase, the bottom plates must
 go straight to the first trial word. Passing through "all bottom plates at
 ground" on the way puts the top plate at `Vcm - Vin`, down to minus half the
 reference, and the diodes conduct even with `Vcm`.
+
+---
+
+## Ending the sample: which switch lets go first
+
+The switches are transistors, and an on transistor holds a thin layer of
+charge under its gate. Turning it off, that charge has to go somewhere: about
+half comes out of each end, onto whatever the switch was joined to. How much
+depends on the voltage the switch was passing.
+
+Two sets of switches let go when sampling ends: the top switch, which holds
+the top plate at `Vcm`, and the input switches, which hold every bottom plate
+at `Vin`. The order matters.
+
+- **Top switch first.** The instant it opens, the top plate is sealed and its
+  charge is fixed. It passed `Vcm`, the same voltage every time, so it leaves
+  the same charge every time: an offset, which a measurement removes. The
+  input switches let go afterwards; their charge lands on bottom plates that
+  are about to be driven to `VREF` or ground anyway, and the sealed top plate
+  never sees it.
+- **Any other order.** The input switches' charge -- which depends on `Vin` --
+  gets trapped with the sample. An error that varies with the input is
+  distortion, and no single correction removes it.
+
+This is bottom-plate sampling. The block makes the order itself from the one
+`sample` wire, with a phase generator in which each switch's control line can
+only move once the line it must follow has reached the level where its
+switch is off: the order holds however slow any line is, because it waits for
+the line rather than for a delay someone sized. `sim/tests/test_sampling_phases.py`
+shows both halves -- the order deciding offset against distortion, and the
+generator keeping the order when a line is slowed many times over.
 
 ---
 

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 import analog
 from analog import NAME, terminals
+from sar import VCM_FRACTION
 
 #: One protocol phase. Ideal switches settle in picoseconds; this only has to be
 #: long enough that the edges are a small part of it.
@@ -70,6 +71,35 @@ class Phase:
 
 
 @dataclass(frozen=True)
+class IdealVcm:
+    """The common-mode pin held by an ideal source at `fraction` of the
+    reference: nothing sampling does can move it."""
+
+    fraction: float = VCM_FRACTION
+
+
+@dataclass(frozen=True)
+class PinVcm:
+    """The common-mode pin as the design has it: a source off-chip, decoupled
+    there so heavily that it does not move, reaching the pin through
+    `r_pin`. What sampling kicks settles through that resistance."""
+
+    r_pin: float
+    fraction: float = VCM_FRACTION
+
+
+@dataclass(frozen=True)
+class Divider:
+    """The alternative the pin replaced, kept to measure it against: a resistor
+    string across the reference inside the chip, tapped onto the common mode,
+    optionally decoupled. Its current is drawn through the reference pin."""
+
+    r_total: float
+    fraction: float = VCM_FRACTION
+    c_dec: float = 0.0
+
+
+@dataclass(frozen=True)
 class Supplies:
     vdd: float = 1.8
     vref: float = 1.0
@@ -92,8 +122,14 @@ class Bench:
     #: Switch on-resistances, passed to the block.
     ron_unit: float = analog.IDEAL_RON
     ron_top: float = analog.IDEAL_RON
-    #: Where the common mode comes from, passed to the block.
-    vcm: analog.IdealVcm | analog.Divider = field(default_factory=analog.IdealVcm)
+    #: How the block samples: ideal switches, or transistors and how their
+    #: phases are made. Passed to the block.
+    sampling: analog.Gapped | analog.NonOverlap | None = None
+    #: Lines added to the control block after the reads, for measurements a
+    #: phase-end read cannot make -- when an edge crosses a level, say.
+    extra_control: list[str] = field(default_factory=list)
+    #: What drives the common-mode pin.
+    vcm: IdealVcm | PinVcm | Divider = field(default_factory=IdealVcm)
     #: Phases whose results are read; None reads every one. A sweep of many
     #: conversions in one run reads only the phases it checks, because every
     #: read is a measurement the simulator has to evaluate.
@@ -127,6 +163,22 @@ def _pin(name: str, source: str, resistance: float) -> list[str]:
     return [f"V{name} {name}_src 0 {source}", f"R{name} {name}_src {name} {resistance:.9g}"]
 
 
+def _common_mode(vcm: IdealVcm | PinVcm | Divider, vref: float) -> list[str]:
+    """What drives the common-mode pin. A divider hangs on the reference's
+    chip side, so its current crosses whatever the reference pin is."""
+    if isinstance(vcm, IdealVcm):
+        return [f"Bvcm vcm 0 V = {vcm.fraction}*v(vref)"]
+    if isinstance(vcm, PinVcm):
+        return _pin("vcm", f"{vcm.fraction * vref:.9g}", vcm.r_pin)
+    lines = [
+        f"Rvcm_hi vref vcm {vcm.r_total * (1 - vcm.fraction):.9g}",
+        f"Rvcm_lo vcm 0 {vcm.r_total * vcm.fraction:.9g}",
+    ]
+    if vcm.c_dec:
+        lines.append(f"Cvcm vcm 0 {vcm.c_dec:.6e}")
+    return lines
+
+
 def _node(terminal: str) -> str:
     """Testbench net for a terminal: brackets are not portable in node names."""
     return terminal.replace("[", "_").replace("]", "")
@@ -137,15 +189,18 @@ def deck(bench: Bench) -> str:
         raise ValueError("a bench starts by sampling, or the top plate has no DC path")
 
     s = bench.supplies
+    header = [] if bench.sampling is None else bench.sampling.devices.header()
     lines = [
         f"* {NAME} bench",
+        *header,
         analog.subckt(
-            bench.n_bits, bench.unit, bench.c_par, bench.ron_unit, bench.ron_top, bench.vcm
+            bench.n_bits, bench.unit, bench.c_par, bench.ron_unit, bench.ron_top, bench.sampling
         ),
         "Vvss vss 0 0",
         f"Vvdd vdd 0 {s.vdd}",
         *_pin("vref", str(s.vref), bench.r_vref),
     ]
+    lines += _common_mode(bench.vcm, s.vref)
     pin = [s.vin if p.vin is None else p.vin for p in bench.phases]
     lines += _pin("vin", _pwl(pin, bench.phase), bench.r_vin)
 
@@ -176,5 +231,6 @@ def deck(bench: Bench) -> str:
         at = (i + 1 - READ_BEFORE_END) * bench.phase
         for name, expression in probes.items():
             lines.append(f"meas tran {name} find {expression} at={at:.{TIME_DIGITS}g}")
+    lines += bench.extra_control
     lines += [".endc", ".end"]
     return "\n".join(lines) + "\n"
