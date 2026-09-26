@@ -58,9 +58,15 @@ TO_DIGITAL = (
 #: The analog block's own terminals. The reference is a pin of its own rather
 #: than a tap off the supply: the array draws charge from it on every bit
 #: trial, and a shared pin has not recovered by the time the comparator fires.
+#:
+#: The common mode is a pin too. Sampling pushes charge into it, and every
+#: on-chip way of absorbing that costs static current, reference accuracy or a
+#: capacitor the tile cannot hold; off-chip a large capacitor is free, and the
+#: level can be moved on the bench to characterise the comparator.
 ANALOG_ONLY = (
     Port("vin", "in"),
     Port("vref", "in"),
+    Port("vcm", "in"),
     Port("vdd", "inout"),
     Port("vss", "inout"),
 )

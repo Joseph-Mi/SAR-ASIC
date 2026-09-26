@@ -24,7 +24,7 @@ import bench
 import ngspice
 from bench import Bench, Phase, Supplies
 from interface import N_BITS
-from sar import ideal_units, top_plate_voltage
+from sar import VCM_FRACTION, ideal_units, top_plate_voltage
 from settling import c_seen_by_reference, residual, settle_time
 from sweep import (
     EDGE_OFFSET_LSB,
@@ -113,7 +113,7 @@ def test_sampling_through_the_pin_charges_the_whole_array(tmp_path):
 def test_the_top_plate_switch_charges_the_whole_array_too(tmp_path):
     """While sampling, the top plate returns to Vcm through its own switch
     after every bottom-plate step, carrying the same charge as the pin."""
-    vcm = analog.VCM_FRACTION * VREF
+    vcm = VCM_FRACTION * VREF
     gaps = []
     for k in (SHORT, LONG):
         phases = [Phase(sample=1, vin=VIN_FROM), Phase(sample=1, vin=VIN_TO)]

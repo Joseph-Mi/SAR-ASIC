@@ -168,9 +168,14 @@ a fixed level; open the bottom switches after. The top switch then sees a
 constant `VGS` regardless of the input, so its injected charge is constant:
 distortion collapses into a fixed offset, and offset is correctable.
 
-The cost is a second sampling phase. The two must be **non-overlapping**, which
-makes this a timing contract at the digital boundary rather than an analog
-choice -- one `sample` wire cannot express it.
+The cost is a second sampling phase. It is made inside the analog block from
+the one `sample` wire (DD-11), so the interface is unchanged and the timing
+lives next to the switches it orders.
+
+Measured (M3 Step 4c, realistic 8 fF unit, generic devices): top first leaves
+a signal-dependent residue of ~0.1 LSB; together ~0.9 LSB; bottoms first
+~1.7 LSB. The top-first offset doubles with the top switch's width -- it is
+that switch's channel, exactly as W*L*Cox*(Vgs-Vth) says.
 
 ---
 
@@ -188,8 +193,7 @@ near 0 V. Sample the top plate to Vcm instead (usually VREF/2):
     V_top - Vcm = -Vin + VREF * C_S / C_total
 
 Same ratios, so every matching and yield result carries over unchanged. What
-changes is that Vcm has to exist: a pin, or an on-chip divider whose settling
-is one more thing M3 measures.
+changes is that Vcm has to exist: it is its own pin (DD-10).
 
 ---
 
