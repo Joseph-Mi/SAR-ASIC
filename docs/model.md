@@ -37,7 +37,7 @@ else in the repo is bookkeeping around it.
 `V_top` depends on a **ratio** of capacitances. Absolute farads cancel. So the
 converter's accuracy has nothing to do with how large the capacitors are and
 everything to do with how equal they are. Absolute size enters only through
-thermal noise and settling time, and at 8 bits neither is what binds.
+thermal noise and settling time, neither of which this model computes.
 
 ### Why mismatch becomes DNL
 
@@ -57,8 +57,8 @@ switches on. The two groups share no devices, so their variances add over all
 sigma_DNL_MSB  =  sqrt(2^N - 1) * sigma_u/C_u
 ```
 
-Two more bits double that amplification *and* halve the LSB, which is why 10
-bits is not a small step up from 8.
+Two more bits double that amplification *and* halve the LSB, which is why a
+step up in resolution is never a small one.
 
 ### Why a missing code is the failure criterion
 
@@ -116,9 +116,10 @@ and one you start and walk away from.
 
 **`dynamic.py`** measures the array the way a bench does -- drive a coherent
 sine, take an FFT, compare the tone against everything else -- and reports
-effective bits. This is the number "8-bit" actually claims. An array whose
-mismatch costs it a bit is a 7-bit converter no matter how correct the FSM is,
-and no amount of DNL and INL inspection says that in one number.
+effective bits. This is the number a stated resolution actually claims. An
+array whose mismatch costs it a bit is a converter one bit short of its name no
+matter how correct the FSM is, and no amount of DNL and INL inspection says that
+in one number.
 
 **`mismatch.py`** is where every random draw in the project happens, so results
 are reproducible from a seed. Three physically distinct effects are kept
@@ -154,9 +155,9 @@ Named here because an unnamed assumption is indistinguishable from an oversight.
   to substrate and routing. It does not distort, being common to every code,
   but it attenuates full scale. Gain error, currently taken as zero.
 - **kT/C sampling noise.** `cmp_noise_rms` covers the comparator only. Nothing
-  models the noise trapped on the array at the instant of sampling. At 8 bits
-  this is not what binds, but that is a conclusion the model should eventually
-  reproduce rather than assume.
+  models the noise trapped on the array at the instant of sampling. Its budget
+  shrinks with the square of the LSB, so whether it binds depends on
+  `N_BITS`, and the model does not compute it: an assumption, not a result.
 - **The switching scheme.** `dac_voltage` encodes conventional binary-weighted
   switching. Monotonic and split-capacitor schemes have different equations and
   far better switching energy. One choice is embodied here without being argued.

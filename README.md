@@ -83,12 +83,13 @@ make clean
 
 Flags: `WAVES=1 make verify-unit` dumps FST into `build/sim/<top>/`.
 
-There is no synthesis target. TinyTapeout's GDS action owns synthesis with
-shuttle-pinned Yosys and LibreLane, so anything produced locally would be an
-estimate that does not match what gets fabricated, and estimates do not get
-targets. What *is* deterministic -- inferred latches, combinational loops,
-multiple drivers, undriven nets -- is a `yosys check -assert` pass inside
-`make lint-rtl`, where it belongs.
+Hardening is ours. An analog tile is submitted as finished GDS, so TinyTapeout
+synthesizes nothing on our behalf
+([analog specs](https://tinytapeout.com/specs/analog/)): the digital macro is
+hardened by LibreLane from the pinned container, and that run is what gets
+fabricated. What is deterministic without placing anything -- inferred latches,
+combinational loops, multiple drivers, undriven nets -- is a
+`yosys check -assert` pass inside `make lint-rtl`.
 
 Testbenches use cocotb's Python runner rather than cocotb Makefiles, so `make`
 is not required. Each `test_*.py` holds both its `@cocotb.test()` coroutines and

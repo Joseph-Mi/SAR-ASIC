@@ -3,16 +3,12 @@ What is sky130's capacitor matching coefficient, and can we trust it?
 The model sizes the unit capacitor from Pelgrom's law, so this coefficient is
 what the whole array area rests on. It is not in a datasheet -- it sits inside
 the device subcircuits as a mismatch term proportional to 1/sqrt(area), gated
-by MC_MM_SWITCH:
+by MC_MM_SWITCH. Where to read it, and why only one of the PDK's model trees is
+the right one, is in docs/model.md.
 
-    grep -n sw_mm_cmim $PDK_ROOT/$PDK/libs.tech/combined/continuous/models_global.spice
-    grep -n carea      $PDK_ROOT/$PDK/libs.tech/combined/continuous/models_capacitors.spice
-
-There is a second set of device models under libs.tech, and a third under
-libs.ref. They carry different MiM subcircuits with different mismatch
-coefficients, and they disagree. The deck reads the one the PDK's own xschem
-setup selects, which is what makes a number from here comparable with a
-schematic-driven simulation rather than an independent claim about the process.
+The deck loads the library the PDK's own xschem setup selects, which is what
+makes a number from here comparable with a schematic-driven simulation rather
+than an independent claim about the process.
 
 Reading an expression is not the same as trusting it, so mim_mc.spice measures
 the spread it predicts:
