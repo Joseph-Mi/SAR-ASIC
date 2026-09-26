@@ -330,15 +330,16 @@ Step 5 (`sim/cosim.py`, `sim/loop.py`, `sim/tests/test_cosim.py`,
   ngspice's `vlnggen` script (Verilator underneath), with `adc_bridge` /
   `dac_bridge` as the input gates / output drivers at the boundary. ~0.1 s per
   10-bit conversion; the whole integration suite is ~20 s including builds.
-- `vlnggen` gotchas: (1) ngspice eats leading-dash args, so parameters go
-  after `--` (`ngspice -b vlnggen -- -GN_BITS=4 sar_fsm.v`); (2) the element's
-  pin order is Verilator's storage order (1-bit ports first, then 16-bit
-  buses at 10 bits; declaration order at 4 bits) -- `cosim.build` parses the
-  generated `inputs.h`/`outputs.h` every build; (3) `d_cosim` wants a third
-  (inout) port list, `null` when empty; (4) the `.so` path must be absolute
-  (ngspice runs in the scratch dir); (5) script lives at
-  `<ngspice prefix>/share/ngspice/scripts/vlnggen` -- check it exists in the
-  IIC image (`ls $(dirname $(readlink -f $(which ngspice)))/../share/ngspice/scripts/`).
+- `cosim.build` runs vlnggen's steps itself (verilator --cc, write the order
+  headers, verilator --build --exe with ngspice's `scripts/src/` glue, g++
+  --shared) instead of calling the script. Through the script it broke in the
+  IIC image (ngspice 46): the argument reached Verilator as `--mdir`,
+  lowercased by ngspice's command interpreter (not reproduced on 42, even
+  with ngbehavior=hsa -- cause unconfirmed; bypassing makes it moot).
+  Other gotchas that stand: the element's pin order is Verilator's storage
+  order (1-bit ports first, then 16-bit buses at 10 bits; declaration order
+  at 4 bits) -- parsed from `Vlng.h` every build; `d_cosim` wants a third
+  (inout) port list, `null` when empty; the `.so` path must be absolute.
 - Solver stall found: an edge in a PWL at the same instant as a PULSE edge,
   each computing the time its own way, lands two breakpoints ~1e-19 s apart
   and ngspice never advances (only at clock periods whose multiples don't

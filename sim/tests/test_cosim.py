@@ -34,6 +34,22 @@ def test_pins_follow_the_compilers_order_each_bus_from_its_top_bit():
     ]
 
 
+#: A compiled model's interface, as the compiler declares the ports.
+INTERFACE = """class Vlng {
+    VL_IN8(&clk_i,0,0);
+    VL_OUT16(&dac_b_o,9,0);
+    VL_OUT8(&done_o,0,0);
+    VL_INOUT8(&pad_io,0,0);
+"""
+
+
+def test_the_order_files_keep_each_direction_in_the_compilers_order():
+    files = cosim.order_files(INTERFACE)
+    assert files["IN"] == "VL_DATA(8,clk_i,0,0)\n"
+    assert files["OUT"] == "VL_DATA(16,dac_b_o,9,0)\nVL_DATA(8,done_o,0,0)\n"
+    assert files["INOUT"] == "VL_DATA(8,pad_io,0,0)\n"
+
+
 def test_every_pin_is_placed_by_name():
     library = cosim.Library(pathlib.Path("m.so"), ["a_i"], cosim.pins(ORDER))
     nets = {p: f"n_{i}" for i, p in enumerate(library.inputs + library.outputs)}

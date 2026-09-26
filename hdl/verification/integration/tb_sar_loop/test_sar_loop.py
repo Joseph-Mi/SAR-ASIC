@@ -28,7 +28,7 @@ from tb_common.runner import BUILD_DIR
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ngspice") is None or not cosim.available(),
-    reason="needs ngspice, verilator and ngspice's Verilog compiler script",
+    reason="needs ngspice, verilator and the element glue ngspice installs",
 )
 
 DUT = "sar_fsm"

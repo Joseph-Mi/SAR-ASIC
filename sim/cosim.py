@@ -20,46 +20,61 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
-#: One port as the compiled model declares it: name, then the top and bottom
-#: bit of its range.
-PORT = re.compile(r"VL_DATA\(\d+,\s*(\w+),\s*(\d+),\s*(\d+)\)")
+#: One port as the compiled model's interface declares it: direction, the
+#: width of the word that stores it, name, then its top and bottom bit.
+PORT = re.compile(r"VL_(INOUT|IN|OUT)(\d*)\(&(\w+),\s*(\d+),\s*(\d+)")
 
-#: The files the build leaves the port order in, per direction.
-ORDER_FILES = {"inputs": "inputs.h", "outputs": "outputs.h", "inouts": "inouts.h"}
+#: One port as the order files list it: name, top bit, bottom bit.
+ORDERED = re.compile(r"VL_DATA\(\d+,\s*(\w+),\s*(\d+),\s*(\d+)\)")
+
+#: The order files the element's glue code includes, per direction.
+ORDER_FILES = {"IN": "inputs.h", "OUT": "outputs.h", "INOUT": "inouts.h"}
+
+#: The name the compiled model's classes and files are given. The glue code
+#: expects this one.
+PREFIX = "Vlng"
 
 
 class BuildError(RuntimeError):
     """A module that did not compile into a loadable element."""
 
 
-def generator() -> pathlib.Path:
-    """The script ngspice ships for compiling Verilog into an element.
+def glue() -> pathlib.Path:
+    """The C++ that turns a compiled Verilog model into an ngspice element.
 
-    It is installed beside the simulator, in the shared directory of the same
-    prefix the binary lives under.
+    ngspice installs it beside the simulator, in the shared directory of the
+    same prefix the binary lives under.
     """
     found = shutil.which("ngspice")
     if found is None:
-        return pathlib.Path("/nonexistent/vlnggen")
+        return pathlib.Path("/nonexistent")
     prefix = pathlib.Path(found).resolve().parent.parent
-    return prefix / "share" / "ngspice" / "scripts" / "vlnggen"
+    return prefix / "share" / "ngspice" / "scripts" / "src"
 
 
 def available() -> bool:
-    return shutil.which("verilator") is not None and generator().exists()
+    return shutil.which("verilator") is not None and (glue() / "verilator_shim.cpp").exists()
 
 
 def pins(order: str) -> list[str]:
     """Every bit of every port, in the compiled model's order: ports as the
     order lists them, each bus from its top bit down."""
     out = []
-    for name, msb, lsb in PORT.findall(order):
+    for name, msb, lsb in ORDERED.findall(order):
         msb, lsb = int(msb), int(lsb)
         if msb == lsb == 0:
             out.append(name)
         else:
             out.extend(f"{name}[{k}]" for k in range(msb, lsb - 1, -1))
     return out
+
+
+def order_files(interface: str) -> dict[str, str]:
+    """The order files' contents, from the compiled model's interface."""
+    files = {direction: "" for direction in ORDER_FILES}
+    for direction, width, name, msb, lsb in PORT.findall(interface):
+        files[direction] += f"VL_DATA({width or 8},{name},{msb},{lsb})\n"
+    return files
 
 
 @dataclass(frozen=True)
@@ -71,26 +86,71 @@ class Library:
     outputs: list[str]
 
 
+def _run(command: list[str], workdir: pathlib.Path, what: str) -> None:
+    proc = subprocess.run(command, cwd=workdir, capture_output=True, text=True)
+    if proc.returncode:
+        raise BuildError(f"{what} failed\n{' '.join(command)}\n{proc.stdout}\n{proc.stderr}")
+
+
 def build(source: pathlib.Path, workdir: pathlib.Path, parameters: dict | None = None) -> Library:
-    """Compile `source`'s top module, with `parameters` overridden, in `workdir`."""
-    workdir.mkdir(parents=True, exist_ok=True)
-    overrides = [f"-G{name}={value}" for name, value in (parameters or {}).items()]
-    # Everything after the separator reaches the Verilog compiler; before it,
-    # the simulator would take a parameter override for one of its own options.
-    proc = subprocess.run(
-        ["ngspice", "-b", str(generator()), "--", *overrides, str(source.resolve())],
-        cwd=workdir,
-        capture_output=True,
-        text=True,
-    )
-    library = (workdir / f"{source.stem}.so").resolve()
+    """Compile `source`'s top module, with `parameters` overridden, in `workdir`.
+
+    The steps are those of the compile script ngspice ships, run directly:
+    the script goes through the simulator's command interpreter, whose
+    handling of the compiler's arguments differs between releases and setups.
+    """
+    workdir = workdir.resolve()
     objects = workdir / f"{source.stem}_obj_dir"
-    if not library.exists():
-        raise BuildError(f"{source.name} did not compile\n{proc.stdout}\n{proc.stderr}")
-    order = {k: pins((objects / f).read_text()) for k, f in ORDER_FILES.items()}
-    if order["inouts"]:
-        raise BuildError(f"{source.name}: bidirectional ports are not wired: {order['inouts']}")
-    return Library(library, order["inputs"], order["outputs"])
+    library = workdir / f"{source.stem}.so"
+    shutil.rmtree(objects, ignore_errors=True)
+    library.unlink(missing_ok=True)
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    src = glue()
+    verilator = ["verilator", "--Mdir", str(objects), "--prefix", PREFIX, "--CFLAGS", "-fpic"]
+    design = [f"-G{name}={value}" for name, value in (parameters or {}).items()]
+    design.append(str(source.resolve()))
+
+    _run([*verilator, "--cc", *design], workdir, "translating the Verilog")
+    files = order_files((objects / f"{PREFIX}.h").read_text())
+    for direction, name in ORDER_FILES.items():
+        (objects / name).write_text(files[direction])
+    order = {direction: pins(text) for direction, text in files.items()}
+    if order["INOUT"]:
+        raise BuildError(f"{source.name}: bidirectional ports are not wired: {order['INOUT']}")
+
+    _run(
+        [
+            *verilator,
+            "--CFLAGS",
+            f"-I{src}",
+            "--cc",
+            "--build",
+            "--exe",
+            str(src / "verilator_main.cpp"),
+            str(src / "verilator_shim.cpp"),
+            *design,
+        ],
+        workdir,
+        "compiling the model",
+    )
+    runtime = sorted(str(p) for p in objects.glob("verilated*.o"))
+    _run(
+        [
+            "g++",
+            "--shared",
+            str(objects / "verilator_shim.o"),
+            *runtime,
+            str(objects / f"{PREFIX}__ALL.a"),
+            "-pthread",
+            "-lpthread",
+            "-o",
+            str(library),
+        ],
+        workdir,
+        "linking the element",
+    )
+    return Library(library, order["IN"], order["OUT"])
 
 
 def element(name: str, library: Library, nets: dict[str, str]) -> list[str]:
