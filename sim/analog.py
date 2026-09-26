@@ -31,6 +31,10 @@ NAME = "sar_analog"
 IDEAL_RON = 1.0
 IDEAL_ROFF = 1e12
 
+#: The comparator's hold capacitor. It is driven by an ideal difference
+#: amplifier, so its size sets nothing but the solver's view of it.
+HOLD_FARADS = 1e-15
+
 #: Hysteresis on the ideal switches' control, so a control sitting exactly at
 #: its threshold cannot chatter. Controls here are clean 0/1 levels.
 SWITCH_VT = 0.5
@@ -93,11 +97,23 @@ def _capacitor(name: str, top: str, bottom: str, units: int, unit) -> str:
     return f"X{name} {top} {bottom} {PDK_MIM} w={unit.side:.6g} l={unit.side:.6g} m={units}"
 
 
-def subckt(n_bits: int = N_BITS, unit: Ideal | Mim | None = None, c_par: float = 0.0) -> str:
+def subckt(
+    n_bits: int = N_BITS,
+    unit: Ideal | Mim | None = None,
+    c_par: float = 0.0,
+    ron_unit: float = IDEAL_RON,
+    ron_top: float = IDEAL_RON,
+) -> str:
     """The analog block, as one `.subckt`.
 
     `unit` is `Ideal(farads)` or `Mim()`. `c_par` adds that many farads from
     the top plate to `vss`, the parasitic `top_plate_voltage` accounts for.
+
+    `ron_unit` is the on-resistance of a bottom-plate switch sized for one
+    unit. Branch k's switches are 2^k units wide, so 2^k times less resistive:
+    every branch then settles with the same time constant, the way a real
+    array is sized, and no branch lags the rest. The dummy's are one unit.
+    `ron_top` is the top-plate sampling switch, which charges the whole array.
     """
     unit = DEFAULT_UNIT if unit is None else unit
     ports = terminals(n_bits)
@@ -109,6 +125,7 @@ def subckt(n_bits: int = N_BITS, unit: Ideal | Mim | None = None, c_par: float =
         f"* {NAME}: ideal switches, behavioural comparator",
         f".subckt {NAME} {' '.join(ports)}",
         f".model sw_ideal sw vt={SWITCH_VT} vh={SWITCH_VH} ron={IDEAL_RON} roff={IDEAL_ROFF}",
+        f".model sw_top sw vt={SWITCH_VT} vh={SWITCH_VH} ron={ron_top} roff={IDEAL_ROFF}",
         # The common mode the top plate is sampled to and compared against.
         f"Bvcm vcm vss V = {VCM_FRACTION}*v(vref,vss)",
         # Forced-input mode chooses what the array samples: the pin, or a rail.
@@ -121,36 +138,49 @@ def subckt(n_bits: int = N_BITS, unit: Ideal | Mim | None = None, c_par: float =
         # Sampling: top plate to Vcm, every bottom plate to the sampled input.
         f"Bc_smp c_smp vss V = {high('sample')}",
         f"Bc_cnv c_cnv vss V = {low('sample')}",
-        "S_top top vcm c_smp vss sw_ideal",
+        "S_top top vcm c_smp vss sw_top",
     ]
 
     for k, units in enumerate(branch_multipliers(n_bits)):
         is_dummy = k == n_bits
         tag = "d" if is_dummy else str(k)
         bottom = f"b{tag}"
+        model = f"sw_b{tag}"
+        lines.append(
+            f".model {model} sw vt={SWITCH_VT} vh={SWITCH_VH} "
+            f"ron={ron_unit / units:.9g} roff={IDEAL_ROFF}"
+        )
         lines.append(_capacitor(f"u{tag}", "top", bottom, units, unit))
-        lines.append(f"S_in{tag} {bottom} vs c_smp vss sw_ideal")
+        lines.append(f"S_in{tag} {bottom} vs c_smp vss {model}")
         if is_dummy:
-            lines.append(f"S_gnd{tag} {bottom} vss c_cnv vss sw_ideal")
+            lines.append(f"S_gnd{tag} {bottom} vss c_cnv vss {model}")
             continue
         bit = f"dac_b[{k}]"
         lines += [
             f"Bc_ref{tag} c_ref{tag} vss V = {low('sample')}*{high(bit)}",
             f"Bc_gnd{tag} c_gnd{tag} vss V = {low('sample')}*{low(bit)}",
-            f"S_ref{tag} {bottom} vref c_ref{tag} vss sw_ideal",
-            f"S_gnd{tag} {bottom} vss c_gnd{tag} vss sw_ideal",
+            f"S_ref{tag} {bottom} vref c_ref{tag} vss {model}",
+            f"S_gnd{tag} {bottom} vss c_gnd{tag} vss {model}",
         ]
 
     if c_par:
         lines.append(f"Cpar top vss {c_par:.6e}")
 
     # The comparator: precharged, both outputs high, while the strobe is low;
-    # while it is high, cmp_out is high when the top plate sits below Vcm --
-    # the guess is still low, keep the bit. A top plate exactly at Vcm is a
-    # decision no real comparator defines, so none is promised here.
+    # while it is high, cmp_out is high when the top plate sat below Vcm at the
+    # strobe's rising edge -- the guess was still low, keep the bit. The
+    # decision is taken on that edge and held, as a latch takes it: a
+    # comparator that kept looking would give the array the evaluate phase to
+    # settle in too, and hide exactly the settling a real one exposes. A top
+    # plate exactly at Vcm is a decision no real comparator defines, so none
+    # is promised here.
     strobe = high("cmp_clk")
-    keep = "u(v(vcm,vss)-v(top,vss))"
+    keep = "u(v(held,vss))"
     lines += [
+        "Ediff diff vss vcm top 1",
+        f"Bc_trk c_trk vss V = {low('cmp_clk')}",
+        "S_trk diff held c_trk vss sw_ideal",
+        f"Chold held vss {HOLD_FARADS:.6e}",
         f"Bcmp cmp_out vss V = v(vdd,vss)*(1-{strobe}+{strobe}*{keep})",
         f"Bcmpn cmp_out_n vss V = v(vdd,vss)*(1-{strobe}*{keep})",
         ".ends",
