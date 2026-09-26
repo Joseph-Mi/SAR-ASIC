@@ -352,7 +352,7 @@ Step 5 (`sim/cosim.py`, `sim/loop.py`, `sim/tests/test_cosim.py`,
   Mutation-checked: scrambled bus bit order -> 10/23 codes wrong; an FSM that
   detours through all-ground after sampling -> top plate to -0.5 V, caught.
 - Ideal-switch block only. With the real generator the loop is badly wrong --
-  see the float-window open finding.
+  see the NMOS input switch open finding.
 
 Step 4c (`model/injection.py`, `sim/devices.py`, `sim/tests/test_sampling_phases.py`,
 plus the Vcm pin from DD-10) done:
@@ -604,12 +604,22 @@ Delete each one when it is fixed.
   MiM bottom-plate parasitic to substrate (anchors the island -- 20% halved the
   dip in a quick try), a PMOS/transmission-gate top switch, and bounding the
   float time. Belongs with switch sizing (M5/M6), measured with sky130.
-  **Worse than the 2.9 LSB says:** that was measured holding only the final
-  word. In whole conversions (closed loop, and the open-loop replay agrees)
-  the dip sits under the early trials, where the off top switch leaks, and
-  the first wrong decision comes at trial 3-5: codes off by tens of LSB
-  (vin 0.95 V: 925 vs 972). The loop tests run the ideal block until this is
-  fixed; adding `sampling=analog.NonOverlap()` to them is the acceptance test.
+  Settled, the float window's own error is small: first-trial error with a
+  long sample runs -0.9 LSB (vin 0.05) to -0.56 (0.7), then +0.19 (0.9) and
+  +0.82 (0.95) -- 1.7 LSB spread, the smooth part a gain-like slope, the
+  kink at the top where the NMOS input switches are nearly off.
+- **NMOS-only input switches cannot sample high inputs in one clock.** This,
+  not the float window, is the tens-of-LSB error seen in back-to-back
+  conversions with the generator (closed loop and replay agree). One
+  conversion from DC is fine (+0.6 LSB, every decision right); 0.1 V then
+  0.95 V with a 1-clock (10 ns) sample: +48.6 LSB at the first trial; 2
+  clocks: +1.2; 5 clocks: +0.8. At vin 0.95 the NMOS has ~0.85 V of gate
+  drive before body effect: tau ~ ns per unit, and it depends on Vin (the
+  primer already says an NMOS cannot pass a voltage near its gate drive).
+  Fix: transmission-gate input switches (PMOS carries the top of the range;
+  opposite-sign channel charge also partly cancels the injection that makes
+  the float dip). Then re-derive the minimum clock with the TT pin (Step 6).
+  Acceptance: loop tests pass with `sampling=analog.NonOverlap()`.
 - **Entering sampling, the array floats to ground.** The FSM clears `dac_b`
   on the same edge `sample` rises. With the generator the conversion switches
   stay on until `phi_conv` falls, so for that window every bottom plate is at
