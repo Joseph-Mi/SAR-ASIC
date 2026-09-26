@@ -279,7 +279,30 @@ carry plus a random spread at `N_BITS` -- and the circuit's codes must equal
 the model's, i.e. its thresholds are within that offset of the model's.
 Checked by mutation: a 0.1 LSB comparator offset fails it, 0.01 LSB passes.
 Also proven: moving the pin after sampling changes no code (the comparator
-never sees the pin). Next: Step 4 realism.
+never sees the pin).
+
+Step 4 is split: 4a finite resistance (done), 4b Vcm source (pin vs divider,
+next), 4c sampling phases (one `sample` wire vs two).
+
+Step 4a (`model/settling.py` + `sim/tests/test_settle.py`) done:
+- Law: residual = step * e^(-t/tau); `settle_time(tau, step, tol)`. The
+  textbook (N+1) ln2 tau is this at a full-scale step and half-LSB tolerance.
+- Paths, each measured in ngspice to within 1% of the law:
+  sampling through the Vin pin, tau = R_pin * C_total;
+  top-plate switch while sampling, tau = R_top * C_total;
+  reference at the first trial, tau = R_ref * C_total/4
+  (`c_seen_by_reference`: selected in series with unselected, worst at half);
+  bottom switches binary-sized (branch k is 2^k units wide) settle every branch
+  with the same tau = R_unit * C_u -- checked by mutation (unscaled fails).
+- The comparator now decides on the strobe's rising edge and holds, like a
+  latch. A continuous one got the evaluate phase free and hid settling;
+  mutation-checked (it passes a sweep the latched one correctly fails).
+- The law is conservative: the sweep holds from ~0.65x its phase, fails at 0.5x.
+- Minimum phase for the real design = settle_time(R * C, VREF, tolerance) per
+  path, with R_pin from the TT analog spec (not yet read -- blocked from the
+  cloud session) and C_total = 2^N_BITS * (MiM unit capacitance, which the
+  container can measure with the PDK). Sampling through the pin is the slowest
+  path: it charges the whole array, the reference only a quarter.
 
 Solver notes, all measured:
 - ngspice's default reltol (1e-3) let the floating top plate drift ~40 uV at
@@ -291,7 +314,7 @@ Solver notes, all measured:
 - One simulation of a whole sweep (thousands of ideal-switch edges) eventually
   aborts with "timestep too small"; the same conversions in batches of tens
   never do. Smoothing the switch controls (tanh) did not fix it and tripled
-  run time. `test_sweep.BATCH`.
+  run time. `sweep.BATCH`.
 - Aperture: the pin must not move on the edge that ends sampling -- the switch
   opens mid-move and samples a blend. A real constraint on the pin's driver,
   worth remembering for the Vin source spec in Step 4.

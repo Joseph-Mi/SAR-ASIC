@@ -24,12 +24,14 @@ PHASE = 10e-9
 #: Rise and fall of every digital edge.
 EDGE = 0.1e-9
 
-#: How long before a phase ends its results are read.
-READ_BEFORE_END = 0.5e-9
+#: How long before a phase ends its results are read, as a fraction of the
+#: phase: late enough to see everything the phase settled, early enough that
+#: the next phase's edges have not begun.
+READ_BEFORE_END = 0.02
 
 #: Largest internal timestep, as a fraction of a phase, so no phase is stepped
 #: over.
-MAX_STEP = PHASE / 100
+MAX_STEP = 0.01
 
 #: Solver relative tolerance. The default, a part in a thousand, lets the
 #: floating top plate drift by a visible fraction of an LSB at the target
@@ -81,6 +83,15 @@ class Bench:
     n_bits: int = analog.N_BITS
     unit: analog.Ideal | analog.Mim = analog.DEFAULT_UNIT
     c_par: float = 0.0
+    #: Length of every phase. Settling is measured by shortening it.
+    phase: float = PHASE
+    #: Series resistance between each source and its pin -- the package, bond
+    #: wire and pad the signal crosses before it reaches the block.
+    r_vin: float = 0.0
+    r_vref: float = 0.0
+    #: Switch on-resistances, passed to the block.
+    ron_unit: float = analog.IDEAL_RON
+    ron_top: float = analog.IDEAL_RON
     #: Phases whose results are read; None reads every one. A sweep of many
     #: conversions in one run reads only the phases it checks, because every
     #: read is a measurement the simulator has to evaluate.
@@ -89,7 +100,7 @@ class Bench:
     probes: dict[str, str] | None = None
 
 
-def _pwl(values: list[float]) -> str:
+def _pwl(values: list[float], phase: float) -> str:
     """A PWL source holding each value for one phase, switching at the edges.
 
     A value repeated across phases adds no points, so a long run of constant
@@ -99,10 +110,10 @@ def _pwl(values: list[float]) -> str:
     for i in range(1, len(values)):
         if values[i] == values[i - 1]:
             continue
-        edge = i * PHASE
+        edge = i * phase
         points.append((edge, values[i - 1]))
         points.append((edge + EDGE, values[i]))
-    points.append((len(values) * PHASE, values[-1]))
+    points.append((len(values) * phase, values[-1]))
     return "PWL(" + " ".join(f"{t:.{TIME_DIGITS}g} {v:.9g}" for t, v in points) + ")"
 
 
@@ -118,13 +129,15 @@ def deck(bench: Bench) -> str:
     s = bench.supplies
     lines = [
         f"* {NAME} bench",
-        analog.subckt(bench.n_bits, bench.unit, bench.c_par),
+        analog.subckt(bench.n_bits, bench.unit, bench.c_par, bench.ron_unit, bench.ron_top),
         "Vvss vss 0 0",
         f"Vvdd vdd 0 {s.vdd}",
-        f"Vvref vref 0 {s.vref}",
+        f"Vvref vref_src 0 {s.vref}",
+        f"Rvref vref_src vref {max(bench.r_vref, analog.IDEAL_RON):.9g}",
     ]
     pin = [s.vin if p.vin is None else p.vin for p in bench.phases]
-    lines.append(f"Vvin vin 0 {_pwl(pin)}")
+    lines.append(f"Vvin vin_src 0 {_pwl(pin, bench.phase)}")
+    lines.append(f"Rvin vin_src vin {max(bench.r_vin, analog.IDEAL_RON):.9g}")
 
     drives = {
         "sample": [p.sample for p in bench.phases],
@@ -136,20 +149,21 @@ def deck(bench: Bench) -> str:
         drives[f"dac_b[{k}]"] = [(p.dac_b >> k) & 1 for p in bench.phases]
     for terminal, levels in drives.items():
         volts = [level * s.vdd for level in levels]
-        lines.append(f"V_{_node(terminal)} {_node(terminal)} 0 {_pwl(volts)}")
+        lines.append(f"V_{_node(terminal)} {_node(terminal)} 0 {_pwl(volts, bench.phase)}")
 
     lines.append("Xdut " + " ".join(_node(t) for t in terminals(bench.n_bits)) + f" {NAME}")
 
-    stop = len(bench.phases) * PHASE
+    stop = len(bench.phases) * bench.phase
+    step = MAX_STEP * bench.phase
     lines.append(f".options reltol={RELTOL}")
     lines += [
         ".control",
-        f"tran {MAX_STEP:.{TIME_DIGITS}g} {stop:.{TIME_DIGITS}g} 0 {MAX_STEP:.{TIME_DIGITS}g}",
+        f"tran {step:.{TIME_DIGITS}g} {stop:.{TIME_DIGITS}g} 0 {step:.{TIME_DIGITS}g}",
     ]
     read = range(len(bench.phases)) if bench.read is None else bench.read
     probes = PROBES if bench.probes is None else bench.probes
     for i in read:
-        at = (i + 1) * PHASE - READ_BEFORE_END
+        at = (i + 1 - READ_BEFORE_END) * bench.phase
         for name, expression in probes.items():
             lines.append(f"meas tran {name} find {expression} at={at:.{TIME_DIGITS}g}")
     lines += [".endc", ".end"]
