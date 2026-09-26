@@ -266,8 +266,24 @@ pending M3" — M3 is the evidence the interface is right.
 
 Progress: Step 0 (DD-08 Vcm, DD-09 harness in `sim/`) done. Step 1
 (`top_plate_voltage()` in `sar.py`, with Vcm and a top-plate parasitic;
-`test_top_plate.py`) done. Next: Step 2 — generate the array netlist from
-`N_BITS` and the unit-cap constants, ideal switches, behavioural comparator.
+`test_top_plate.py`) done. Step 2 (`sim/analog.py` generates the block from
+`N_BITS`/`PORTS`/unit constants, ideal switches, behavioural StrongARM with
+precharge-high outputs, Vcm = `VCM_FRACTION`*vref internally, force mode;
+`sim/bench.py` drives it phase by phase; `sim/tests/test_analog.py` replays
+`protocol.py` open loop) done — which is most of Step 3 too: every top-plate
+voltage and every decision matches the model at 4 and 10 bits. Next: Step 3's
+remainder is a Vin *sweep* (many inputs, near code edges) as the pass
+criterion; then Step 4 realism.
+
+Solver note: ngspice's default reltol (1e-3) let the floating top plate drift
+~40 uV at 10 bits; 1e-4 gives ~1 uV at the same speed; 1e-5 stalls on the
+ideal switches' edges. `bench.RELTOL` holds that choice.
+
+Unverified until run in the container: the MiM variant (`analog.Mim`, instance
+params `w`/`l`/`m`, terminal order top-then-bottom) — the PDK test skips
+without sky130. If it fails on an unknown parameter or a ratio, check the
+`sky130_fd_pr__cap_mim_m3_1` subckt line for its param names and which pin is
+capm.
 
 Step 1 overturned a belief: a top-plate parasitic to a fixed potential moves
 **no threshold**, linear or not. At every decision the node is back at Vcm,
