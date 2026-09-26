@@ -156,6 +156,95 @@ choice -- one `sample` wire cannot express it.
 
 ---
 
+## Top plate at Vcm
+
+The model samples the top plate to ground, which makes the conversion read
+
+    V_top = -Vin + VREF * C_S / C_total
+
+Correct algebra, unrealisable voltages: V_top runs from about -VREF to 0. Below
+roughly -0.5 V the top-plate switch's junctions forward-bias and leak the held
+charge away, and a StrongARM with an NMOS input pair cannot resolve an input
+near 0 V. Sample the top plate to Vcm instead (usually VREF/2):
+
+    V_top - Vcm = -Vin + VREF * C_S / C_total
+
+Same ratios, so every matching and yield result carries over unchanged. What
+changes is that Vcm has to exist: a pin, or an on-chip divider whose settling
+is one more thing M3 measures.
+
+---
+
+## Thermal noise on the array: kT/C
+
+Opening the sampling switch freezes a snapshot of the thermal noise on the
+array. Its rms is independent of the switch resistance:
+
+    v_n = sqrt(k*T / C_total)
+
+Compare it with quantisation noise, LSB/sqrt(12), and require it well under:
+
+    sqrt(kT / C_total)  <<  VREF / (2^N * sqrt(12))
+
+C_total = 2^N * C_u, with C_u = unit area * density. Density per flavour and
+corner is the `camimc` grep in docs/model.md. With MiM at minimum unit size this
+comes out tens of microvolts against hundreds for quantisation — not binding.
+The fraction grows with N and shrinks with C_u, so re-check it if the unit
+shrinks (VPP) or the resolution rises.
+
+---
+
+## Settling through the pin
+
+Each bit trial must settle to half an LSB:
+
+    e^(-t/tau) < 2^-(N+1)   =>   t_settle > (N+1) * ln2 * tau
+
+For Vin sampling and for Vref recovery, tau is not just the switch:
+
+    tau = (R_pin + R_switch) * C_seen
+
+R_pin is the TT analog pin's series resistance (TT analog spec). C_seen is the
+array for Vin sampling; for Vref it is the capacitance switched in that trial,
+worst at the MSB. t_settle has to fit in the SETTLE cycle, which is what sets
+the conversion clock from the analog side. M3 measures it; this bounds it.
+
+---
+
+## Comparator noise and ENOB
+
+Comparator noise sigma_n (in LSB), redrawn every trial, is input-referred
+noise ahead of the quantiser. Below the gross-error onset it adds to
+quantisation noise the way dither does:
+
+    sigma_total = sqrt(1/12 + sigma_n^2)        [LSB]
+    ENOB        = N - log2(sigma_total * sqrt(12))
+
+The tempting alternative — take the code error (noisy code minus clean code)
+and add *its* power to 1/12 — double-counts. A flip only happens when Vin sits
+next to a threshold, which is exactly where the quantisation error was already
+near +-LSB/2, so the code error is anti-correlated with the quantisation
+error, not independent of it. Measure error against the true input.
+
+Above the onset an early bit decides wrongly, a binary-weighted SAR never
+revisits it, and the error costs 2^k LSB: the heavy tail `p_gross` counts.
+
+---
+
+## Measuring C(V) on a node
+
+The hand formula for Cj(V) above says whether to worry. To get the number with
+every junction and overlap the models carry, measure it the way the
+cap-matching deck measures a capacitor:
+
+    DC-bias the node at V, add a 1 V AC source, C = |I| / (2*pi*f*1 V)
+
+Sweep the DC bias across the input range and the variation of C over that
+range is exactly the quantity the INL budget above bounds. `.op` also reports
+per-device terms, e.g. `@m.xm1.msky130_fd_pr__nfet_01v8[cgd]`.
+
+---
+
 ## How each number is obtained
 
 Three levels, in rising fidelity, all of which this repo can already run:
