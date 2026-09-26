@@ -27,6 +27,12 @@ from __future__ import annotations
 
 import numpy as np
 
+#: The top plate's sampling reference, as a fraction of VREF. Mid-reference puts
+#: the widest swing of a conversion -- its first trial, plus or minus half the
+#: reference -- exactly between the rails, where no switch junction on the node
+#: conducts and an NMOS-input comparator is biased on.
+VCM_FRACTION = 0.5
+
 
 def branch_slices(n_bits: int) -> list[slice]:
     """Unit indices belonging to each binary branch, LSB branch first."""
@@ -69,6 +75,40 @@ def dac_voltage(code: int, weights, total_cap: float, vref: float) -> float:
     """
     selected = sum(w for k, w in enumerate(weights) if code & (1 << k))
     return vref * selected / total_cap
+
+
+def top_plate_voltage(
+    vin: float,
+    code: int,
+    unit_caps,
+    vref: float = 1.0,
+    vcm: float | None = None,
+    c_par: float = 0.0,
+) -> float:
+    """Voltage on the shared top plate while `code` drives the bottom plates.
+
+    Charge conservation on the floating node. Sampling holds the top plate at
+    `vcm` with every bottom plate at `vin`; afterwards the branches in `code`
+    sit at VREF and the rest at ground, and the top plate goes wherever keeps
+    its charge:
+
+        V_top = vcm + (VREF * C_selected - vin * C_total) / (C_total + c_par)
+
+    so V_top - vcm is the guess's remaining error, inverted and divided down by
+    any parasitic. `c_par` is capacitance from the top plate to a fixed
+    potential, in the same units as `unit_caps`. It holds the same charge at
+    the decision point as at sampling, because both are at `vcm`, so it moves
+    no threshold -- only the size of the swing the comparator has to resolve.
+
+    `vcm` defaults to the design's common mode, VCM_FRACTION of `vref`.
+    """
+    caps = np.asarray(unit_caps, dtype=float)
+    weights = branch_weights(caps)
+    total = caps.sum()
+    if vcm is None:
+        vcm = VCM_FRACTION * vref
+    selected = sum(w for k, w in enumerate(weights) if code & (1 << k))
+    return vcm + (vref * selected - vin * total) / (total + c_par)
 
 
 def sar_convert(

@@ -57,7 +57,8 @@ Native tool versions are recorded in [docs/tool-versions.md](docs/tool-versions.
 `make check-tools` enforces them.
 
 How the Python models fit together, and the physics under them, is in
-[docs/model.md](docs/model.md).
+[docs/model.md](docs/model.md). How a SAR converts at the level of charge on a
+capacitor, walked through by hand, is in [docs/sar-primer.md](docs/sar-primer.md).
 
 How the tile is divided between the digital macro and the analog block, and the
 `DIE_AREA` that follows from it, is in [docs/floorplan.md](docs/floorplan.md).

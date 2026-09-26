@@ -73,11 +73,16 @@ copied in from drvfs arrive mode 777 and show up as spurious git mode changes �
 normalize to 644/755 before committing.
 
 **DD-08 — The top plate is referenced to Vcm, not ground.**
-Sampling the top plate to ground makes it swing from about -VREF to 0 during
-conversion: switch junctions on that node forward-bias below roughly -0.5 V and
-leak the held charge, and an NMOS-input StrongARM cannot resolve near 0 V.
-Sampled to Vcm (VREF/2), the node stays mid-rail and the conversion equation
-keeps the same ratios, so every matching and yield result carries over. The
+The reference cancels out of every decision, so both choices convert the same
+codes; they differ in where the node travels. The widest swing is the first
+trial, +-VREF/2 around the sampling reference. Referenced to ground that is
+-VREF/2..+VREF/2: switch junctions on the node forward-bias below roughly
+-0.5 V and leak the held charge, and an NMOS-input StrongARM cannot resolve
+near 0 V. Referenced to Vcm (`VCM_FRACTION` of VREF in `sar.py`) it is
+0..VREF, inside the rails, with the same ratios, so every matching and yield
+result carries over. Contract this creates: leaving the sample phase, bottom
+plates go straight to the first trial word -- never through all-ground, which
+would drop the node to Vcm - Vin, down to -VREF/2 even with Vcm. The
 comparator compares the top plate against Vcm. In M3 Vcm is an ideal source;
 whether silicon gets it from its own pin or an on-chip divider is an open
 interface question, answered by M3's settling runs, not decided here.
@@ -259,9 +264,17 @@ The question M3 answers: does the architecture work in a circuit simulator, and
 does the frozen interface survive contact with it? Treat the `.sym` as "frozen
 pending M3" — M3 is the evidence the interface is right.
 
-Progress: Step 0 (DD-08 Vcm, DD-09 harness in `sim/`) done. Next: Step 1 —
-`top_plate_voltage()` in the golden model, with Vcm and a top-plate parasitic,
-tests first.
+Progress: Step 0 (DD-08 Vcm, DD-09 harness in `sim/`) done. Step 1
+(`top_plate_voltage()` in `sar.py`, with Vcm and a top-plate parasitic;
+`test_top_plate.py`) done. Next: Step 2 — generate the array netlist from
+`N_BITS` and the unit-cap constants, ideal switches, behavioural comparator.
+
+Step 1 overturned a belief: a top-plate parasitic to a fixed potential moves
+**no threshold**, linear or not. At every decision the node is back at Vcm,
+where it was sampled, so the parasitic holds the charge it started with. Its
+real cost is dividing the comparator's input swing by C_tot/(C_tot+C_par), i.e.
+multiplying input-referred comparator offset and noise by the inverse. It is a
+comparator-budget item (M5), not gain error or INL.
 
 1. **Schematic** (xschem): real PDK capacitors for the array, ideal `sw`
    switches, behavioural comparator (B-source `v(top) > v(vcm)`).
@@ -272,7 +285,7 @@ tests first.
 4. **Then add realism, one item per run**, and record what each one costs:
    - top plate sampled to Vcm, not ground (MATH.md, "Top plate at Vcm")
    - TT pin series R on `vin` and `vref` (value from the TT analog spec)
-   - a top-plate parasitic C -> gain error vs the model's zero-gain-error assumption
+   - a top-plate parasitic C -> codes unchanged, swing divided as `top_plate_voltage` predicts
    - one `sample` wire vs two non-overlapping phases (bottom-plate sampling)
 5. **Outputs**: settling margin per bit trial against the conversion clock
    (MATH.md, "Settling through the pin"); Vref recovery after the MSB trial;
@@ -336,8 +349,8 @@ matching and not by noise -- both have margin at minimum size.
 Matching depends on area, and both share a coefficient, so MiM does not match
 better — it buys more farads in the same area. More farads: less kT/C, but
 slower settling and a bigger charge kick on Vref. Fewer farads (VPP): faster,
-but top-plate parasitics become a larger fraction, so junction C(V) costs more
-INL. Decided with M3's settling numbers and MATH.md's kT/C line.
+but top-plate parasitics become a larger fraction of the array, dividing the
+comparator's swing further (no threshold moves -- see M3 Step 1). Decided with M3's settling numbers and MATH.md's kT/C line.
 
 ---
 

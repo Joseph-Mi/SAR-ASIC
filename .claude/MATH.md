@@ -53,16 +53,33 @@ The junction is a diode, so its capacitance varies with the voltage across it:
 
     Cj(V) = Cj0 / (1 + V/PB)^MJ
 
-A *linear* parasitic on the summing node is an attenuation:
+On the **top plate**, in this architecture, neither the linear nor the
+voltage-dependent part moves a threshold. Write the parasitic's charge as any
+function of the node voltage, q_p(V), its other terminal fixed:
 
-    gain = C_array / (C_array + C_par)
+    sample:    Q = C_array*(Vcm - Vin)       + q_p(Vcm)
+    decision:  Q = C_array*V_x - VREF*C_S    + q_p(V_x)
 
-which is a gain error, and gain errors calibrate out. The voltage-dependent
-part does not: the attenuation changes with the signal, and a signal-dependent
-gain is **INL**, which one constant cannot correct. So the quantity to bound is
-not `Cj` but its *variation across the input range*.
+A threshold is where V_x = Vcm. There q_p(V_x) = q_p(Vcm), it cancels, and
+Vin = VREF * C_S / C_array exactly. The comparison happens at the voltage the
+node was sampled at, so the parasitic ends every decision holding the charge
+it started with. A comparator offset moves the decision point to Vcm + Vos for
+every code alike, so even then the parasitic contributes a constant, not INL.
 
-Budget: that variation under one LSB of effect, i.e. under `C_array / 2^N`.
+What it does cost is swing. Between decisions
+
+    V_x - Vcm  ~  (VREF*C_S - Vin*C_array) / (C_array + C_par)
+
+so the comparator resolves a residue divided by (C_array + C_par)/C_array, and
+its offset and noise, referred to the input, grow by that factor. `sar.py`'s
+`top_plate_voltage` carries the linear case; `test_top_plate.py` pins both
+claims.
+
+Where Cj(V) *does* cost linearity is off the top plate: a bottom-plate
+parasitic that differs between branches perturbs the weights (below), and the
+input switch's junctions load `Vin` nonlinearly while tracking -- a dynamic
+effect, gone once sampling settles fully. (This section previously claimed
+top-plate C(V) is INL; the charge argument above is why it is not.)
 
 ---
 
@@ -72,12 +89,13 @@ This asymmetry is most of the analysis.
 
 | Node | During conversion | A parasitic there |
 |---|---|---|
-| Top plate | high-impedance, holds the residue | attenuates signal, adds kT/C, and its nonlinearity is INL |
+| Top plate | high-impedance, holds the residue | divides the comparator's swing (input-referred offset/noise grow); no threshold moves |
 | Bottom plates | driven hard to VREF or GND | loads the driver: costs settling time, not accuracy |
 
-So a large diffusion on a bottom-plate switch is nearly free, and the same
-diffusion on the sampling switch is a direct attack on the LSB. Size the two
-switch families against different criteria.
+So a large diffusion on a bottom-plate switch costs settling time, and on the
+top plate it costs comparator swing; neither moves a threshold on its own. What
+does reach the LSB from the top-plate switch is the charge it injects when it
+opens (next sections). Size the two switch families against different criteria.
 
 The exception is mismatch: a bottom-plate parasitic that differs *between
 branches* perturbs the weights and does show up as DNL. Identical switches,
@@ -240,7 +258,8 @@ cap-matching deck measures a capacitor:
     DC-bias the node at V, add a 1 V AC source, C = |I| / (2*pi*f*1 V)
 
 Sweep the DC bias across the input range and the variation of C over that
-range is exactly the quantity the INL budget above bounds. `.op` also reports
+range is what a *bottom-plate* branch mismatch or the input-switch loading
+depends on; on the top plate it only sets the swing division. `.op` also reports
 per-device terms, e.g. `@m.xm1.msky130_fd_pr__nfet_01v8[cgd]`.
 
 ---
