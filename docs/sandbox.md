@@ -14,7 +14,7 @@ at the same time, and being unable to tell which one is wrong.
 | `inv-example/` | Upstream's inverter, copied in whole. Read it, run it, do not edit it — it is the reference for what a working setup looks like. |
 | `inv-experimental/` | The same circuit rebuilt by hand. This is the one you break. |
 | `cap-matching/` | One question about the PDK's capacitor mismatch coefficient, and a deck that answers it. No schematic. |
-| `tools/` | Shared helpers. Agnostic mechanism only — running a deck, restamping instances — plus the PDK's device parameters. |
+| `tools/` | Shared helpers. Agnostic mechanism only — restamping instances — plus the PDK's device parameters. Running a deck lives in `sim/`, because the design's own simulations use it and design code may not import from here. |
 
 The example is built on the thick-oxide `g5v0d10v5` devices; the experimental
 one on core `nfet_01v8` / `pfet_01v8`. The device name carries its own supply

@@ -48,11 +48,20 @@ def ports(subckt: str) -> list[str]:
     return re.match(r"^\.subckt\s+\S+\s+(.*)$", subckt, re.M).group(1).split()
 
 
-def run(deck: str, workdir: pathlib.Path) -> dict[str, list[float]]:
-    """Simulate one deck, returning every result it printed, in order.
+def results(stdout: str) -> dict[str, list[float]]:
+    """Every `name = value` a run printed, in order, grouped by name.
 
     Results accumulate under their own names, so a loop that measures the same
     quantity each pass returns one list of draws per name.
+    """
+    found: dict[str, list[float]] = {}
+    for name, value in RESULT.findall(stdout):
+        found.setdefault(name, []).append(float(value))
+    return found
+
+
+def run(deck: str, workdir: pathlib.Path) -> dict[str, list[float]]:
+    """Simulate one deck, returning every result it printed.
 
     ngspice exits zero whether or not a deck produced anything, so an empty
     result is the failure signal. The scratch deck is named for the process
@@ -70,9 +79,7 @@ def run(deck: str, workdir: pathlib.Path) -> dict[str, list[float]]:
     finally:
         scratch.unlink(missing_ok=True)
 
-    results: dict[str, list[float]] = {}
-    for name, value in RESULT.findall(proc.stdout):
-        results.setdefault(name, []).append(float(value))
-    if not results:
+    found = results(proc.stdout)
+    if not found:
         raise DeckError(f"deck produced no measurements\n{proc.stdout}\n{proc.stderr}")
-    return results
+    return found

@@ -72,6 +72,24 @@ container start scripts pass. Repo lives at `~/github/SAR-ASIC`. Note: files
 copied in from drvfs arrive mode 777 and show up as spurious git mode changes —
 normalize to 644/755 before committing.
 
+**DD-08 — The top plate is referenced to Vcm, not ground.**
+Sampling the top plate to ground makes it swing from about -VREF to 0 during
+conversion: switch junctions on that node forward-bias below roughly -0.5 V and
+leak the held charge, and an NMOS-input StrongARM cannot resolve near 0 V.
+Sampled to Vcm (VREF/2), the node stays mid-rail and the conversion equation
+keeps the same ratios, so every matching and yield result carries over. The
+comparator compares the top plate against Vcm. In M3 Vcm is an ideal source;
+whether silicon gets it from its own pin or an on-chip divider is an open
+interface question, answered by M3's settling runs, not decided here.
+
+**DD-09 — Circuit simulation harness lives in `sim/`, not `sandbox/`.**
+Design code may not import from the sandbox, and M3's harness is design code:
+its pass criterion is the golden model's decisions. So the deck runner moved to
+`sim/`, the sandbox imports it from there (never the reverse), and `make
+verify-analog` runs `sim/`'s tests. Tests needing the simulator skip where
+ngspice is absent -- CI has none -- so the parser and generators stay checked
+everywhere and the circuit runs are checked in the container.
+
 ---
 
 ## Environment
@@ -241,6 +259,10 @@ The question M3 answers: does the architecture work in a circuit simulator, and
 does the frozen interface survive contact with it? Treat the `.sym` as "frozen
 pending M3" — M3 is the evidence the interface is right.
 
+Progress: Step 0 (DD-08 Vcm, DD-09 harness in `sim/`) done. Next: Step 1 —
+`top_plate_voltage()` in the golden model, with Vcm and a top-plate parasitic,
+tests first.
+
 1. **Schematic** (xschem): real PDK capacitors for the array, ideal `sw`
    switches, behavioural comparator (B-source `v(top) > v(vcm)`).
 2. **Control**: PWL waveforms generated from `protocol.py` first; then the real
@@ -384,10 +406,11 @@ Delete each one when it is fixed.
   ~0.9 the baseline implies. Below gross-error onset the answer is the dithered
   quantiser, sqrt(q^2 + sigma_n^2). Fix = model + test, regenerate
   `noise_baseline.txt`. M5's preamp decision reads this table — fix it first.
-- **Top plate sampled to ground** in `sar.py`'s physics. On silicon that node
-  swings negative (switch junctions forward-bias; StrongARM can't compare near
-  0 V). Sample to Vcm instead. Ratios unchanged, so DNL/yield results survive,
-  but Vcm needs a pin or an on-chip divider -> interface question for M3.
+- **Vcm source: pin or on-chip divider?** DD-08 decided the top plate is
+  referenced to Vcm; where Vcm comes from is open. A pin costs one of the six
+  usable `ua` pins and adds the pin R to its settling; a divider costs static
+  current and its own settling. M3 Step 4 measures both. `sar.py`'s physics and
+  `docs/model.md` still describe ground sampling until M3 Step 1 lands.
 - **One `sample` wire vs bottom-plate sampling's two phases.** Either the analog
   block makes the non-overlap locally or the interface grows. Decide in M3.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
