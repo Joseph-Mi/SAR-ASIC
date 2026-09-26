@@ -26,6 +26,15 @@ RTL_N_BITS = re.compile(r"^\s*parameter\s+(?:integer\s+)?N_BITS\s*=\s*(\d+)", re
 #: Terminals in a symbol file, one per line: `B <n> <coords...> {name=.. dir=..}`
 TERMINAL = re.compile(r"^B\s+(?:\S+\s+){5}\{name=(?P<name>\S+)\s+dir=(?P<dir>\w+)\}", re.M)
 
+#: A resolution, or an array size derived from one, spelled out as a number.
+#: Prose that states one is a second copy of the constant that no test reads.
+PROSE_RESOLUTION = re.compile(r"\b\d+(?:-|\s+)bits?\b|\b\d+-(?:cell|unit)\b", re.I)
+
+#: Prose is every Markdown file and every extensionless README, wherever it
+#: sits. Generated trees are not ours to word, and working notes are not
+#: documentation.
+PROSE_EXCLUDED = {".git", ".claude", "build", "runs"}
+
 
 @pytest.fixture(scope="module")
 def declared() -> dict[str, str]:
@@ -77,3 +86,25 @@ def test_the_rtl_defaults_to_the_declared_resolution():
     assert declared, "RTL exists but declares no resolution to check"
     for name, value in declared:
         assert value == N_BITS, f"{name} defaults to {value}, contract says {N_BITS}"
+
+
+def test_no_document_restates_the_resolution():
+    """Code is checked against the contract; prose is checked by nobody. A
+    document that names a resolution by number is right until the day it is
+    changed, and then it is trusted. Name `N_BITS` instead."""
+    prose = [
+        path
+        for path in REPO.rglob("*")
+        if path.is_file()
+        and (path.suffix == ".md" or path.name == "README")
+        and not PROSE_EXCLUDED & set(path.relative_to(REPO).parts)
+    ]
+    # Whole files, not lines: prose wraps, and a number left at the end of one
+    # line is still a number.
+    stated = [
+        f"{path.relative_to(REPO)}:{text.count(chr(10), 0, m.start()) + 1}: {m.group(0)!r}"
+        for path in prose
+        for text in [path.read_text()]
+        for m in PROSE_RESOLUTION.finditer(text)
+    ]
+    assert not stated, "resolution stated in prose:\n" + "\n".join(stated)

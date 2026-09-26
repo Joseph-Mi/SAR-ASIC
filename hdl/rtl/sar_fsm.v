@@ -1,4 +1,4 @@
-// Successive-approximation control FSM. One bit trial per cycle, MSB first.
+// Successive-approximation control FSM, MSB first.
 //
 // Contract: the comparator answer must be stable for the whole cycle in which
 // cmp_clk_o is high; it is captured on the rising edge that ends that cycle.
