@@ -125,8 +125,9 @@ cross-coupled. phi_top (top switch) follows `sample`. phi_bot (input switches)
 line is off, nor rise until the conversion line is off. phi_conv (conversion
 switches) = NOR(sample, bot_still_on): it cannot rise until the input line is
 off. Each "still_on" is an off-detector on the line the switches' gates
-actually hang on -- a skewed inverter (strong NMOS, weak PMOS) whose switching
-point sits near the transistor threshold, below where the switch conducts --
+actually hang on -- a skewed inverter (strong NMOS, weak PMOS lengthened
+rather than narrowed) whose switching point sits near the transistor
+threshold, below where the top switch conducts --
 so each phase waits for the previous switch to be *really* off, however slow
 its wire, load or corner. Like a relay baton: runner 2 cannot leave until the
 baton is in hand, whereas a delay chain is runner 2 leaving on a stopwatch.
@@ -325,9 +326,22 @@ sampling phases (done). Next: Step 5, closed loop with `sar_fsm.v`.
 
 Step 4c (`model/injection.py`, `sim/devices.py`, `sim/tests/test_sampling_phases.py`,
 plus the Vcm pin from DD-10) done:
-- Real MOS switches for top and input (generic BSIM4 here; sky130 via
-  `devices.Sky130(corner)` -- the corner tests need the PDK and have not run
-  yet). Measured at the decision point, realistic 8 fF unit: see DD-11 numbers.
+- Real MOS switches for top and input (generic BSIM4 everywhere; sky130 via
+  `devices.Sky130(corner)`). Measured at the decision point, realistic 8 fF
+  unit: see DD-11 numbers.
+- sky130 device rules the first container run taught: no model below
+  W = 0.42 um (the detector's weak PMOS was 0.3 -> "could not find a valid
+  modelname"); size bins are bounded, so wide devices are split into equal
+  fingers <= 5 um (`devices.SKY130_W_FINGER_MAX`); to weaken a device at
+  minimum width, lengthen it. The detector (NMOS 2 um, PMOS 0.42 x 1 um)
+  switches at 0.41 V generic and 0.51-0.68 V across sky130 corners -- an
+  inverter cannot flip below its NMOS threshold. That is well below where the
+  top switch (at Vcm) conducts; an input switch at Vin ~ 0 may still conduct
+  faintly as conversion starts, costing the Vin pin a little current, not a
+  code (top plate already sealed). Corner test passes tt/ff/ss/fs/sf, run in
+  the cloud against the raw skywater-pdk-libs-sky130_fd_pr models (a trimmed
+  nfet/pfet library; the container's open_pdks "combined" library is the
+  authority).
 - Offset doubles with the top switch's width (the model's channel charge).
 - Generator: every edge ordered at VDD +-10% and -40/27/125 C; ordering held
   with a line slowed >5x; the top switch's step is the same for every input

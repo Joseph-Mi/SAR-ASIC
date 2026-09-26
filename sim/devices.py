@@ -12,6 +12,7 @@ particular. sky130's is the real device, and needs the PDK.
 
 from __future__ import annotations
 
+import math
 import os
 import pathlib
 from dataclasses import dataclass
@@ -45,9 +46,24 @@ def pdk_library() -> pathlib.Path:
     return root / os.environ.get("PDK", "sky130A") / "libs.tech/combined/sky130.lib.spice"
 
 
+#: The narrowest core device the PDK draws and has a model for, in
+#: micrometres. Below it the simulator finds no model at all.
+SKY130_W_MIN = 0.42
+
+#: The widest single finger to ask the models for. Their size bins cover a
+#: bounded range of widths; anything wider is drawn, and modelled, as parallel
+#: fingers of equal width.
+SKY130_W_FINGER_MAX = 5.0
+
+
 @dataclass(frozen=True)
 class Sky130:
-    """The PDK's core devices at one process corner."""
+    """The PDK's core devices at one process corner.
+
+    A wide device becomes equal parallel fingers inside the models' width
+    range, the way it would be drawn; a device narrower than the process draws
+    is refused, since there is no model to fall back on.
+    """
 
     corner: str = "tt"
 
@@ -58,7 +74,11 @@ class Sky130:
         return [f".lib {pdk_library()} {self.corner}"]
 
     def _instance(self, model, name, d, g, s, b, w, length, mult) -> str:
-        params = " ".join(f"{k}={v:.6g}" for k, v in sky130.mosfet(w, length, mult).items())
+        if w < SKY130_W_MIN:
+            raise ValueError(f"{name}: W={w} um is below the {SKY130_W_MIN} um sky130 draws")
+        fingers = math.ceil(w / SKY130_W_FINGER_MAX)
+        each = sky130.mosfet(w / fingers, length, mult * fingers)
+        params = " ".join(f"{k}={v:.6g}" for k, v in each.items())
         return f"X{name} {d} {g} {s} {b} {model} {params}"
 
     def nmos(self, name, d, g, s, b, w: float, length: float, mult: int = 1) -> str:

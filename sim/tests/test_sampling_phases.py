@@ -75,11 +75,15 @@ SLOWED_BY = 5.0
 SLOW_PHASE = 20 * bench.PHASE
 
 #: When the sample edge falls in the order test, and the fractions of the
-#: supply at which a line counts as off -- below where the top switch (at
-#: Vcm) and an input switch (at a Vin down to ground) conduct -- and as having
-#: started to move from high.
+#: supply at which a line counts as off and as having started to move from
+#: high. Off sits just above the off-detector's switching point at its worst
+#: sky130 corner, and well below where the top switch, passing Vcm, stops
+#: conducting -- the order accuracy depends on. An input switch passing a Vin
+#: near ground may still conduct faintly there when conversion begins; the top
+#: plate is sealed by then, so that costs the Vin pin a small current, not a
+#: code.
 EDGE_AT = bench.PHASE
-OFF_LEVEL = 0.25
+OFF_LEVEL = 0.4
 MOVING_LEVEL = 0.9
 
 

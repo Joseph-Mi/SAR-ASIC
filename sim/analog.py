@@ -129,13 +129,16 @@ BOTTOM_BUFFER_STAGES = 4
 CONVERT_BUFFER_STAGES = 2
 
 #: The off-detector's inverter: a strong NMOS against a weak PMOS pulls its
-#: switching point from mid-supply down to near the NMOS threshold. A line is
-#: read as off only below that -- below where the top switch (passing Vcm)
-#: and an input switch (passing Vin down to ground) have stopped conducting.
-#: Reading at the usual mid-supply point instead lets the next phase start
-#: while a slow line is still halfway down and its switch still on.
-SENSE_W_N = 8.0
-SENSE_W_P = 0.3
+#: switching point from mid-supply down toward the NMOS threshold -- no lower,
+#: since the NMOS must be off for the output to rise. A line is read as off
+#: only below that, which is below where the top switch (passing Vcm) has
+#: stopped conducting. Reading at the usual mid-supply point instead lets the
+#: next phase start while a slow line is still halfway down and its switch
+#: still on. The PMOS is weakened by length rather than width: it is already
+#: as narrow as the process draws.
+SENSE_W_N = 2.0
+SENSE_W_P = 0.42
+SENSE_L_P = 1.0
 
 #: An ideal delay's characteristic impedance, matched at its far end so the
 #: delayed edge arrives once and clean.
@@ -187,7 +190,7 @@ def _still_on(dev, name: str, line: str, out: str, g: GateSizes) -> list[str]:
     plain one restores the polarity.
     """
     return [
-        dev.pmos(f"{name}sp", f"{name}_lo", line, "vdd", "vdd", SENSE_W_P, g.length),
+        dev.pmos(f"{name}sp", f"{name}_lo", line, "vdd", "vdd", SENSE_W_P, SENSE_L_P),
         dev.nmos(f"{name}sn", f"{name}_lo", line, "vss", "vss", SENSE_W_N, g.length),
         *_inverter(dev, f"{name}r", f"{name}_lo", out, g),
     ]
