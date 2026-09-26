@@ -44,8 +44,8 @@ BATCH = 32
 APERTURE_GUARD = 1
 
 
-def lsb(n_bits: int) -> float:
-    return VREF / 2**n_bits
+def lsb(n_bits: int, vref: float = VREF) -> float:
+    return vref / 2**n_bits
 
 
 def carry_codes(n_bits: int) -> list[int]:
@@ -53,37 +53,47 @@ def carry_codes(n_bits: int) -> list[int]:
     return sorted({1 << k for k in range(n_bits)} | {2**n_bits - 1})
 
 
-def either_side(codes, n_bits: int) -> list[float]:
+def either_side(codes, n_bits: int, vref: float = VREF) -> list[float]:
     """An input just below and just above each code's lower threshold."""
-    step = lsb(n_bits)
+    step = lsb(n_bits, vref)
     return [
         k * step + sign * EDGE_OFFSET_LSB * step for k in codes for sign in (-1, +1) if k > 0
     ] + [EDGE_OFFSET_LSB * step]
 
 
 def convert(
-    inputs, n_bits: int, workdir: pathlib.Path, after_sampling=None, **bench_args
+    inputs,
+    n_bits: int,
+    workdir: pathlib.Path,
+    after_sampling=None,
+    model_vref: float = VREF,
+    **bench_args,
 ) -> list[list[int]]:
     """Every conversion's decisions, in order, run in batches.
 
     `after_sampling` moves the pin to that level once each sample is taken
     and the aperture guard has passed. `bench_args` go to every `Bench`:
     resistances, phase length, capacitor unit.
+
+    The replay drives the trial words the model chooses at `model_vref`, and
+    must be compared against the model at that same reference: the circuit
+    only answers the questions it is asked, and a replay from one reference
+    graded against another asks one set and marks another.
     """
     return [
         trace
         for start in range(0, len(inputs), BATCH)
         for trace in _batch(
-            inputs[start : start + BATCH], n_bits, workdir, after_sampling, bench_args
+            inputs[start : start + BATCH], n_bits, workdir, after_sampling, model_vref, bench_args
         )
     ]
 
 
-def _batch(inputs, n_bits, workdir, after_sampling, bench_args) -> list[list[int]]:
+def _batch(inputs, n_bits, workdir, after_sampling, model_vref, bench_args) -> list[list[int]]:
     units = ideal_units(n_bits)
     phases, evaluate = [], []
     for vin in inputs:
-        for i, step in enumerate(conversion_sequence(vin, units, VREF)):
+        for i, step in enumerate(conversion_sequence(vin, units, model_vref)):
             held = step.phase == SAMPLE or i <= APERTURE_GUARD
             pin = vin if held or after_sampling is None else after_sampling
             if step.phase == EVALUATE:
@@ -103,9 +113,11 @@ def _batch(inputs, n_bits, workdir, after_sampling, bench_args) -> list[list[int
     return [seen[i : i + n_bits] for i in range(0, len(seen), n_bits)]
 
 
-def model(inputs, n_bits: int) -> list[list[int]]:
+def model(inputs, n_bits: int, vref: float = VREF) -> list[list[int]]:
+    """The golden model's decisions, against `vref` -- the reference the array
+    actually sees, which a loaded pin can pull below the source's."""
     units = ideal_units(n_bits)
-    return [sar_convert(vin, units, VREF)[1] for vin in inputs]
+    return [sar_convert(vin, units, vref)[1] for vin in inputs]
 
 
 def code_of(trace) -> int:
@@ -113,8 +125,18 @@ def code_of(trace) -> int:
 
 
 def mismatches(inputs, got, want, n_bits: int) -> list[str]:
-    return [
-        f"vin={vin / lsb(n_bits):.3f} LSB: circuit {code_of(g)} model {code_of(w)}"
-        for vin, g, w in zip(inputs, got, want, strict=True)
-        if g != w
-    ]
+    """Where the circuit's decisions first part from the model's.
+
+    Only the first disagreement means anything: the bench replays the model's
+    trial words, so after it the circuit is answering questions its own
+    decisions would never have asked.
+    """
+    out = []
+    for vin, g, w in zip(inputs, got, want, strict=True):
+        if g != w:
+            first = next(i for i, (a, b) in enumerate(zip(g, w, strict=True)) if a != b)
+            out.append(
+                f"vin={vin / lsb(n_bits):.3f} LSB: bit {n_bits - 1 - first} "
+                f"circuit {g[first]} model {w[first]}"
+            )
+    return out

@@ -66,6 +66,25 @@ class Mim:
         return math.sqrt(self.area)
 
 
+@dataclass(frozen=True)
+class IdealVcm:
+    """Vcm as an ideal source at `fraction` of the reference: no resistance,
+    so sampling cannot move it."""
+
+    fraction: float = VCM_FRACTION
+
+
+@dataclass(frozen=True)
+class Divider:
+    """Vcm from a resistor string across the reference, tapped at `fraction`,
+    with an optional decoupling capacitor on the tap. The string's current is
+    drawn through the reference pin like everything else the reference feeds."""
+
+    r_total: float
+    fraction: float = VCM_FRACTION
+    c_dec: float = 0.0
+
+
 #: Ideal capacitors of a round size: with ideal switches only the ratios reach
 #: a result, so the farads are arbitrary until a realism step makes them count.
 DEFAULT_UNIT = Ideal(1e-15)
@@ -97,12 +116,25 @@ def _capacitor(name: str, top: str, bottom: str, units: int, unit) -> str:
     return f"X{name} {top} {bottom} {PDK_MIM} w={unit.side:.6g} l={unit.side:.6g} m={units}"
 
 
+def _common_mode(vcm: IdealVcm | Divider) -> list[str]:
+    if isinstance(vcm, IdealVcm):
+        return [f"Bvcm vcm vss V = {vcm.fraction}*v(vref,vss)"]
+    lines = [
+        f"Rvcm_hi vref vcm {vcm.r_total * (1 - vcm.fraction):.9g}",
+        f"Rvcm_lo vcm vss {vcm.r_total * vcm.fraction:.9g}",
+    ]
+    if vcm.c_dec:
+        lines.append(f"Cvcm vcm vss {vcm.c_dec:.6e}")
+    return lines
+
+
 def subckt(
     n_bits: int = N_BITS,
     unit: Ideal | Mim | None = None,
     c_par: float = 0.0,
     ron_unit: float = IDEAL_RON,
     ron_top: float = IDEAL_RON,
+    vcm: IdealVcm | Divider | None = None,
 ) -> str:
     """The analog block, as one `.subckt`.
 
@@ -114,7 +146,9 @@ def subckt(
     every branch then settles with the same time constant, the way a real
     array is sized, and no branch lags the rest. The dummy's are one unit.
     `ron_top` is the top-plate sampling switch, which charges the whole array.
+    `vcm` is where the common mode comes from; an ideal source by default.
     """
+    vcm = IdealVcm() if vcm is None else vcm
     unit = DEFAULT_UNIT if unit is None else unit
     ports = terminals(n_bits)
     half = "0.5*v(vdd,vss)"
@@ -127,7 +161,7 @@ def subckt(
         f".model sw_ideal sw vt={SWITCH_VT} vh={SWITCH_VH} ron={IDEAL_RON} roff={IDEAL_ROFF}",
         f".model sw_top sw vt={SWITCH_VT} vh={SWITCH_VH} ron={ron_top} roff={IDEAL_ROFF}",
         # The common mode the top plate is sampled to and compared against.
-        f"Bvcm vcm vss V = {VCM_FRACTION}*v(vref,vss)",
+        *_common_mode(vcm),
         # Forced-input mode chooses what the array samples: the pin, or a rail.
         f"Bc_vin c_vin vss V = {low('force_en')}",
         f"Bc_fhi c_fhi vss V = {high('force_en')}*{high('force_hi')}",
