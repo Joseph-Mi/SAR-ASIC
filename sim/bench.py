@@ -39,6 +39,12 @@ MAX_STEP = PHASE / 100
 #: switches' hard edges without buying anything a test can see.
 RELTOL = 1e-4
 
+#: Times are written with this many significant digits. A long sweep runs to
+#: tens of microseconds while its edges and read points are a fraction of a
+#: nanosecond apart, so fewer digits round a read into the wrong phase, or past
+#: the end of the run.
+TIME_DIGITS = 12
+
 #: What is read at the end of every phase, and where. The top plate is inside
 #: the block; the comparator outputs are its terminals, named by their nets.
 #: Result names differ from every net name: a measurement named after a vector
@@ -55,6 +61,10 @@ class Phase:
     cmp_clk: int = 0
     force_en: int = 0
     force_hi: int = 0
+    #: The pin's level during this phase; None leaves it at the supplies' vin.
+    #: Only a sampling phase can show it to the array -- the point of letting it
+    #: move elsewhere is to prove that.
+    vin: float | None = None
 
 
 @dataclass(frozen=True)
@@ -71,17 +81,29 @@ class Bench:
     n_bits: int = analog.N_BITS
     unit: analog.Ideal | analog.Mim = analog.DEFAULT_UNIT
     c_par: float = 0.0
+    #: Phases whose results are read; None reads every one. A sweep of many
+    #: conversions in one run reads only the phases it checks, because every
+    #: read is a measurement the simulator has to evaluate.
+    read: list[int] | None = None
+    #: What is read; defaults to every probe.
+    probes: dict[str, str] | None = None
 
 
-def _pwl(levels: list[int], high: float) -> str:
-    """A PWL source holding each level for one phase, switching at the edges."""
-    points = [(0.0, levels[0] * high)]
-    for i in range(1, len(levels)):
+def _pwl(values: list[float]) -> str:
+    """A PWL source holding each value for one phase, switching at the edges.
+
+    A value repeated across phases adds no points, so a long run of constant
+    phases costs the simulator nothing.
+    """
+    points = [(0.0, values[0])]
+    for i in range(1, len(values)):
+        if values[i] == values[i - 1]:
+            continue
         edge = i * PHASE
-        points.append((edge, levels[i - 1] * high))
-        points.append((edge + EDGE, levels[i] * high))
-    points.append((len(levels) * PHASE, levels[-1] * high))
-    return "PWL(" + " ".join(f"{t:.4e} {v:.6g}" for t, v in points) + ")"
+        points.append((edge, values[i - 1]))
+        points.append((edge + EDGE, values[i]))
+    points.append((len(values) * PHASE, values[-1]))
+    return "PWL(" + " ".join(f"{t:.{TIME_DIGITS}g} {v:.9g}" for t, v in points) + ")"
 
 
 def _node(terminal: str) -> str:
@@ -100,8 +122,9 @@ def deck(bench: Bench) -> str:
         "Vvss vss 0 0",
         f"Vvdd vdd 0 {s.vdd}",
         f"Vvref vref 0 {s.vref}",
-        f"Vvin vin 0 {s.vin}",
     ]
+    pin = [s.vin if p.vin is None else p.vin for p in bench.phases]
+    lines.append(f"Vvin vin 0 {_pwl(pin)}")
 
     drives = {
         "sample": [p.sample for p in bench.phases],
@@ -112,16 +135,22 @@ def deck(bench: Bench) -> str:
     for k in range(bench.n_bits):
         drives[f"dac_b[{k}]"] = [(p.dac_b >> k) & 1 for p in bench.phases]
     for terminal, levels in drives.items():
-        lines.append(f"V_{_node(terminal)} {_node(terminal)} 0 {_pwl(levels, s.vdd)}")
+        volts = [level * s.vdd for level in levels]
+        lines.append(f"V_{_node(terminal)} {_node(terminal)} 0 {_pwl(volts)}")
 
     lines.append("Xdut " + " ".join(_node(t) for t in terminals(bench.n_bits)) + f" {NAME}")
 
     stop = len(bench.phases) * PHASE
     lines.append(f".options reltol={RELTOL}")
-    lines += [".control", f"tran {MAX_STEP:.4e} {stop:.4e} 0 {MAX_STEP:.4e}"]
-    for i in range(len(bench.phases)):
+    lines += [
+        ".control",
+        f"tran {MAX_STEP:.{TIME_DIGITS}g} {stop:.{TIME_DIGITS}g} 0 {MAX_STEP:.{TIME_DIGITS}g}",
+    ]
+    read = range(len(bench.phases)) if bench.read is None else bench.read
+    probes = PROBES if bench.probes is None else bench.probes
+    for i in read:
         at = (i + 1) * PHASE - READ_BEFORE_END
-        for name, expression in PROBES.items():
-            lines.append(f"meas tran {name} find {expression} at={at:.4e}")
+        for name, expression in probes.items():
+            lines.append(f"meas tran {name} find {expression} at={at:.{TIME_DIGITS}g}")
     lines += [".endc", ".end"]
     return "\n".join(lines) + "\n"
