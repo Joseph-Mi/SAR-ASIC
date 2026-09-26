@@ -329,8 +329,24 @@ Step 4d (`sim/analog.py`, `model/injection.py:beyond_a_line`,
 `sim/tests/test_sampling_phases.py`, the designed-block tests in
 `test_sar_loop.py`):
 - Input switches are transmission gates (`MosSwitches.w_unit_p`, 1 um per
-  unit; 2 um buys nothing). NMOS alone bends the settled sampling error by
-  ~0.96 LSB at the top of the range; the TG leaves it straight to 0.005 LSB.
+  unit; 2 um buys nothing). Why, measured with transistor DAC switches: the
+  settled error is nearly straight either way (bend 0.023 LSB NMOS alone,
+  0.005 TG), but in the closed loop at the law's clock NMOS alone misses the
+  budget at full scale (1022.5 LSB -> 1022, model 1023): at vin ~ Vref the
+  NMOS has barely more drive than its threshold. The TG fixes that.
+  CAUTION -- an earlier measurement with *ideal* conversion switches showed a
+  ~0.96 LSB kink for NMOS alone; that was mostly the ideal switch snapping
+  shut in the float window, an artifact. Don't trust float-window numbers
+  taken with ideal conversion switches.
+- Bottom-plate DAC switches are transistors in the designed block
+  (`NonOverlap`): NMOS to ground, PMOS to Vref per branch
+  (`w_dac_n`/`w_dac_p`, binary-sized), gates as smooth B-source functions of
+  c_cnv and the bit. This is what ended the full-scale "timestep too small /
+  bvcm#branch" stalls in ngspice 46 (conversion 21 of 23, vin 1023.5 LSB,
+  where the top plate sits ~0 V and the top switch conducts while ideal
+  switches snap). Gapped keeps ideal DAC switches (its results are verified).
+  Gotcha found on the way: a node named `gnd` IS ground in ngspice -- the
+  dummy's gate "g" + "n" + "d" collided; gate nodes are gate_n{tag}.
 - Generator: `phi_bot_n` from `bot_pre` through a 3-stage buffer starting
   one taper step up; a mirrored off-detector (`_still_on_p`, strong PMOS vs
   long-L NMOS) on it; conversion waits on a 3-input NOR of sample and both
@@ -651,8 +667,13 @@ Delete each one when it is fixed.
 - **Sampling error with the designed block is offset + gain.** Settled
   first-trial error, TG input switches: -0.90 LSB at 0.05 V to -0.45 at
   0.95 V, straight to 0.005 LSB (endpoint fit). Offset -0.68 LSB at
-  mid-scale. The float window is part of this slope; it is no longer a
-  linearity problem.
+  mid-scale.
+- **Full scale puts the top plate at ground.** At the first trial the top
+  plate sits at Vcm - Vin + Vref/2; at vin ~ Vref that is ~0 V, and with the
+  sampling offset slightly below it: the off NMOS top switch starts to
+  conduct from Vcm (seen in the stall analysis). A real leak at the last few
+  codes. Options for Step 6 / M5: Vcm a little above Vref/2, a slightly
+  reduced input range, or a PMOS/TG top switch.
 - **Entering sampling, the array floats to ground.** The FSM clears `dac_b`
   on the same edge `sample` rises. With the generator the conversion switches
   stay on until `phi_conv` falls, so for that window every bottom plate is at

@@ -263,7 +263,8 @@ def test_the_designed_block_converts_within_budget_once_its_offset_is_removed(co
 
 
 def test_with_an_nmos_alone_for_input_switches_it_does_not(controller, tmp_path):
-    """What makes the test above pass: an NMOS input switch bends the error
-    near the top of the range, beyond what one offset removes."""
+    """What makes the test above pass: at the top of the range an NMOS input
+    switch has barely more gate drive than its threshold, and leaves more
+    than the budget there. The PMOS beside it conducts best exactly there."""
     single = replace(DESIGNED, switches=replace(DESIGNED.switches, w_unit_p=0.0))
     assert designed_block_disagreements(controller, tmp_path, single)

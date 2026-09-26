@@ -202,11 +202,12 @@ def first_trial_errors(tmp_path, switches: analog.MosSwitches) -> list[float]:
 
 
 def test_transmission_gates_leave_the_sampling_error_a_straight_line(tmp_path):
-    """An NMOS alone bends the error near the top of the range, where it has
-    least gate drive; the PMOS beside it conducts best there and takes the
-    bend out. What is left is an offset and a gain."""
-    assert beyond_a_line(RANGE, first_trial_errors(tmp_path, SINGLE)) > STRAIGHT
-    assert beyond_a_line(RANGE, first_trial_errors(tmp_path, analog.MosSwitches())) < STRAIGHT
+    """What a transmission gate leaves is an offset and a gain -- straighter
+    than an NMOS alone, whose drive falls away toward the top of the range."""
+    tg = beyond_a_line(RANGE, first_trial_errors(tmp_path, analog.MosSwitches()))
+    single = beyond_a_line(RANGE, first_trial_errors(tmp_path, SINGLE))
+    assert tg < STRAIGHT
+    assert single > tg
 
 
 def crossings(

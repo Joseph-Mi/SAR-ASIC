@@ -256,9 +256,10 @@ generator keeping the order when a line is slowed many times over.
 An NMOS conducts in proportion to how far its gate sits above the voltage it
 passes. Its gate is at the supply, so passing an input near ground it is a
 wide pipe, and passing one near the top of the range it is a straw: it has
-barely more drive than its own threshold. The error it leaves then bends at
-the top of the range -- not an offset, not a gain, but a curve, and a curve is
-exactly what calibration cannot remove.
+barely more drive than its own threshold. Near full scale it passes the
+input slowly and leaves an error there that the rest of the range does not
+have -- not an offset, not a gain, but a bend at one end, which is exactly
+what calibration cannot remove.
 
 A PMOS is the mirror image: it conducts best passing high voltages. Put one
 beside each NMOS, its gate driven by the opposite line, and the pair -- a

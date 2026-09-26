@@ -97,6 +97,10 @@ class MosSwitches:
     w_unit: float = 0.5
     w_unit_p: float = 1.0
     length: float = 0.15
+    #: The switches that drive each bottom plate during conversion, per unit:
+    #: an NMOS to ground and a PMOS to the reference, always both.
+    w_dac_n: float = 0.5
+    w_dac_p: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -306,6 +310,35 @@ def _generator(scheme: NonOverlap) -> list[str]:
     ]
 
 
+def _dac_switches(scheme: NonOverlap, tag: str, bottom: str, bit: str | None, units: int):
+    """A branch's bottom plate driven to the reference or to ground by
+    transistors: an NMOS to ground, a PMOS to the reference, each its unit
+    width times the branch's units.
+
+    Their gates are the conversion enable combined with the branch's bit,
+    formed as smooth functions of both lines, as the gate a logic cell drives
+    would be. An ideal switch here changes resistance by a dozen decades in
+    no time at all, and with a transistor on the array conducting at the same
+    instant the solver cannot always follow. The dummy has only the switch to
+    ground.
+    """
+    sw, dev = scheme.switches, scheme.devices
+    enable = "v(c_cnv,vss)"
+    selected = "0" if bit is None else f"v({bit},vss)/v(vdd,vss)"
+    lines = [
+        f"Bgn{tag} gate_n{tag} vss V = v(vdd,vss)*{enable}*(1-{selected})",
+        dev.nmos(f"dn{tag}", bottom, f"gate_n{tag}", "vss", "vss", sw.w_dac_n, sw.length, units),
+    ]
+    if bit is not None:
+        lines += [
+            f"Bgp{tag} gate_p{tag} vss V = v(vdd,vss)*(1-{enable}*{selected})",
+            dev.pmos(
+                f"dp{tag}", bottom, f"gate_p{tag}", "vref", "vdd", sw.w_dac_p, sw.length, units
+            ),
+        ]
+    return lines
+
+
 #: Ideal capacitors of a round size: with ideal switches only the ratios reach
 #: a result, so the farads are arbitrary until a realism step makes them count.
 DEFAULT_UNIT = Ideal(1e-15)
@@ -444,6 +477,11 @@ def subckt(
                         f"inp{tag}", bottom, "phi_bot_n", "vs", "vdd", sw.w_unit_p, sw.length, units
                     )
                 )
+        if isinstance(sampling, NonOverlap):
+            lines += _dac_switches(
+                sampling, tag, bottom, None if is_dummy else f"dac_b[{k}]", units
+            )
+            continue
         if is_dummy:
             lines.append(f"S_gnd{tag} {bottom} vss c_cnv vss {model}")
             continue
