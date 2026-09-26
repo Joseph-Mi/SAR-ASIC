@@ -257,7 +257,7 @@ verify-analog:
 verify-unit:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/unit $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
-## verify-integration: cocotb integration tests
+## verify-integration: the RTL running the analog block, loop closed
 verify-integration:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/integration $(PYTEST_ARGS); $(ALLOW_EMPTY)
 

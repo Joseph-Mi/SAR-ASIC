@@ -131,6 +131,26 @@ kept bit is folded into `settled`; a dropped one returns that branch to ground
 on the next trial. After the smallest branch, `settled` is the code. The
 cycle-by-cycle shape is `protocol.py`'s, and the RTL is tested against it.
 
+### Where the two halves meet
+
+Every arrow in that loop is a wire. `dac_b[k]` leaves a flip-flop in the
+synthesised FSM, runs as metal to the edge of the digital macro, and continues
+as metal to the gate of branch `k`'s switch. A logic one is that wire pulled to
+the supply by the flip-flop's output driver; the switch turns on because its
+gate is high, nothing more. `cmp_out` runs the other way, from the latch to a
+flip-flop's input, which reads it as one above its switching point. The
+symbol names both ends of every such wire, which is what lets the two halves
+be built apart and meet at the same metal; LVS checks that the drawn metal
+joins them the way the schematic says.
+
+`sim/loop.py` simulates exactly that: the RTL compiled into the circuit
+simulation as one element, a driver on each wire it sends and a threshold gate
+on each wire it reads. Nothing replays a decision -- every trial word is the
+FSM's own response to the comparator. `hdl/verification/integration/` checks
+the codes against the model, the handover from sampling straight to the first
+trial word (the rule closing *Where the top plate is referenced*), and that
+the clock the pin's settling law allows is the one the loop needs.
+
 ---
 
 ## Between conversions: there is no discharge step

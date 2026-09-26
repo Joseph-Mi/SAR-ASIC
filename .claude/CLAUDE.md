@@ -322,7 +322,46 @@ Also proven: moving the pin after sampling changes no code (the comparator
 never sees the pin).
 
 Step 4 is split: 4a finite resistance (done), 4b Vcm source (done), 4c
-sampling phases (done). Next: Step 5, closed loop with `sar_fsm.v`.
+sampling phases (done). Step 5, closed loop (done). Next: Step 6, close M3.
+
+Step 5 (`sim/cosim.py`, `sim/loop.py`, `sim/tests/test_cosim.py`,
+`hdl/verification/integration/tb_sar_loop/test_sar_loop.py`) done:
+- `sar_fsm.v` runs inside ngspice as an XSPICE `d_cosim` element, compiled by
+  ngspice's `vlnggen` script (Verilator underneath), with `adc_bridge` /
+  `dac_bridge` as the input gates / output drivers at the boundary. ~0.1 s per
+  10-bit conversion; the whole integration suite is ~20 s including builds.
+- `cosim.build` runs vlnggen's steps itself (verilator --cc, write the order
+  headers, verilator --build --exe with ngspice's `scripts/src/` glue, g++
+  --shared) instead of calling the script. Through the script it broke in the
+  IIC image (ngspice 46): the argument reached Verilator as `--mdir`,
+  lowercased by ngspice's command interpreter (not reproduced on 42, even
+  with ngbehavior=hsa -- cause unconfirmed; bypassing makes it moot).
+  ngspice 46's `d_cosim` never initialises its record of the last value it
+  drove on each output (`cm_event_alloc(1, ...)`, no memset). A first change
+  that matches the leftover bytes is taken as no change and never reaches
+  the wire: in the IIC image `dac_b_o[2]`'s first rise was dropped, the
+  first 4-bit conversion read 4 for 0 (the FSM itself was right -- the
+  word on the wire lacked bit 2). 42 happens to get zeros. Fix: `build`
+  compiles a patched copy of the glue whose `previous_output` starts at 2,
+  so its first scan reports every output and overwrites the garbage
+  (`cosim.reporting_every_output`). Worth reporting upstream.
+  Other gotchas that stand: the element's pin order is Verilator's storage
+  order (1-bit ports first, then 16-bit buses at 10 bits; declaration order
+  at 4 bits) -- parsed from `Vlng.h` every build; `d_cosim` wants a third
+  (inout) port list, `null` when empty; the `.so` path must be absolute.
+- Solver stall found: an edge in a PWL at the same instant as a PULSE edge,
+  each computing the time its own way, lands two breakpoints ~1e-19 s apart
+  and ngspice never advances (only at clock periods whose multiples don't
+  round the same way both routes). Start/vin/reset edges now sit a quarter
+  cycle off the clock (`loop.START_OFFSET`).
+- Tests: every threshold at 4 bits, every carry at 10 bits, flag never raised,
+  top plate never below the model's lowest between sampling and result
+  (DD-08's contract, the RTL's side), and the pin settling law's clock converts
+  while half of it does not (the FSM samples for exactly one clock).
+  Mutation-checked: scrambled bus bit order -> 10/23 codes wrong; an FSM that
+  detours through all-ground after sampling -> top plate to -0.5 V, caught.
+- Ideal-switch block only. With the real generator the loop is badly wrong --
+  see the NMOS input switch open finding.
 
 Step 4c (`model/injection.py`, `sim/devices.py`, `sim/tests/test_sampling_phases.py`,
 plus the Vcm pin from DD-10) done:
@@ -574,6 +613,31 @@ Delete each one when it is fixed.
   MiM bottom-plate parasitic to substrate (anchors the island -- 20% halved the
   dip in a quick try), a PMOS/transmission-gate top switch, and bounding the
   float time. Belongs with switch sizing (M5/M6), measured with sky130.
+  Settled, the float window's own error is small: first-trial error with a
+  long sample runs -0.9 LSB (vin 0.05) to -0.56 (0.7), then +0.19 (0.9) and
+  +0.82 (0.95) -- 1.7 LSB spread, the smooth part a gain-like slope, the
+  kink at the top where the NMOS input switches are nearly off.
+- **NMOS-only input switches cannot sample high inputs in one clock.** This,
+  not the float window, is the tens-of-LSB error seen in back-to-back
+  conversions with the generator (closed loop and replay agree). One
+  conversion from DC is fine (+0.6 LSB, every decision right); 0.1 V then
+  0.95 V with a 1-clock (10 ns) sample: +48.6 LSB at the first trial; 2
+  clocks: +1.2; 5 clocks: +0.8. At vin 0.95 the NMOS has ~0.85 V of gate
+  drive before body effect: tau ~ ns per unit, and it depends on Vin (the
+  primer already says an NMOS cannot pass a voltage near its gate drive).
+  Fix: transmission-gate input switches (PMOS carries the top of the range;
+  opposite-sign channel charge also partly cancels the injection that makes
+  the float dip). Then re-derive the minimum clock with the TT pin (Step 6).
+  Acceptance: loop tests pass with `sampling=analog.NonOverlap()`.
+- **Entering sampling, the array floats to ground.** The FSM clears `dac_b`
+  on the same edge `sample` rises. With the generator the conversion switches
+  stay on until `phi_conv` falls, so for that window every bottom plate is at
+  ground with the top plate floating: it drops to Vcm - Vin(prev) + ...,
+  measured -0.4 V at high inputs, forward-biasing the top switch's junction.
+  Harmless to the new sample (the top switch re-drives the node), but it is
+  substrate current and a kick on Vcm. Candidate fix: the FSM holds `dac_b`
+  through sampling (the block ignores it then) -- a protocol/model change
+  first (`protocol.py` has SAMPLE with dac_b = 0), then the unit tests, then RTL.
 - **Result output format (M4).** The code is 10 bits, `uo_out` is 8. Leaning:
   parallel -- code[7:0] on `uo_out`, code[9:8] + ready on `uio` -- readable as
   a number by anything; SPI (or `ui_in`) for configuration and DFT modes.

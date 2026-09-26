@@ -155,7 +155,7 @@ def _pwl(values: list[float], phase: float) -> str:
     return "PWL(" + " ".join(f"{t:.{TIME_DIGITS}g} {v:.9g}" for t, v in points) + ")"
 
 
-def _pin(name: str, source: str, resistance: float) -> list[str]:
+def pin(name: str, source: str, resistance: float) -> list[str]:
     """A source reaching its pin through `resistance`, or directly at zero --
     so a test that means no pin gets none, not a small one."""
     if not resistance:
@@ -169,7 +169,7 @@ def _common_mode(vcm: IdealVcm | PinVcm | Divider, vref: float) -> list[str]:
     if isinstance(vcm, IdealVcm):
         return [f"Bvcm vcm 0 V = {vcm.fraction}*v(vref)"]
     if isinstance(vcm, PinVcm):
-        return _pin("vcm", f"{vcm.fraction * vref:.9g}", vcm.r_pin)
+        return pin("vcm", f"{vcm.fraction * vref:.9g}", vcm.r_pin)
     lines = [
         f"Rvcm_hi vref vcm {vcm.r_total * (1 - vcm.fraction):.9g}",
         f"Rvcm_lo vcm 0 {vcm.r_total * vcm.fraction:.9g}",
@@ -179,9 +179,29 @@ def _common_mode(vcm: IdealVcm | PinVcm | Divider, vref: float) -> list[str]:
     return lines
 
 
-def _node(terminal: str) -> str:
+def node(terminal: str) -> str:
     """Testbench net for a terminal: brackets are not portable in node names."""
     return terminal.replace("[", "_").replace("]", "")
+
+
+def surroundings(block) -> list[str]:
+    """The block and what feeds it, except its input pin and digital inputs.
+
+    `block` is anything carrying the block's settings under `Bench`'s field
+    names, so every bench builds the same circuit around the same block.
+    """
+    s = block.supplies
+    header = [] if block.sampling is None else block.sampling.devices.header()
+    lines = [
+        *header,
+        analog.subckt(
+            block.n_bits, block.unit, block.c_par, block.ron_unit, block.ron_top, block.sampling
+        ),
+        "Vvss vss 0 0",
+        f"Vvdd vdd 0 {s.vdd}",
+        *pin("vref", str(s.vref), block.r_vref),
+    ]
+    return lines + _common_mode(block.vcm, s.vref)
 
 
 def deck(bench: Bench) -> str:
@@ -189,20 +209,9 @@ def deck(bench: Bench) -> str:
         raise ValueError("a bench starts by sampling, or the top plate has no DC path")
 
     s = bench.supplies
-    header = [] if bench.sampling is None else bench.sampling.devices.header()
-    lines = [
-        f"* {NAME} bench",
-        *header,
-        analog.subckt(
-            bench.n_bits, bench.unit, bench.c_par, bench.ron_unit, bench.ron_top, bench.sampling
-        ),
-        "Vvss vss 0 0",
-        f"Vvdd vdd 0 {s.vdd}",
-        *_pin("vref", str(s.vref), bench.r_vref),
-    ]
-    lines += _common_mode(bench.vcm, s.vref)
-    pin = [s.vin if p.vin is None else p.vin for p in bench.phases]
-    lines += _pin("vin", _pwl(pin, bench.phase), bench.r_vin)
+    lines = [f"* {NAME} bench", *surroundings(bench)]
+    held = [s.vin if p.vin is None else p.vin for p in bench.phases]
+    lines += pin("vin", _pwl(held, bench.phase), bench.r_vin)
 
     drives = {
         "sample": [p.sample for p in bench.phases],
@@ -214,9 +223,9 @@ def deck(bench: Bench) -> str:
         drives[f"dac_b[{k}]"] = [(p.dac_b >> k) & 1 for p in bench.phases]
     for terminal, levels in drives.items():
         volts = [level * s.vdd for level in levels]
-        lines.append(f"V_{_node(terminal)} {_node(terminal)} 0 {_pwl(volts, bench.phase)}")
+        lines.append(f"V_{node(terminal)} {node(terminal)} 0 {_pwl(volts, bench.phase)}")
 
-    lines.append("Xdut " + " ".join(_node(t) for t in terminals(bench.n_bits)) + f" {NAME}")
+    lines.append("Xdut " + " ".join(node(t) for t in terminals(bench.n_bits)) + f" {NAME}")
 
     stop = len(bench.phases) * bench.phase
     step = MAX_STEP * bench.phase
