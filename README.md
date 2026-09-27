@@ -64,6 +64,9 @@ capacitor, walked through by hand, is in [docs/sar-primer.md](docs/sar-primer.md
 
 How the tile is divided between the digital macro and the analog block, and the
 `DIE_AREA` that follows from it, is in [docs/floorplan.md](docs/floorplan.md).
+Why the converter is single-ended with conventional switching, what each analog
+pin is for, and how the single-ended top plate is protected, is in
+[docs/topology.md](docs/topology.md).
 
 The analog side of the workflow — reaching the noVNC desktop, xschem, ngspice,
 and the disposable experiments under `sandbox/` — is in

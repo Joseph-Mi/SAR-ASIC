@@ -173,10 +173,11 @@ Named here because an unnamed assumption is indistinguishable from an oversight.
   shrinks with the square of the LSB, so whether it binds depends on
   `N_BITS`, and the model does not compute it: an assumption, not a result.
 - **The switching scheme.** `dac_voltage` encodes conventional binary-weighted
-  switching. Monotonic and split-capacitor schemes have different equations and
-  far better switching energy. One choice is embodied here without being argued.
-- **Single-ended only.** The comparator interface is differential. If the array
-  follows, `dac_voltage` changes.
+  switching. Monotonic, Vcm-based and split-capacitor schemes have different
+  equations and far better switching energy; `docs/topology.md` argues the
+  choice.
+- **Single-ended only.** Decided, not assumed: `docs/topology.md` argues it. A
+  differential array would change `dac_voltage`.
 
 ---
 

@@ -98,9 +98,8 @@ def record(
     nodes = ["xdut.top", "vcm", *lines(block), *dac]
     vectors = " ".join(f"v({n})" for n in nodes)
     table = out.with_suffix(".txt")
-    # Bare names: ngspice runs in out.parent, and a deck line cannot carry
-    # every path (pytest's tmp dir holds the user name, "1001\ndesigner" in
-    # the IIC image -- its newline split the wrdata line in two).
+    # Bare names: ngspice runs in the output's folder, and a folder's path
+    # may hold characters a deck line cannot carry.
     raw = out.with_suffix(".raw")
     run = loop.Loop(
         list(inputs),
