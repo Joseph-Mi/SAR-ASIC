@@ -23,10 +23,26 @@ from noise_study import (
 #: run then loosens the test instead of failing it.
 SPREAD_ALLOWANCE = 3.0
 
+#: Conversions per point: enough for the claims below, few enough to run in
+#: seconds.
+CONVERSIONS = 400
+
+#: Noise levels either side of the gross-error onset: well under it, and well
+#: over it.
+QUIET, LOUD = 0.5, 4.0
+
+#: The largest error a noisy decision below the onset makes: a neighbouring
+#: code.
+NEIGHBOUR = 1.0
+
+#: The rms of an error spread evenly across one LSB: the square root of that
+#: uniform distribution's variance, a twelfth.
+UNIFORM_RMS = 1 / np.sqrt(12)
+
 
 @pytest.fixture(scope="module")
 def study() -> NoiseStudy:
-    return NoiseStudy(conversions=400)
+    return NoiseStudy(conversions=CONVERSIONS)
 
 
 def test_a_silent_comparator_costs_nothing(study):
@@ -57,24 +73,24 @@ def test_the_volts_that_buys_it_halves_with_every_bit(study):
     """And this is the cost of resolution: the same fraction of an LSB is a
     quieter comparator each time, by the factor the LSB itself shrank."""
     for noise in study.noises_lsb[1:]:
-        uv = [run_point(study, n, noise)["noise_uv"] for n in study.resolutions]
-        for coarse, fine in zip(uv, uv[1:], strict=False):
-            assert fine == pytest.approx(coarse / 4.0)
+        uv = {n: run_point(study, n, noise)["noise_uv"] for n in study.resolutions}
+        for coarse, fine in zip(study.resolutions, study.resolutions[1:], strict=False):
+            assert uv[fine] == pytest.approx(uv[coarse] / 2 ** (fine - coarse))
 
 
 def test_gross_errors_only_appear_once_noise_is_large(study):
     """Below the onset every mistake is a neighbouring code; above it an early
     decision goes wrong and costs a power of two."""
     for n_bits in study.resolutions:
-        quiet = run_point(study, n_bits, GROSS_ERROR_ONSET_LSB / 2)
-        loud = run_point(study, n_bits, GROSS_ERROR_ONSET_LSB * 4)
+        quiet = run_point(study, n_bits, GROSS_ERROR_ONSET_LSB * QUIET)
+        loud = run_point(study, n_bits, GROSS_ERROR_ONSET_LSB * LOUD)
         assert quiet["p_gross"] == 0.0
         assert loud["p_gross"] > 0.0
-        assert quiet["max_err"] <= 1.0
+        assert quiet["max_err"] <= NEIGHBOUR
 
 
-def test_effective_bits_is_exact_when_the_comparator_is_silent():
+def test_effective_bits_is_exact_when_the_comparator_is_silent(study):
     """The definition, independent of any sweep."""
-    for n_bits in (8, 10, 12):
+    for n_bits in study.resolutions:
         assert effective_bits(n_bits, 0.0) == pytest.approx(n_bits)
-    assert QUANTISATION_RMS_LSB == pytest.approx(1 / np.sqrt(12))
+    assert QUANTISATION_RMS_LSB == pytest.approx(UNIFORM_RMS)

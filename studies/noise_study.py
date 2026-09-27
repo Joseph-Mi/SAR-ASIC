@@ -37,7 +37,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+import study_points
 from sar import ideal_units, sar_convert
+
+#: Volts per microvolt, for the column that reports noise in microvolts.
+MICROVOLT = 1e-6
 
 BASELINE = pathlib.Path(__file__).with_name("noise_baseline.txt")
 
@@ -77,9 +81,7 @@ class NoiseStudy:
 
 
 def rng_for(study: NoiseStudy, n_bits: int, noise_lsb: float) -> np.random.Generator:
-    """A stream determined by the point's coordinates, not by its index."""
-    key = (study.seed, n_bits, int(round(noise_lsb * 1e12)))
-    return np.random.default_rng(np.random.SeedSequence(key))
+    return study_points.rng_for(study.seed, n_bits, noise_lsb)
 
 
 def effective_bits(n_bits: int, rms_err_lsb: float) -> float:
@@ -109,7 +111,7 @@ def run_point(study: NoiseStudy, n_bits: int, noise_lsb: float) -> dict:
     return {
         "n_bits": n_bits,
         "noise_lsb": noise_lsb,
-        "noise_uv": noise_v * 1e6,
+        "noise_uv": noise_v / MICROVOLT,
         "rms_err": rms,
         "p_wrong": float(np.mean(errors != 0)),
         "p_gross": float(np.mean(np.abs(errors) > 1)),
@@ -128,7 +130,7 @@ def sweep(study: NoiseStudy) -> list[dict]:
 
 def format_table(study: NoiseStudy, rows: list[dict]) -> str:
     """Fixed-width and fixed-precision, because this file is diffed."""
-    widths = {c: max(len(c), 13) for c in study.columns}
+    widths = study_points.column_widths(study.columns)
     out = [
         f"# conversions={study.conversions} seed={study.seed} vref={VREF}",
         "  ".join(c.rjust(widths[c]) for c in study.columns),

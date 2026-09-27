@@ -88,18 +88,20 @@ two more bits cost far more than two more branches.
 ## The layers
 
 ```
-  hdl/reference/sar.py       what the converter DOES      the authority
-  hdl/reference/protocol.py  WHEN it does it              the wire contract
+  reference/sar.py           what the converter DOES      the authority
+  reference/protocol.py      WHEN it does it              the wire contract
         |
   model/metrics.py           what the array IS            the fast path
   model/dynamic.py           what the array is WORTH      effective bits
         |
   model/mismatch.py          what goes WRONG              all randomness
         |
-  model/yield_study.py       the QUESTION                 the sweep
+  studies/yield_study.py     the QUESTION                 the sweep
 ```
 
-Imports run one way only. Nothing in `hdl/reference/` imports from `model/`.
+Imports run one way only. Nothing in `reference/` imports from `model/`, and
+nothing in `model/` from `studies/`. [architecture.md](architecture.md) has
+the whole repository's layers.
 
 **`sar.py`** runs one conversion on one array and returns the code together with
 the bit decisions that produced it. It is the definition of correct: the RTL is
@@ -137,7 +139,7 @@ rewrite. This module also holds the Pelgrom functions, the bridge from a
 statistical sigma to silicon area.
 
 **`yield_study.py`** sweeps matching across resolutions and writes
-`model/yield_baseline.txt`. That file is committed, so a change to the model
+`studies/yield_baseline.txt`. That file is committed, so a change to the model
 shows up as a reviewable diff rather than as a number nobody compared.
 
 ---
@@ -194,7 +196,8 @@ grep -n carea \
 
 The coefficient is the constant multiplying `1/sqrt(wc*lc*mult)` in the
 capacitance expression, in percent-micrometres. VPP states its own in the same shape, close enough to
-MiM's that one value serves both. What the model uses is `SKY130_CAP_A_C`; this
+MiM's that one value serves both. What the model uses is `CAP_A_C` in
+`tech/sky130.py`; this
 document deliberately does not repeat the number, because then there would be
 two of them.
 
@@ -237,7 +240,7 @@ benefit: it is slower settling and a larger charge kick on VREF.
 
 ```bash
 make model    # every test above, a few seconds
-make study    # regenerate model/yield_baseline.txt, commit the diff
+make study    # regenerate studies/yield_baseline.txt, commit the diff
 ```
 
 The baseline's columns are documented at the top of `yield_study.py`. Read

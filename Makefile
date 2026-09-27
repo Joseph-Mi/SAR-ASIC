@@ -51,8 +51,10 @@ DESIGNINIT      := $(DESIGNS)/.designinit
 DESIGNINIT_MARK := managed by make designinit
 
 RTL_DIR   := hdl/rtl
-REF_DIR   := hdl/reference
+REF_DIR   := reference
 MODEL_DIR := model
+STUDY_DIR := studies
+TECH_DIR  := tech
 VERIF_DIR := hdl/verification
 SIM_DIR   := sim
 BUILD_DIR := build
@@ -228,26 +230,27 @@ lint-rtl:
 	@if [ -n "$(RTL_SOURCES)" ]; then $(VERIBLE_LINT) $(VERIBLE_LINT_FLAGS) $(RTL_SOURCES); fi
 	@if [ -n "$(RTL_SOURCES)" ]; then $(YOSYS) -qp "$(YOSYS_CHECK)"; fi
 
-## lint-py: ruff
+## lint-py: ruff, and the layers every import must run down
 lint-py:
 	$(RUFF) check .
+	@$(PYTHON) -m pytest tests -q $(PYTEST_ARGS)
 
-## model: validate the golden model and the mismatch study -- before any RTL
+## model: validate the golden model, the physics laws and the studies -- before any RTL
 model:
-	@$(PYTHON) -m pytest $(REF_DIR) $(MODEL_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(REF_DIR) $(MODEL_DIR) $(STUDY_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## study: regenerate the mismatch sweep artifact -- commit the diff
-## 	ARGS="--gradient 0.01 --out build/model/grad.txt" for an exploratory run
+## 	ARGS="--gradient 0.01 --out build/studies/grad.txt" for an exploratory run
 study:
-	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/yield_study.py $(ARGS)
+	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/yield_study.py $(ARGS)
 
 ## noise: regenerate the comparator noise artifact -- commit the diff
 noise:
-	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/noise_study.py $(ARGS)
+	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/noise_study.py $(ARGS)
 
-## plots: draw the committed sweep into build/model/
+## plots: draw the committed sweep into build/studies/
 plots:
-	@PYTHONPATH=$(REF_DIR):$(MODEL_DIR) $(PYTHON) $(MODEL_DIR)/plots.py
+	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/plots.py
 
 ## verify-analog: ngspice harness -- tests needing ngspice skip without it
 verify-analog:

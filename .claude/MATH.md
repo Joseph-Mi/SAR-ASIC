@@ -38,7 +38,7 @@ capacitance has an area term and two perimeter terms:
     Cj = AD * CJ + P_gate * CJSWG + P_field * CJSW
 
 `AD` and the perimeters are exactly the `ad`/`as`/`pd`/`ps` instance
-parameters. They are derived from width by `sandbox/tools/sky130.py`, which is
+parameters. They are derived from width by `tech/sky130.py`, which is
 why a resized device must have them recomputed rather than carried over: stale
 junction geometry puts the previous width's capacitance into every transient.
 

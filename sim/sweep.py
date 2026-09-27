@@ -18,7 +18,8 @@ import pathlib
 
 import bench
 import ngspice
-from bench import Bench, Phase, Supplies
+from bench import Bench, Block, Phase, Supplies
+from ngspice import BATCH
 from protocol import EVALUATE, SAMPLE, conversion_sequence
 from sar import ideal_units, sar_convert
 
@@ -30,12 +31,6 @@ VREF = 1.0
 #: the solver is good to about a thousandth of an LSB at the target resolution,
 #: so this has a wide margin and still catches any real error.
 EDGE_OFFSET_LSB = 0.05
-
-#: Conversions per simulation. Each conversion is fine alone and in batches of
-#: tens; a single run of a whole sweep -- thousands of ideal-switch edges over
-#: tens of microseconds -- eventually wedges the solver's timestep control
-#: ("timestep too small") on some edge that is harmless in a shorter run.
-BATCH = 32
 
 #: Phases after the sample before the pin may move. The sampling switch opens
 #: on the edge that ends the sample phase, and a pin moving on that same edge
@@ -67,29 +62,32 @@ def convert(
     workdir: pathlib.Path,
     after_sampling=None,
     model_vref: float = VREF,
-    **bench_args,
+    phase: float = bench.PHASE,
+    **block_args,
 ) -> list[list[int]]:
     """Every conversion's decisions, in order, run in batches.
 
     `after_sampling` moves the pin to that level once each sample is taken
-    and the aperture guard has passed. `bench_args` go to every `Bench`:
-    resistances, phase length, capacitor unit.
+    and the aperture guard has passed. `block_args` are the block's settings
+    for every batch: resistances, capacitor unit, sampling, common mode.
 
     The replay drives the trial words the model chooses at `model_vref`, and
     must be compared against the model at that same reference: the circuit
     only answers the questions it is asked, and a replay from one reference
     graded against another asks one set and marks another.
     """
+    block = Block(Supplies(vdd=VDD, vref=VREF), n_bits, **block_args)
     return [
         trace
         for start in range(0, len(inputs), BATCH)
         for trace in _batch(
-            inputs[start : start + BATCH], n_bits, workdir, after_sampling, model_vref, bench_args
+            inputs[start : start + BATCH], block, workdir, after_sampling, model_vref, phase
         )
     ]
 
 
-def _batch(inputs, n_bits, workdir, after_sampling, model_vref, bench_args) -> list[list[int]]:
+def _batch(inputs, block, workdir, after_sampling, model_vref, phase) -> list[list[int]]:
+    n_bits = block.n_bits
     units = ideal_units(n_bits)
     phases, evaluate = [], []
     for vin in inputs:
@@ -101,14 +99,7 @@ def _batch(inputs, n_bits, workdir, after_sampling, model_vref, bench_args) -> l
             phases.append(
                 Phase(sample=step.sample, dac_b=step.dac_b, cmp_clk=step.cmp_clk, vin=pin)
             )
-    b = Bench(
-        phases,
-        Supplies(vdd=VDD, vref=VREF),
-        n_bits,
-        read=evaluate,
-        probes={"m_cmp": bench.PROBES["m_cmp"]},
-        **bench_args,
-    )
+    b = Bench(phases, block, phase=phase, read=evaluate, probes={"m_cmp": bench.PROBES["m_cmp"]})
     seen = [int(v > VDD / 2) for v in ngspice.run(bench.deck(b), workdir)["m_cmp"]]
     return [seen[i : i + n_bits] for i in range(0, len(seen), n_bits)]
 

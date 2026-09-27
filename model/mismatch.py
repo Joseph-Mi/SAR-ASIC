@@ -65,14 +65,8 @@ def row_major(n_bits: int) -> np.ndarray:
     return np.arange(2**n_bits)
 
 
-# Capacitor matching coefficient, percent-micrometres.
-SKY130_CAP_A_C = 0.47
-
-# Smallest unit the process will draw, square micrometres, per flavour. Matching
-# improves with area, so the smaller of these is the worst matching an array can
-# be built to have: no unit can be made small enough to do worse.
-SKY130_CAP_MIN_AREA_MIM = 4.00
-SKY130_CAP_MIN_AREA_VPP = 3.24
+#: Percent in a whole. A matching coefficient is quoted in percent-micrometres.
+PERCENT = 100.0
 
 
 def sigma_from_area(area, a_c: float) -> float:
@@ -82,13 +76,14 @@ def sigma_from_area(area, a_c: float) -> float:
     capacitor matching coefficient in percent-micrometres, the usual unit for
     a quoted A_C. The result is a fraction, not a percentage.
 
-    Deliberately no default, even though SKY130_CAP_A_C is right there. Which
+    Deliberately no default, even though the process's coefficient is a known
+    number. Which
     capacitor flavour, and which process corner, is a choice the study is
     making rather than one this function should make on its behalf -- and a
     silent default is how an assumption stops being visible in the result that
     depends on it.
     """
-    return (a_c / 100.0) / np.sqrt(area)
+    return (a_c / PERCENT) / np.sqrt(area)
 
 
 def area_for_sigma(sigma_rel: float, a_c: float) -> float:
@@ -98,7 +93,7 @@ def area_for_sigma(sigma_rel: float, a_c: float) -> float:
     actually runs: the yield sweep produces a sigma, and this turns it into
     silicon.
     """
-    return (a_c / 100.0 / sigma_rel) ** 2
+    return (a_c / PERCENT / sigma_rel) ** 2
 
 
 def cap_for_area(area, density: float) -> float:

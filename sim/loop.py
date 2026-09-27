@@ -20,16 +20,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import analog
 import bench
 import cosim
 import ngspice
 from analog import NAME, terminals
-from bench import Divider, IdealVcm, PinVcm, Supplies
+from bench import Block
 from interface import TO_ANALOG, TO_DIGITAL
+from ngspice import BATCH
 from protocol import conversion_sequence
 from sar import ideal_units
-from sweep import BATCH
 
 #: Port suffixes that say which way a controller port points, and what each
 #: leaves of the wire's name.
@@ -70,30 +69,18 @@ def pin_wire(pin: str) -> str:
 
 @dataclass
 class Loop:
-    """Conversions of `inputs` by the compiled controller `library`.
-
-    The block's settings mean what they mean on every bench.
-    """
+    """Conversions of `inputs` by the compiled controller `library`."""
 
     inputs: list[float]
     library: cosim.Library
-    supplies: Supplies = field(default_factory=Supplies)
-    n_bits: int = analog.N_BITS
-    unit: analog.Ideal | analog.Mim = analog.DEFAULT_UNIT
-    c_par: float = 0.0
-    r_vin: float = 0.0
-    r_vref: float = 0.0
-    ron_unit: float = analog.IDEAL_RON_UNIT
-    ron_top: float = analog.IDEAL_RON
-    sampling: analog.Gapped | analog.NonOverlap | None = None
-    vcm: IdealVcm | PinVcm | Divider = field(default_factory=IdealVcm)
+    block: Block = field(default_factory=Block)
     #: One controller clock cycle.
     clock: float = bench.PHASE
 
     @property
     def period(self) -> int:
         """Cycles from one start to the next."""
-        steps = conversion_sequence(0.0, ideal_units(self.n_bits), self.supplies.vref)
+        steps = conversion_sequence(0.0, ideal_units(self.block.n_bits), self.block.supplies.vref)
         return len(steps) + IDLE_CYCLES
 
     def start_at(self, i: int) -> float:
@@ -115,19 +102,20 @@ def _wiring(loop: Loop) -> tuple[list[str], list[str]]:
 
 
 def deck(loop: Loop) -> str:
-    s = loop.supplies
+    block = loop.block
+    s = block.supplies
     t = loop.clock
     half = s.vdd / 2
     reads, drives = _wiring(loop)
 
-    lines = [f"* {NAME} closed loop", *bench.surroundings(loop)]
+    lines = [f"* {NAME} closed loop", *bench.surroundings(block)]
 
     vin = [(0.0, loop.inputs[0])]
     for i in range(1, len(loop.inputs)):
         edge = loop.start_at(i)
         vin += [(edge, loop.inputs[i - 1]), (edge + bench.EDGE, loop.inputs[i])]
     lines += bench.pin(
-        "vin", "PWL(" + " ".join(f"{a:.12g} {v:.9g}" for a, v in vin) + ")", loop.r_vin
+        "vin", "PWL(" + " ".join(f"{a:.12g} {v:.9g}" for a, v in vin) + ")", block.r_vin
     )
 
     lines.append(
@@ -147,7 +135,7 @@ def deck(loop: Loop) -> str:
 
     # Block inputs the controller does not drive are held at their reset level.
     driven = set(drives)
-    ports = terminals(loop.n_bits)
+    ports = terminals(block.n_bits)
     boundary = {p.name for p in TO_ANALOG}
     for terminal in ports:
         if terminal.partition("[")[0] in boundary and bench.node(terminal) not in driven:
@@ -162,13 +150,13 @@ def deck(loop: Loop) -> str:
     # when the run begins, and a node with no path has no operating point. It
     # starts at the level sampling will put it at; the first sample overwrites
     # it either way.
-    lines.append(f".ic v(xdut.top)={loop.vcm.fraction * s.vref:.9g}")
+    lines.append(f".ic v(xdut.top)={block.vcm.fraction * s.vref:.9g}")
 
     code = [w for w in drives if w.startswith(f"{CODE}_")]
     word = " + ".join(f"(v({w}) gt {half:.9g})*{2 ** int(w.rsplit('_', 1)[1])}" for w in code)
     stop = loop.start_at(len(loop.inputs)) + t
     step = bench.MAX_STEP * t
-    lines.append(bench.options(loop))
+    lines.append(bench.options(block))
     lines += [
         ".control",
         f"tran {step:.12g} {stop:.12g} 0 {step:.12g}",
@@ -207,7 +195,7 @@ def run(loop: Loop, workdir) -> Result:
         raise ngspice.DeckError(
             f"{n} conversions started, results for {[len(v) for v in got.values()]}"
         )
-    half = loop.supplies.vdd / 2
+    half = loop.block.supplies.vdd / 2
     return Result(
         codes=[round(c) for c in got["m_code"]],
         flags=[f > half for f in got["m_flag"]],
@@ -215,10 +203,13 @@ def run(loop: Loop, workdir) -> Result:
     )
 
 
-def convert(inputs, library: cosim.Library, workdir, **loop_args) -> Result:
-    """`run`, in batches of the sweep's size, each its own run from reset."""
+def convert(
+    inputs, library: cosim.Library, workdir, block: Block | None = None, clock: float = bench.PHASE
+) -> Result:
+    """`run`, in batches, each its own run from reset."""
+    block = Block() if block is None else block
     parts = [
-        run(Loop(list(inputs[i : i + BATCH]), library, **loop_args), workdir)
+        run(Loop(list(inputs[i : i + BATCH]), library, block, clock), workdir)
         for i in range(0, len(inputs), BATCH)
     ]
     return Result(

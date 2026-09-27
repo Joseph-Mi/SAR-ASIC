@@ -39,6 +39,16 @@ def units(request):
     return ideal_units(request.param)
 
 
+#: An input off every threshold, for tests about the reference rather than
+#: the answer.
+VIN = 0.3 * VREF
+
+#: Inputs across the range for the swing tests, and the rounding a floating
+#: sum is allowed at the rails.
+RANGE_POINTS = 101
+ROUNDING = 1e-12
+
+
 def trial_words(trace, n_bits):
     """The word driven on the bottom plates at each trial, MSB first."""
     settled, words = 0, []
@@ -56,8 +66,8 @@ def mismatched(n_bits, rng):
 
 def test_the_default_reference_is_the_design_common_mode(units):
     code = 2 ** (n_bits_of(units) - 1)
-    assert top_plate_voltage(0.3, code, units, VREF) == top_plate_voltage(
-        0.3, code, units, VREF, vcm=VCM_FRACTION * VREF
+    assert top_plate_voltage(VIN, code, units, VREF) == top_plate_voltage(
+        VIN, code, units, VREF, vcm=VCM_FRACTION * VREF
     )
 
 
@@ -129,9 +139,9 @@ def test_referenced_to_vcm_the_first_trial_stays_inside_the_rails(units):
     spans the reference and no further, so no switch junction on the node is
     forward-biased."""
     msb = 2 ** (n_bits_of(units) - 1)
-    for vin in np.linspace(0.0, VREF, 101):
+    for vin in np.linspace(0.0, VREF, RANGE_POINTS):
         v_top = top_plate_voltage(vin, msb, units, VREF)
-        assert -1e-12 <= v_top <= VREF + 1e-12
+        assert -ROUNDING <= v_top <= VREF + ROUNDING
 
 
 def test_referenced_to_ground_the_first_trial_goes_below_it(units):

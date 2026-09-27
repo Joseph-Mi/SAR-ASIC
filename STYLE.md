@@ -5,12 +5,11 @@
 Nothing is written out of order. Every other rule in this file exists to serve
 this one.
 
-1. **Golden model first.** `hdl/reference/`, Python. Written and validated
+1. **Golden model first.** `reference/`, Python. Written and validated
    before any RTL exists. It defines correct behavior. The RTL is judged against
    the model; the model is never adjusted to match the RTL.
-2. **Tests second.** cocotb for unit tests. SystemVerilog for larger
-   testbenches. Written against the golden model and passing against it before
-   the RTL exists.
+2. **Tests second.** cocotb, in Python, at every level. Written against the
+   golden model and passing against it before the RTL exists.
 3. **RTL last.** `hdl/rtl/`. Written to satisfy tests that already pass against
    the model.
 
@@ -21,16 +20,20 @@ back.
 
 | Where | Language |
 |---|---|
-| `hdl/reference/` | Python — golden model |
-| `hdl/verification/` unit tests | Python + cocotb |
-| `hdl/verification/` larger testbenches | SystemVerilog |
+| `reference/`, `model/`, `studies/`, `sim/`, `tech/` | Python |
+| `hdl/verification/` benches | Python + cocotb; pyuvm when a bench wants drivers, monitors and scoreboards |
+| `hdl/verification/` formal properties | SystemVerilog assertions, bound to the RTL, proved with SymbiYosys |
 | `hdl/rtl/` | Verilog-2005 |
 
 Simulator is Verilator. Python is linted with ruff.
 
-RTL is Verilog-2005 because that is what goes to TinyTapeout. The testbench side
-has no such constraint, which is why the larger benches are SystemVerilog. That
-freedom stops at the device under test — see *Verification layout and naming*.
+RTL is Verilog-2005 because that is what goes to TinyTapeout. Testbenches are
+Python because the open simulators do not run a class-based SystemVerilog bench
+-- constrained random, covergroups, UVM -- reliably, and a bench the simulator
+half-supports tests the simulator. What SystemVerilog adds that Python cannot
+is the property: an assertion a formal tool proves for every input sequence,
+not only the ones a bench happens to drive. That is the one place it is used,
+and it stops at the device under test -- see *Verification layout and naming*.
 
 The TinyTapeout top module signature is fixed and must match exactly:
 
@@ -56,7 +59,7 @@ One testbench per directory, named for what it exercises.
 | Testbench directory | `tb_<block>` | `hdl/verification/unit/tb_sar_fsm/` |
 | Test module (pytest + cocotb) | `test_<block>.py` | `test_sar_fsm.py` |
 | DUT stand-in, when the bench needs one | `<block>_dut.v` | `smoke_dut.v` |
-| SystemVerilog bench components | `<block>_<role>.sv` | `sar_fsm_monitor.sv` |
+| Formal properties | `<block>_props.sv` | `sar_fsm_props.sv` |
 
 `test_*.py` is not a preference — `pyproject.toml` sets
 `python_files = ["test_*.py"]`, so a file named anything else is silently never
@@ -72,8 +75,8 @@ no design file will ever take, which is the one thing it exists to rule out.
 `hdl/lint/` tooling and `tb_common.runner.rtl()` both look for `.v` for the same
 reason.
 
-SystemVerilog is for testbench *infrastructure* — drivers, monitors,
-scoreboards, benches that wrap a DUT. Never for the DUT itself.
+SystemVerilog is for properties about the DUT, bound to it from outside.
+Never for the DUT itself.
 
 ## 4. No hardcoded values
 
@@ -105,7 +108,7 @@ and every use derives from that name.
 Constants shared between the golden model and the RTL are defined **once** and
 imported or generated into the other. Retyping the same number in Python and in
 Verilog creates two values that will silently diverge. If you catch yourself
-copying a number between `hdl/reference/` and `hdl/rtl/`, that is the bug.
+copying a number between `reference/` and `hdl/rtl/`, that is the bug.
 
 ## 5. Comments
 
@@ -199,7 +202,7 @@ pointer rots in silence and the next reader either chases a dead path or — wor
 
 This covers all of:
 
-- Paths and filenames. `see docs/timing.md`, `mirrors hdl/reference/sar.py`.
+- Paths and filenames. `see docs/timing.md`, `mirrors reference/sar.py`.
 - Line numbers, always. They are stale before the commit lands.
 - "See the comment in X", "same as Y does", "keep in sync with Z".
 - Names this file does not declare — a module, parameter, signal, or function

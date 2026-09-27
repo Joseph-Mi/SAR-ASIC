@@ -9,8 +9,6 @@ capacitance, through ideal switches.
 
 from __future__ import annotations
 
-import os
-import pathlib
 import re
 import shutil
 
@@ -19,9 +17,10 @@ import pytest
 import analog
 import bench
 import ngspice
-from bench import Bench, Phase, Supplies
+import sky130
+from bench import Bench, Block, Phase, Supplies
+from devices import pdk_library
 from interface import N_BITS, PORTS
-from mismatch import SKY130_CAP_MIN_AREA_MIM
 from protocol import EVALUATE, SAMPLE, conversion_sequence
 from sar import VCM_FRACTION, ideal_units, top_plate_voltage
 
@@ -56,11 +55,11 @@ def supplies(vin: float) -> Supplies:
     return Supplies(vdd=VDD, vref=VREF, vin=vin)
 
 
-def replay(vin: float, n_bits: int, **bench_args) -> tuple[list, Bench]:
+def replay(vin: float, n_bits: int, **block_args) -> tuple[list, Bench]:
     """The protocol model's cycles for one conversion, as bench phases."""
     steps = conversion_sequence(vin, ideal_units(n_bits), VREF)
     phases = [Phase(sample=s.sample, dac_b=s.dac_b, cmp_clk=s.cmp_clk) for s in steps]
-    return steps, Bench(phases, supplies(vin), n_bits, **bench_args)
+    return steps, Bench(phases, Block(supplies(vin), n_bits, **block_args))
 
 
 def declared(n_bits: int = N_BITS) -> list[str]:
@@ -92,9 +91,9 @@ def test_every_ideal_capacitor_is_its_branch_in_units():
 
 def test_a_mim_unit_is_the_smallest_drawable_square():
     unit = analog.Mim()
-    assert unit.side**2 == pytest.approx(SKY130_CAP_MIN_AREA_MIM)
+    assert unit.side**2 == pytest.approx(sky130.CAP_MIN_AREA_MIM)
     text = analog.subckt(N_BITS, unit)
-    assert len(re.findall(rf"^Xu\w+ top \S+ {analog.PDK_MIM} ", text, re.M)) == N_BITS + 1
+    assert len(re.findall(rf"^Xu\w+ top \S+ {sky130.MIM} ", text, re.M)) == N_BITS + 1
 
 
 def test_a_bench_must_start_by_sampling():
@@ -168,18 +167,18 @@ def test_forced_input_samples_a_rail_instead_of_the_pin(force_hi, tmp_path):
         Phase(sample=1, force_en=1, force_hi=force_hi),
         Phase(dac_b=msb, force_en=1, force_hi=force_hi),
     ]
-    b = Bench(phases, supplies(IGNORED_PIN * VREF), n_bits)
+    b = Bench(phases, Block(supplies(IGNORED_PIN * VREF), n_bits))
     got = ngspice.run(bench.deck(b), tmp_path)["m_top"][1]
     assert got == pytest.approx(
         top_plate_voltage(rail, msb, ideal_units(n_bits), VREF), abs=VOLTS_TOLERANCE
     )
 
 
-PDK_LIBRARY = (
-    pathlib.Path(os.environ.get("PDK_ROOT", "/nonexistent"))
-    / os.environ.get("PDK", "sky130A")
-    / "libs.tech/combined/sky130.lib.spice"
-)
+PDK_LIBRARY = pdk_library()
+
+#: MiM branches are whole multiples of one drawn unit, so the first trial's
+#: step is exactly half the reference up to the solver's precision.
+MIM_TOLERANCE = 1e-3
 
 
 @needs_ngspice
@@ -189,7 +188,7 @@ def test_mim_units_keep_the_binary_ratios(tmp_path):
     the MSB trial moves the top plate by half the reference."""
     n_bits = RESOLUTIONS[0]
     msb = 1 << (n_bits - 1)
-    b = Bench([Phase(sample=1), Phase(dac_b=msb)], supplies(0.0), n_bits, unit=analog.Mim())
+    b = Bench([Phase(sample=1), Phase(dac_b=msb)], Block(supplies(0.0), n_bits, unit=analog.Mim()))
     deck = f".lib {PDK_LIBRARY} tt\n" + bench.deck(b)
     got = ngspice.run(deck, tmp_path)["m_top"]
-    assert got[1] - got[0] == pytest.approx(VREF / 2, rel=1e-3)
+    assert got[1] - got[0] == pytest.approx(VREF / 2, rel=MIM_TOLERANCE)

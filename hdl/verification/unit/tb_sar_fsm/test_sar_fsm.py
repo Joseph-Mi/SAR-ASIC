@@ -32,6 +32,9 @@ PROBE_INPUTS = (0.0, 0.5 * VREF, 0.999 * VREF, 0.123 * VREF, 0.876 * VREF)
 
 STUCK_ANSWERS = (0, 1)
 
+#: An input for tests about the conversion's shape rather than its answer.
+SHAPE_INPUT = 0.3 * VREF
+
 #: Conversions run back to back with no idle gap. Enough to expose anything the
 #: FSM carries between them; nothing here models wear-out, which no part of this
 #: flow does.
@@ -106,7 +109,7 @@ async def sampling_is_the_first_cycle_and_only_that_cycle(dut):
     """The array cannot be driven to a trial code while still connected to the
     input, so the phases may not overlap by even one cycle."""
     await start_clock(dut)
-    steps = conversion_sequence(0.4 * VREF, ideal_units(N_BITS), VREF)
+    steps = conversion_sequence(SHAPE_INPUT, ideal_units(N_BITS), VREF)
     assert steps[0].phase == SAMPLE
 
     await begin(dut)
@@ -123,7 +126,7 @@ async def a_conversion_takes_the_sequence_the_model_declares(dut):
     """Counted from the model's sequence, so the test cannot disagree with the
     contract about what the bound is."""
     await start_clock(dut)
-    steps = conversion_sequence(0.3 * VREF, ideal_units(N_BITS), VREF)
+    steps = conversion_sequence(SHAPE_INPUT, ideal_units(N_BITS), VREF)
 
     await begin(dut)
     cycles = 1

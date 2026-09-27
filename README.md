@@ -5,8 +5,10 @@ physical design in one repo.
 
 ## Layout
 
-Deliberately not documented here. Paths change, and a layout table is the
-first thing to go stale without anyone noticing. Read the tree.
+Deliberately not listed here. Paths change, and a layout table is the first
+thing to go stale without anyone noticing. The layers and which may import
+which are declared in a test that `make lint` runs;
+[docs/architecture.md](docs/architecture.md) explains them.
 
 Coding rules live in [STYLE.md](STYLE.md). Read it before writing RTL.
 
@@ -76,7 +78,7 @@ make container           # start the container; make shell to get into it
 make model               # validate golden models -- do this first
 make verify-unit         # cocotb unit tests
 make verify              # model, then every verification level in order
-make lint                # verilator + verible + yosys structural check + ruff
+make lint                # verilator + verible + yosys structural check + ruff + layers
 make format              # rewrite Verilog and Python in canonical style
 make format-check        # read-only; what CI runs
 make clean

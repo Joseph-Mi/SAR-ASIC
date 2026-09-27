@@ -237,8 +237,10 @@ Two things that are easy to get wrong:
   CI. Fails on inferred latches and undriven wires. Runs in seconds.
 - Python Monte Carlo model runs in CI as a regression, so changing the unit cap
   size shows up as a diff in DNL/INL numbers rather than a vibe.
-- CI runs the same pinned container image as local dev. Consider mirroring the
-  tag to GHCR if Actions pull times get annoying — the image is ~20 GB.
+- CI's `analog` job runs `make verify-analog verify-integration` inside the
+  pinned image with `SAR_REQUIRE_TOOLS=1` (root `conftest.py`: a skip fails).
+  The `digital` job still builds its tools on ubuntu-latest. Consider
+  mirroring the tag to GHCR if pull times get annoying -- the image is ~20 GB.
 
 ### Understanding the digital half beyond simulation
 
@@ -647,6 +649,29 @@ make shell first, then:
   "
 ```
 
+## Cleanup branch (architecture + STYLE)
+
+- Layers, bottom first: `tech/` (sky130 facts: device names, W_MIN,
+  W_FINGER_MAX, CAP_A_C, CAP_MIN_AREA_*, mosfet geometry) -> `reference/`
+  (moved out of hdl/: it is the chip's contract) -> `model/` (laws, metrics)
+  -> `studies/` (yield/noise sweeps, baselines, plots) and `sim/` -> 
+  `hdl/verification/`. Declared and enforced in `tests/test_layers.py` (also
+  fails on duplicate module names and stdlib shadowing), run by `make lint`.
+  `docs/architecture.md` explains; the README defers to both.
+- `bench.Block` holds the block's settings; `Bench(phases, block, ...)` and
+  `loop.Loop(inputs, library, block, clock)`. `sweep.convert(..., phase=,
+  **block_args)`. Measurements shared by tests live in `sim/measure.py`
+  (settled_for, tau_from_gaps, first_trial_error). `BATCH` is in `ngspice`.
+  Studies share `studies/study_points.py` (seeding, table widths).
+- One N-input `_nor` in analog.py (was _nor + _nor3).
+- STYLE: languages now say cocotb/pyuvm for benches, SystemVerilog only for
+  formal properties (`<block>_props.sv`, SymbiYosys). Literals named across
+  production and tests; the ngspice parser tests keep their text fixtures
+  inline (the literal and its expected parse are one fact on one line).
+- Prose test finds the root by pyproject.toml and scans `git ls-files`.
+- cocotb 2.0 needs Verilator >= 5.036: the cloud sandbox's 5.020 cannot run
+  the unit tests (fails on main too); the container and CI can.
+
 ## Open findings
 
 Delete each one when it is fixed.
@@ -720,9 +745,6 @@ Delete each one when it is fixed.
   Check capm/met3 spacing rules before layout; the digital budget has slack.
 - **Coefficient recipe below points at `libs.ref`**; `docs/model.md` says read
   the continuous models (the originals differ ~6x). Trust model.md.
-- **Prose test walks every file.** `test_no_document_restates_the_resolution`
-  does `rglob("*")` and filters after; once LibreLane `runs/` exist that is
-  slow. Switch to `git ls-files` — tracked is "ours" by definition.
 - **Values still restated in docs:** `docs/floorplan.md` numbers vs a future
   LibreLane config.
 

@@ -1,8 +1,9 @@
 """Dynamic performance: what the converter is worth as a signal path.
 
 DNL and INL describe the transfer curve one step at a time. ENOB describes the
-whole thing with one number, and it is the number "8-bit" actually claims: an
-array whose mismatch costs it a bit is a 7-bit ADC no matter what the FSM does.
+whole thing with one number, and it is the number a resolution actually
+claims: an array whose mismatch costs it a bit converts a bit worse no matter
+what the FSM does.
 
 Measured the way a bench measures it. Drive a sine, take an FFT, compare the
 power in the signal bin against everything else. The only difference from a
@@ -34,8 +35,16 @@ CYCLES = 401
 DB_PER_BIT = 6.02
 SINE_HEADROOM_DB = 1.76
 
+#: Decibels per decade of power, and of amplitude.
+DB_POWER = 10.0
+DB_AMPLITUDE = 20.0
 
-def coherent_sine(n_samples=RECORD, cycles=CYCLES, vref=1.0, amplitude_frac=0.49):
+#: The test sine's amplitude as a fraction of the reference: just under half,
+#: so its peaks stay inside the range and never clip.
+AMPLITUDE_FRACTION = 0.49
+
+
+def coherent_sine(n_samples=RECORD, cycles=CYCLES, vref=1.0, amplitude_frac=AMPLITUDE_FRACTION):
     """A sine that fits the record a whole number of times.
 
     Centred at mid-scale and kept just inside the rails: a clipped converter
@@ -72,20 +81,20 @@ def sndr_db(codes, cycles: int = CYCLES) -> float:
     spectrum = np.abs(np.fft.rfft(np.asarray(codes, dtype=float))) ** 2
     signal = spectrum[cycles]
     rest = spectrum[1:].sum() - signal
-    return float(10.0 * np.log10(signal / rest))
+    return float(DB_POWER * np.log10(signal / rest))
 
 
-def enob(sndr: float, amplitude_frac: float = 0.49) -> float:
+def enob(sndr: float, amplitude_frac: float = AMPLITUDE_FRACTION) -> float:
     """Effective bits from SNDR, corrected back to full scale.
 
     The constants assume a full-scale sine, so a stimulus backed off from the
     rails would otherwise be reported as a worse converter than it is.
     """
-    full_scale_penalty = 20.0 * np.log10(2 * amplitude_frac)
+    full_scale_penalty = DB_AMPLITUDE * np.log10(2 * amplitude_frac)
     return (sndr - SINE_HEADROOM_DB - full_scale_penalty) / DB_PER_BIT
 
 
-def enob_of(unit_caps, vref: float = 1.0, amplitude_frac: float = 0.49) -> float:
+def enob_of(unit_caps, vref: float = 1.0, amplitude_frac: float = AMPLITUDE_FRACTION) -> float:
     """End to end: an array in, effective bits out."""
     vin = coherent_sine(vref=vref, amplitude_frac=amplitude_frac)
     codes = codes_from_curve(vin, unit_caps, vref)

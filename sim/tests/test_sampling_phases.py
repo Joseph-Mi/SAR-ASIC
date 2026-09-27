@@ -26,10 +26,11 @@ import pytest
 import analog
 import bench
 import ngspice
-from bench import Bench, Phase, Supplies
+from bench import Bench, Block, Phase, Supplies
 from devices import Sky130, pdk_library
 from injection import beyond_a_line, referred_to_input
 from interface import N_BITS
+from measure import first_trial_error
 from sar import VCM_FRACTION, ideal_units, sar_convert, top_plate_voltage
 
 pytestmark = pytest.mark.skipif(shutil.which("ngspice") is None, reason="ngspice not on PATH")
@@ -67,7 +68,8 @@ SCALING_TOLERANCE = 0.2
 
 #: The supply and temperature range the generator's order must survive.
 SUPPLIES = (0.9 * VDD, VDD, 1.1 * VDD)
-TEMPERATURES = (-40, 27, 125)
+NOMINAL_TEMP = 27
+TEMPERATURES = (-40, NOMINAL_TEMP, 125)
 
 #: A load on a switch's line -- a long gate wire, say -- far past anything
 #: the generator's buffer for that line is sized for, and how much slower that
@@ -110,10 +112,7 @@ def errors(tmp_path, sampling) -> list[float]:
         code, _ = sar_convert(vin, units, VREF)
         b = Bench(
             [Phase(sample=1), Phase(dac_b=code)],
-            Supplies(vdd=VDD, vref=VREF, vin=vin),
-            N_BITS,
-            unit=UNIT,
-            sampling=sampling,
+            Block(Supplies(vdd=VDD, vref=VREF, vin=vin), N_BITS, unit=UNIT, sampling=sampling),
             probes={"m_top": "v(xdut.top)"},
         )
         got = ngspice.run(bench.deck(b), tmp_path)["m_top"][-1]
@@ -149,16 +148,18 @@ def test_under_the_generator_the_top_switch_leaves_one_step_for_every_input(tmp_
     only switch that has let go of it is the top switch, at Vcm -- so its step
     is the same whatever the input. Read after the top switch is off and
     before the input switches begin to open."""
-    t = crossings(tmp_path, VDD, 27)
+    t = crossings(tmp_path, VDD, NOMINAL_TEMP)
     sealed = (t["top_off"] + t["bot_moving"]) / 2
     steps = []
     for vin in INPUTS:
         b = Bench(
             [Phase(sample=1), Phase()],
-            Supplies(vdd=VDD, vref=VREF, vin=vin),
-            N_BITS,
-            unit=UNIT,
-            sampling=analog.NonOverlap(),
+            Block(
+                Supplies(vdd=VDD, vref=VREF, vin=vin),
+                N_BITS,
+                unit=UNIT,
+                sampling=analog.NonOverlap(),
+            ),
             probes={},
             read=[],
             extra_control=[f"meas tran step find v(xdut.top) at={sealed:.12g}"],
@@ -171,10 +172,6 @@ def test_under_the_generator_the_top_switch_leaves_one_step_for_every_input(tmp_
 #: the top, where an input switch has the least gate drive.
 RANGE = tuple(f * VREF for f in (0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 0.95))
 
-#: Sampling phases long enough that nothing is left of the previous state:
-#: what remains is what the switches leave, not what they had no time for.
-SETTLED_SAMPLE = 5
-
 #: How far the sampling error may stray from a straight line across the
 #: input range, in LSB: an offset and a gain are calibrated away, a bend is
 #: not.
@@ -183,22 +180,13 @@ STRAIGHT = 0.1
 
 def first_trial_errors(tmp_path, switches: analog.MosSwitches) -> list[float]:
     """The top plate against the model at the first trial, per input, in LSB."""
-    units = ideal_units(N_BITS)
-    msb = 1 << (N_BITS - 1)
-    out = []
-    for vin in RANGE:
-        b = Bench(
-            [Phase(sample=1)] * SETTLED_SAMPLE + [Phase(dac_b=msb)],
-            Supplies(vdd=VDD, vref=VREF, vin=vin),
-            N_BITS,
-            unit=UNIT,
-            sampling=analog.NonOverlap(switches=switches),
-            read=[SETTLED_SAMPLE],
-            probes={"m_top": "v(xdut.top)"},
-        )
-        got = ngspice.run(bench.deck(b), tmp_path)["m_top"][0]
-        out.append((got - top_plate_voltage(vin, msb, units, VREF)) / LSB)
-    return out
+    block = Block(
+        Supplies(vdd=VDD, vref=VREF),
+        N_BITS,
+        unit=UNIT,
+        sampling=analog.NonOverlap(switches=switches),
+    )
+    return [first_trial_error(tmp_path, block, vin) / LSB for vin in RANGE]
 
 
 def test_transmission_gates_leave_the_sampling_error_a_straight_line(tmp_path):
@@ -231,17 +219,14 @@ def crossings(
     scheme = analog.NonOverlap() if scheme is None else scheme
     b = Bench(
         [Phase(sample=1), Phase(), Phase(sample=1)],
-        Supplies(vdd=vdd, vref=VREF, vin=0.5 * VREF),
-        N_BITS,
-        unit=UNIT,
-        sampling=scheme,
+        Block(Supplies(vdd=vdd, vref=VREF, vin=0.5 * VREF), N_BITS, unit=UNIT, sampling=scheme),
         probes={},
         read=[],
         phase=phase,
         extra_control=control,
     )
     deck = bench.deck(b)
-    if temp != 27:
+    if temp != NOMINAL_TEMP:
         deck = deck.replace(".control", f".temp {temp:g}\n.control", 1)
     return {k: v[0] for k, v in ngspice.run(deck, tmp_path).items()}
 
@@ -265,7 +250,9 @@ def test_the_generator_orders_every_edge_across_supply_and_temperature(vdd, temp
 @pytest.mark.skipif(not pdk_library().exists(), reason="sky130 model library not found")
 @pytest.mark.parametrize("corner", ["tt", "ff", "ss", "fs", "sf"])
 def test_the_generator_orders_every_edge_at_every_sky130_corner(corner, tmp_path):
-    assert_ordered(crossings(tmp_path, VDD, 27, analog.NonOverlap(devices=Sky130(corner))))
+    assert_ordered(
+        crossings(tmp_path, VDD, NOMINAL_TEMP, analog.NonOverlap(devices=Sky130(corner)))
+    )
 
 
 @pytest.mark.parametrize("line", ["top", "bottom", "bottom_n"])
@@ -274,8 +261,8 @@ def test_the_order_is_kept_however_slow_a_line_is(line, tmp_path):
     load a switch's line until it is many times slower than everything else,
     and whatever must follow it still waits for it."""
     slowed = analog.NonOverlap(**{f"{line}_line_load": SLOWING_LOAD[line]})
-    t = crossings(tmp_path, VDD, 27, slowed, phase=SLOW_PHASE)
-    nominal = crossings(tmp_path, VDD, 27, phase=SLOW_PHASE)
+    t = crossings(tmp_path, VDD, NOMINAL_TEMP, slowed, phase=SLOW_PHASE)
+    nominal = crossings(tmp_path, VDD, NOMINAL_TEMP, phase=SLOW_PHASE)
     first = {"top": "top_off", "bottom": "bot_off", "bottom_n": "botn_off"}[line]
     assert t[first] - SLOW_PHASE > SLOWED_BY * (nominal[first] - SLOW_PHASE)
     assert_ordered(t)

@@ -12,6 +12,29 @@ from sar import branch_weights, dac_voltage, ideal_units, n_bits_of, sar_convert
 RESOLUTIONS = (4, 8, 10)
 VREF = 1.0
 
+#: An input for tests about the conversion's shape rather than its answer:
+#: off every threshold at every resolution tested.
+VIN = 0.3 * VREF
+
+#: Points in the monotonicity sweep: more than the largest resolution has
+#: codes, so every code boundary is crossed.
+DENSE_SWEEP = 2000
+
+#: A comparator offset, and the inputs it is checked over: inside the range,
+#: with room for the offset to move them without leaving it.
+OFFSET = 0.01 * VREF
+OFFSET_SWEEP = (0.05 * VREF, 0.85 * VREF, 64)
+
+#: An input below mid-scale, so the true MSB is 0 and a forced 1 is visible.
+BELOW_MID = 0.25 * VREF
+
+#: Any non-zero noise: the decision under test comes from the rng's kick, not
+#: from the noise's size.
+ANY_NOISE = 1e-9
+
+#: An array length that is not a power of two.
+NOT_BINARY = 100
+
 
 @pytest.fixture(params=RESOLUTIONS)
 def units(request):
@@ -42,14 +65,14 @@ def test_out_of_range_input_saturates(units):
 
 def test_transfer_curve_is_monotonic(units):
     """With ideal units the code must never decrease as vin rises."""
-    sweep = np.linspace(0.0, VREF, 2000)
+    sweep = np.linspace(0.0, VREF, DENSE_SWEEP)
     codes = np.array([sar_convert(v, units, VREF)[0] for v in sweep])
     assert np.all(np.diff(codes) >= 0)
 
 
 def test_bit_trace_has_one_entry_per_bit(units):
     """cocotb compares the trace, so its length is part of the contract."""
-    _, trace = sar_convert(0.3 * VREF, units, VREF)
+    _, trace = sar_convert(VIN, units, VREF)
     assert len(trace) == n_bits_of(units)
 
 
@@ -59,7 +82,7 @@ def test_bit_trace_is_msb_first(units):
     This pins the ordering cocotb will compare against. Getting it backwards
     would leave the model and the RTL agreeing with each other and both wrong.
     """
-    code, trace = sar_convert(0.3 * VREF, units, VREF)
+    code, trace = sar_convert(VIN, units, VREF)
     assert int("".join(str(b) for b in trace), 2) == code
 
 
@@ -81,8 +104,8 @@ def test_offset_shifts_the_curve_without_distorting_it(units):
     vin + offset without one. Any disagreement means offset is leaking into
     the bit weights, which would make it a source of DNL.
     """
-    offset = 0.01 * VREF
-    for vin in np.linspace(0.05 * VREF, 0.85 * VREF, 64):
+    offset = OFFSET
+    for vin in np.linspace(*OFFSET_SWEEP):
         with_offset, _ = sar_convert(vin, units, VREF, cmp_offset=offset)
         shifted_input, _ = sar_convert(vin + offset, units, VREF)
         assert with_offset == shifted_input
@@ -107,13 +130,13 @@ class OneKick:
 def test_a_wrong_msb_decision_is_never_corrected(units):
     """No redundancy: a bit decided wrong stays wrong for the whole conversion."""
     n_bits = n_bits_of(units)
-    vin = 0.25 * VREF
+    vin = BELOW_MID
     truth, _ = sar_convert(vin, units, VREF)
     msb = 1 << (n_bits - 1)
     assert not truth & msb
 
     rng = OneKick(VREF)
-    code, trace = sar_convert(vin, units, VREF, cmp_noise_rms=1e-9, rng=rng)
+    code, trace = sar_convert(vin, units, VREF, cmp_noise_rms=ANY_NOISE, rng=rng)
     assert trace[0] == 1
     assert code & msb
     assert rng.draws == n_bits
@@ -122,7 +145,7 @@ def test_a_wrong_msb_decision_is_never_corrected(units):
 def test_noise_without_an_rng_is_refused(units):
     """Reproducibility is a contract, not a convention."""
     with pytest.raises(ValueError):
-        sar_convert(0.5 * VREF, units, VREF, cmp_noise_rms=1e-3)
+        sar_convert(VIN, units, VREF, cmp_noise_rms=ANY_NOISE)
 
 
 def test_a_non_binary_array_is_refused():
@@ -130,4 +153,4 @@ def test_a_non_binary_array_is_refused():
     something. A wrong-sized array would otherwise convert at a silently
     wrong resolution."""
     with pytest.raises(ValueError):
-        sar_convert(0.5 * VREF, np.ones(100), VREF)
+        sar_convert(VIN, np.ones(NOT_BINARY), VREF)

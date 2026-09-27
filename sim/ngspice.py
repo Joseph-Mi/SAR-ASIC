@@ -15,6 +15,12 @@ import subprocess
 #: ends; not end-anchored because min and max trail their sweep position.
 RESULT = re.compile(r"^\s*(\w+)\s*=\s*([-+\d.eE]+)", re.M)
 
+#: Conversions per simulation. Each conversion is fine alone and in batches of
+#: tens; a single run of thousands of switch edges over tens of microseconds
+#: eventually wedges the solver's timestep control ("timestep too small") on
+#: some edge that is harmless in a shorter run.
+BATCH = 32
+
 LIBRARY = re.compile(r"^\.lib\s+(\S*sky130\.lib\.spice)\s+\w+\s*$", re.M)
 
 
