@@ -672,6 +672,24 @@ Delete each one when it is fixed.
   first-trial error, TG input switches: -0.90 LSB at 0.05 V to -0.45 at
   0.95 V, straight to 0.005 LSB (endpoint fit). Offset -0.68 LSB at
   mid-scale.
+- **With real sky130 devices the DAC's reference switch does not work at
+  Vref = 1.0 V. Blocks Step 6.** All switch sizes (`MosSwitches`) were only
+  ever checked with generic models. sky130's pfet_01v8 has |Vt| ~1 V, more
+  with body effect (body at VDD): a PMOS passing Vref = 1.0 V with its gate at
+  0 has |Vgs| = 1.0 V and is essentially off. Measured (tt, trimmed raw
+  skywater models; the IIC container agrees -- its corner run gave -100 to
+  -490 LSB everywhere): the MSB plate selected to Vref reaches 0.05 V in
+  10 ns, 0.25 V in 50 ns; top-plate error -482 LSB. Sweeping Vref (50 ns
+  trial): 1.2 V -> -179 LSB, 1.4 -> -39, 1.6 -> -8, 1.8 -> -2.2. So even at
+  Vref = VDD the 1 um/unit PMOS is too weak. Same cause makes the input TG's
+  PMOS nearly useless for Vin <= 1 V (why TG ~ NMOS in every measurement).
+  Decisions needed (Step 6 / M5): the Vref level (higher = stronger PMOS and
+  a larger LSB, but NMOS input switches weaken at the top of a larger range --
+  which is where the TG then earns its place); reference-switch device
+  (pfet_01v8_lvt, n-well tied to source, NMOS/TG) and size; and a
+  sky130-model acceptance run in the container as the gate for every sizing.
+  The closed-loop acceptance test uses generic models and does NOT catch
+  this.
 - **The clock must come from the slow corner.** The acceptance test derives
   the clock from the top switch's tau at nominal supply. At 0.9*VDD (generic
   models) the top switch is weaker and the same clock leaves +1.8/+2.3 LSB at
