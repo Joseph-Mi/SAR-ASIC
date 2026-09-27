@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+import study_points
 from dynamic import enob_of
 from metrics import has_missing_codes, inl, msb_dnl, sigma_dnl_msb_analytic
 from mismatch import gradient, random_units
@@ -68,9 +69,7 @@ class Study:
 
 
 def rng_for(study: Study, n_bits: int, sigma_rel: float) -> np.random.Generator:
-    """A stream determined by the point's coordinates, not by its index."""
-    key = (study.seed, n_bits, int(round(sigma_rel * 1e12)))
-    return np.random.default_rng(np.random.SeedSequence(key))
+    return study_points.rng_for(study.seed, n_bits, sigma_rel)
 
 
 def run_point(study: Study, n_bits: int, sigma_rel: float) -> dict:
@@ -113,7 +112,7 @@ def sweep(study: Study) -> list[dict]:
 
 def format_table(study: Study, rows: list[dict]) -> str:
     """Fixed-width and fixed-precision, because this file is diffed."""
-    widths = {c: max(len(c), 13) for c in study.columns}
+    widths = study_points.column_widths(study.columns)
     out = [
         f"# trials={study.trials} seed={study.seed} gradient={study.gradient_strength}",
         "  ".join(c.rjust(widths[c]) for c in study.columns),

@@ -11,8 +11,8 @@ a converter has to meet once its offset is calibrated out.
 
 from __future__ import annotations
 
-import math
 import shutil
+from dataclasses import replace
 
 import pytest
 
@@ -21,8 +21,9 @@ import bench
 import cosim
 import loop
 import ngspice
-from bench import EDGE, READ_BEFORE_END, Bench, Phase, Supplies
+from bench import EDGE, Bench, Block, Phase, Supplies
 from interface import N_BITS
+from measure import first_trial_error, tau_from_gaps
 from protocol import SAMPLE, conversion_sequence
 from sar import VCM_FRACTION, ideal_units, sar_convert, top_plate_voltage
 from settling import settle_time
@@ -41,6 +42,9 @@ DUT = "sar_fsm"
 SMALL = 4
 
 SUPPLIES = Supplies(vdd=VDD, vref=VREF)
+
+#: The block with ideal switches, at the target resolution.
+IDEAL = Block(SUPPLIES)
 
 #: How far below the model's lowest top-plate voltage a conversion's may dip,
 #: in volts. It covers only the instant within an edge when some bottom plates
@@ -103,15 +107,13 @@ def carries(controller, tmp_path_factory):
     """Both sides of every carry at the target resolution, where the most
     bits change at once."""
     inputs = either_side(carry_codes(N_BITS), N_BITS)
-    got = loop.convert(
-        inputs, controller(N_BITS), tmp_path_factory.mktemp("carries"), supplies=SUPPLIES
-    )
+    got = loop.convert(inputs, controller(N_BITS), tmp_path_factory.mktemp("carries"), IDEAL)
     return inputs, got
 
 
 def test_every_threshold_converts_at_a_small_resolution(controller, tmp_path):
     inputs = either_side(range(1, 2**SMALL), SMALL)
-    got = loop.convert(inputs, controller(SMALL), tmp_path, supplies=SUPPLIES, n_bits=SMALL)
+    got = loop.convert(inputs, controller(SMALL), tmp_path, replace(IDEAL, n_bits=SMALL))
     assert not disagreements(inputs, got.codes, codes(inputs, SMALL), SMALL)
 
 
@@ -144,9 +146,7 @@ def test_sampling_hands_straight_over_to_the_first_trial(carries):
 
 def converts_at(controller, workdir, clock: float) -> bool:
     inputs = either_side(carry_codes(N_BITS), N_BITS)
-    got = loop.convert(
-        inputs, controller(N_BITS), workdir, supplies=SUPPLIES, r_vin=R_VIN, clock=clock
-    )
+    got = loop.convert(inputs, controller(N_BITS), workdir, replace(IDEAL, r_vin=R_VIN), clock)
     return not disagreements(inputs, got.codes, codes(inputs, N_BITS), N_BITS)
 
 
@@ -163,6 +163,12 @@ def test_a_clock_the_pin_law_allows_converts_and_a_faster_one_does_not(controlle
 DESIGNED = analog.NonOverlap()
 UNIT = analog.MIM_SIZED
 
+
+def designed(sampling) -> Block:
+    """The block with transistor switches sampling as `sampling` says."""
+    return Block(SUPPLIES, unit=UNIT, sampling=sampling)
+
+
 #: Sample lengths at which the top plate's remaining gap is read, to find its
 #: time constant from their ratio: past the generator's start-up, and short
 #: enough that the gap is still far above the solver's floor.
@@ -171,10 +177,6 @@ GAP_SHORT, GAP_LONG = bench.PHASE, 2 * bench.PHASE
 #: Inputs on either side of the kick that sets the top switch's time constant:
 #: across most of the range, so the kick is nearly a full-scale one.
 KICK_FROM, KICK_TO = 0.1 * VREF, 0.95 * VREF
-
-#: Sampling phases long enough that nothing of the previous state is left, for
-#: reading the offset the switches leave.
-SETTLED_SAMPLE = 5
 
 #: Where each designed-block input sits: mid-way between two thresholds, so a
 #: code is right as long as everything the calibrated converter cannot remove
@@ -187,10 +189,7 @@ def top_gap(workdir, phase: float, sampling) -> float:
     that follows a conversion of another level."""
     b = Bench(
         [Phase(sample=1, vin=KICK_FROM), Phase(vin=KICK_FROM), Phase(sample=1, vin=KICK_TO)],
-        SUPPLIES,
-        N_BITS,
-        unit=UNIT,
-        sampling=sampling,
+        Block(SUPPLIES, N_BITS, unit=UNIT, sampling=sampling),
         phase=phase,
         read=[2],
         probes={"m_top": "v(xdut.top)"},
@@ -199,30 +198,15 @@ def top_gap(workdir, phase: float, sampling) -> float:
 
 
 def top_switch_tau(workdir, sampling) -> float:
-    """The top switch's time constant against the whole array, from the gap
-    it leaves after two sample lengths: their ratio is exp(-difference / tau),
-    whatever delay each sample starts with."""
+    """The top switch's time constant against the whole array."""
     short, long = (top_gap(workdir, p, sampling) for p in (GAP_SHORT, GAP_LONG))
-    return (GAP_LONG - GAP_SHORT) * (1 - READ_BEFORE_END) / math.log(short / long)
+    return tau_from_gaps(short, long, GAP_SHORT, GAP_LONG)
 
 
 def sampling_offset(workdir, sampling) -> float:
-    """The top plate against the model at the first trial after a settled
-    sample of mid-scale, in volts: the constant a calibration removes."""
-    units = ideal_units(N_BITS)
-    msb = 1 << (N_BITS - 1)
-    vin = VCM_FRACTION * VREF
-    b = Bench(
-        [Phase(sample=1)] * SETTLED_SAMPLE + [Phase(dac_b=msb)],
-        Supplies(vdd=VDD, vref=VREF, vin=vin),
-        N_BITS,
-        unit=UNIT,
-        sampling=sampling,
-        read=[SETTLED_SAMPLE],
-        probes={"m_top": "v(xdut.top)"},
-    )
-    got = ngspice.run(bench.deck(b), workdir)["m_top"][0]
-    return got - top_plate_voltage(vin, msb, units, VREF)
+    """The top plate's error at mid-scale, in volts: the constant a
+    calibration removes."""
+    return first_trial_error(workdir, designed(sampling), VCM_FRACTION * VREF)
 
 
 def designed_block_disagreements(controller, workdir, sampling) -> list[str]:
@@ -235,15 +219,7 @@ def designed_block_disagreements(controller, workdir, sampling) -> list[str]:
     inputs = [(k + side * MID_CODE) * step for k in carry_codes(N_BITS) for side in (-1, +1)] + [
         MID_CODE * step
     ]
-    got = loop.convert(
-        inputs,
-        controller(N_BITS),
-        workdir,
-        supplies=SUPPLIES,
-        unit=UNIT,
-        sampling=sampling,
-        clock=clock,
-    )
+    got = loop.convert(inputs, controller(N_BITS), workdir, designed(sampling), clock)
     units = ideal_units(N_BITS)
     # A top plate that sits high reads as an input that sits low.
     want = [sar_convert(vin, units, VREF, cmp_offset=-offset)[0] for vin in inputs]

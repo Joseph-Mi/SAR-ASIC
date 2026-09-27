@@ -4,8 +4,9 @@ enough that a passing run is evidence rather than luck."""
 import numpy as np
 import pytest
 
+import sky130
 from mismatch import (
-    SKY130_CAP_A_C,
+    PERCENT,
     area_for_sigma,
     cap_for_area,
     gradient,
@@ -18,31 +19,69 @@ from sar import branch_weights
 
 RESOLUTIONS = (4, 8, 10)
 
+#: The resolution the single-array tests use.
+N_BITS = 8
+
+#: A mismatch small enough to keep every array monotonic, one large enough to
+#: move branch weights visibly, and a gradient strength across the array.
+SIGMA = 0.01
+SIGMA_LARGE = 0.02
+TILT = 0.01
+
+#: A batch size, and a sample large enough that its spread is the requested
+#: one to within the tolerances below.
+BATCH = 7
+SAMPLE = 500
+MEAN_TOLERANCE = 1e-3
+SPREAD_TOLERANCE = 0.02
+EXACT = 1e-9
+
+#: Seeds, one per test, so no test's draws depend on another's.
+SEED_SHAPE, SEED_SPREAD, SEED_ZERO, SEED_GRADIENT, SEED_PLACE, SEED_PERMUTE, SEED_REPEAT = (
+    0,
+    1,
+    3,
+    5,
+    6,
+    7,
+    42,
+)
+
+#: Pelgrom's law checked at a unit area and four times it; a coefficient, a
+#: second one, and areas to round-trip through it; a density.
+UNIT_AREA, QUADRUPLE = 1.0, 4.0
+A_C, A_C_OTHER = 1.0, 1.5
+AREAS = (0.25, 1.0, 9.0)
+DENSITY = 1.5
+
+#: Matching targets the sizing decision might ask for.
+TARGETS = (0.005, 0.010, 0.020)
+
 
 @pytest.mark.parametrize("n_bits", RESOLUTIONS)
 def test_batch_shape_is_trials_by_units(n_bits):
-    rng = np.random.default_rng(0)
-    assert random_units(n_bits, 0.01, rng).shape == (2**n_bits,)
-    assert random_units(n_bits, 0.01, rng, trials=7).shape == (7, 2**n_bits)
+    rng = np.random.default_rng(SEED_SHAPE)
+    assert random_units(n_bits, SIGMA, rng).shape == (2**n_bits,)
+    assert random_units(n_bits, SIGMA, rng, trials=BATCH).shape == (BATCH, 2**n_bits)
 
 
 def test_draws_have_the_requested_spread():
     """sigma_rel means sigma_u/C_u, so it must come back out of the sample."""
-    rng = np.random.default_rng(1)
-    u = random_units(10, 0.02, rng, trials=500)
-    assert np.isclose(u.mean(), 1.0, atol=1e-3)
-    assert np.isclose(u.std(), 0.02, rtol=0.02)
+    rng = np.random.default_rng(SEED_SPREAD)
+    u = random_units(max(RESOLUTIONS), SIGMA_LARGE, rng, trials=SAMPLE)
+    assert np.isclose(u.mean(), 1.0, atol=MEAN_TOLERANCE)
+    assert np.isclose(u.std(), SIGMA_LARGE, rtol=SPREAD_TOLERANCE)
 
 
 def test_same_seed_gives_the_same_array():
-    a = random_units(8, 0.01, np.random.default_rng(42))
-    b = random_units(8, 0.01, np.random.default_rng(42))
+    a = random_units(N_BITS, SIGMA, np.random.default_rng(SEED_REPEAT))
+    b = random_units(N_BITS, SIGMA, np.random.default_rng(SEED_REPEAT))
     assert np.array_equal(a, b)
 
 
 def test_zero_sigma_is_a_perfect_array():
-    u = random_units(8, 0.0, np.random.default_rng(3))
-    assert np.array_equal(u, np.ones(2**8))
+    u = random_units(N_BITS, 0.0, np.random.default_rng(SEED_ZERO))
+    assert np.array_equal(u, np.ones(2**N_BITS))
 
 
 def test_gradient_tilts_without_changing_total():
@@ -51,20 +90,20 @@ def test_gradient_tilts_without_changing_total():
     If it changed the total it would move full scale, and a full-scale shift
     is a gain error rather than the matching effect under study.
     """
-    u = np.ones(2**8)
-    g = gradient(u, 0.01)
+    u = np.ones(2**N_BITS)
+    g = gradient(u, TILT)
     assert np.isclose(g.sum(), u.sum())
-    assert np.isclose(g[-1] - g[0], 0.01, rtol=1e-9)
+    assert np.isclose(g[-1] - g[0], TILT, rtol=EXACT)
 
 
 def test_gradient_of_zero_strength_changes_nothing():
-    u = random_units(8, 0.01, np.random.default_rng(5))
+    u = random_units(N_BITS, SIGMA, np.random.default_rng(SEED_GRADIENT))
     assert np.allclose(gradient(u, 0.0), u)
 
 
 def test_row_major_placement_is_the_identity():
-    u = random_units(8, 0.01, np.random.default_rng(6))
-    assert np.array_equal(place(u, row_major(8)), u)
+    u = random_units(N_BITS, SIGMA, np.random.default_rng(SEED_PLACE))
+    assert np.array_equal(place(u, row_major(N_BITS)), u)
 
 
 def test_placement_moves_mismatch_between_branches():
@@ -73,9 +112,9 @@ def test_placement_moves_mismatch_between_branches():
     That is the entire mechanism a centroid scheme exploits: same units, same
     total, different DNL.
     """
-    rng = np.random.default_rng(7)
-    u = random_units(8, 0.02, rng)
-    shuffled = place(u, rng.permutation(2**8))
+    rng = np.random.default_rng(SEED_PERMUTE)
+    u = random_units(N_BITS, SIGMA_LARGE, rng)
+    shuffled = place(u, rng.permutation(2**N_BITS))
     assert np.isclose(shuffled.sum(), u.sum())
     assert not np.allclose(branch_weights(shuffled), branch_weights(u))
 
@@ -83,31 +122,30 @@ def test_placement_moves_mismatch_between_branches():
 def test_pelgrom_is_a_square_root_law():
     """Four times the area is half the sigma. This is the whole reason unit
     caps are large, and the exchange rate the sizing decision is paying."""
-    a_c = 1.0
-    assert np.isclose(sigma_from_area(4.0, a_c), sigma_from_area(1.0, a_c) / 2)
+    bigger = sigma_from_area(QUADRUPLE * UNIT_AREA, A_C)
+    assert np.isclose(bigger, sigma_from_area(UNIT_AREA, A_C) / np.sqrt(QUADRUPLE))
 
 
 def test_area_and_sigma_invert_each_other():
-    a_c = 1.5
-    for area in (0.25, 1.0, 9.0):
-        assert np.isclose(area_for_sigma(sigma_from_area(area, a_c), a_c), area)
+    for area in AREAS:
+        assert np.isclose(area_for_sigma(sigma_from_area(area, A_C_OTHER), A_C_OTHER), area)
 
 
 def test_capacitance_follows_area_at_fixed_density():
-    assert np.isclose(cap_for_area(2.0, 1.5), 3.0)
+    assert np.isclose(cap_for_area(QUADRUPLE, DENSITY), QUADRUPLE * DENSITY)
 
 
 def test_the_coefficient_is_read_as_percent_not_fraction():
     """A_C is quoted in percent-micrometres and sigma_from_area returns a
     fraction, so a unit capacitor of one square micrometre must come back as
-    the coefficient over a hundred. Getting that conversion wrong scales every
+    the coefficient in percent. Getting that conversion wrong scales every
     area in the study by ten thousand and still looks plausible."""
-    assert np.isclose(sigma_from_area(1.0, SKY130_CAP_A_C), SKY130_CAP_A_C / 100)
+    assert np.isclose(sigma_from_area(UNIT_AREA, sky130.CAP_A_C), sky130.CAP_A_C / PERCENT)
 
 
 def test_the_sizing_direction_round_trips():
     """A matching target becomes an area, and that area has to give the target
     back. This is the direction the design decision actually runs."""
-    for target in (0.005, 0.010, 0.020):
-        area = area_for_sigma(target, SKY130_CAP_A_C)
-        assert np.isclose(sigma_from_area(area, SKY130_CAP_A_C), target)
+    for target in TARGETS:
+        area = area_for_sigma(target, sky130.CAP_A_C)
+        assert np.isclose(sigma_from_area(area, sky130.CAP_A_C), target)

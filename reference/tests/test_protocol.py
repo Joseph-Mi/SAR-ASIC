@@ -17,6 +17,17 @@ from sar import ideal_units, n_bits_of, sar_convert
 RESOLUTIONS = (4, 8, 10)
 VREF = 1.0
 
+#: An input for tests about the conversion's shape rather than its answer:
+#: off every threshold at every resolution tested, so no decision is a tie.
+VIN = 0.3 * VREF
+
+#: Enough inputs across the range that every resolution's codes are visited
+#: at irregular spacing: not a multiple of any resolution's code count.
+SWEEP_POINTS = 37
+
+#: A comparator offset large enough to change decisions at every resolution.
+OFFSET = 0.05 * VREF
+
 
 @pytest.fixture(params=RESOLUTIONS)
 def units(request):
@@ -29,14 +40,14 @@ def test_a_conversion_takes_two_cycles_per_bit_plus_two(units):
     Two cycles a bit because the comparator must precharge between decisions,
     plus the sample cycle at the front and the done cycle at the back.
     """
-    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    steps = conversion_sequence(VIN, units, VREF)
     assert len(steps) == 2 * n_bits_of(units) + 2
 
 
 def test_the_strobe_rises_once_per_bit(units):
     """A strobe held high across trials takes one decision and repeats it, so
     the count of its rising edges is the count of independent decisions."""
-    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    steps = conversion_sequence(VIN, units, VREF)
     clk = [s.cmp_clk for s in steps]
     rises = sum(1 for a, b in zip(clk, clk[1:], strict=False) if a == 0 and b == 1)
     assert rises == n_bits_of(units)
@@ -45,7 +56,7 @@ def test_the_strobe_rises_once_per_bit(units):
 def test_the_strobe_is_low_while_the_array_settles(units):
     """Every evaluate is preceded by a settle at the same code, so the array is
     never asked to move and be decided on in the same cycle."""
-    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    steps = conversion_sequence(VIN, units, VREF)
     for before, step in zip(steps, steps[1:], strict=False):
         if step.phase == EVALUATE:
             assert before.phase == SETTLE
@@ -54,7 +65,7 @@ def test_the_strobe_is_low_while_the_array_settles(units):
 
 
 def test_the_phases_run_sample_then_trials_then_done(units):
-    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    steps = conversion_sequence(VIN, units, VREF)
     phases = [s.phase for s in steps]
     assert phases[0] == SAMPLE
     assert phases[-1] == DONE
@@ -64,17 +75,17 @@ def test_the_phases_run_sample_then_trials_then_done(units):
 def test_sample_and_strobe_never_overlap(units):
     """Strobing the comparator while the array is still tracking the input
     would latch a voltage that is not the sampled one."""
-    for step in conversion_sequence(0.3 * VREF, units, VREF):
+    for step in conversion_sequence(VIN, units, VREF):
         assert not (step.sample and step.cmp_clk)
 
 
 def test_the_comparator_is_strobed_once_per_bit(units):
-    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    steps = conversion_sequence(VIN, units, VREF)
     assert sum(s.cmp_clk for s in steps) == n_bits_of(units)
 
 
 def test_trials_walk_the_bits_msb_first(units):
-    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    steps = conversion_sequence(VIN, units, VREF)
     trials = [s for s in steps if s.phase == EVALUATE]
     assert [s.bit_index for s in trials] == list(range(n_bits_of(units) - 1, -1, -1))
 
@@ -82,7 +93,7 @@ def test_trials_walk_the_bits_msb_first(units):
 def test_each_trial_word_is_the_settled_bits_plus_the_one_under_test(units):
     """This is the array's actual drive word, so a wrong one converges to a
     wrong answer without ever looking wrong at the top level."""
-    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    steps = conversion_sequence(VIN, units, VREF)
     settled = 0
     for step in steps:
         if step.phase != EVALUATE:
@@ -95,7 +106,7 @@ def test_each_trial_word_is_the_settled_bits_plus_the_one_under_test(units):
 def test_the_sequence_and_the_conversion_cannot_disagree(units):
     """Two views of one conversion. The trace is reconstructed from the same
     decisions, so a divergence means the reconstruction is wrong."""
-    for vin in np.linspace(0.0, VREF, 37):
+    for vin in np.linspace(0.0, VREF, SWEEP_POINTS):
         code, trace = sar_convert(vin, units, VREF)
         steps = conversion_sequence(vin, units, VREF)
         assert trace_of(steps) == trace
@@ -105,7 +116,7 @@ def test_the_sequence_and_the_conversion_cannot_disagree(units):
 def test_the_settled_word_is_left_driving_the_array(units):
     """The array holds the result after the last trial; the FSM does not have
     to re-drive it, and the top plate must not move while it is read out."""
-    steps = conversion_sequence(0.3 * VREF, units, VREF)
+    steps = conversion_sequence(VIN, units, VREF)
     assert steps[-1].dac_b == code_of(steps)
     assert steps[-1].cmp_clk == 0
 
@@ -113,6 +124,6 @@ def test_the_settled_word_is_left_driving_the_array(units):
 def test_comparator_imperfections_reach_the_sequence(units):
     """Offset has to move the waveform, not just the return value, or the
     testbench cannot exercise a comparator that is off."""
-    clean = conversion_sequence(0.3 * VREF, units, VREF)
-    offset = conversion_sequence(0.3 * VREF, units, VREF, cmp_offset=0.05 * VREF)
+    clean = conversion_sequence(VIN, units, VREF)
+    offset = conversion_sequence(VIN, units, VREF, cmp_offset=OFFSET)
     assert code_of(offset) != code_of(clean)

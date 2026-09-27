@@ -27,6 +27,10 @@ PORT = re.compile(r"VL_(INOUT|IN|OUT)(\d*)\(&(\w+),\s*(\d+),\s*(\d+)")
 #: One port as the order files list it: name, top bit, bottom bit.
 ORDERED = re.compile(r"VL_DATA\(\d+,\s*(\w+),\s*(\d+),\s*(\d+)\)")
 
+#: The storage width a port declared without one has: the compiler writes the
+#: macro for its narrowest word without the width in the name.
+NARROWEST_WORD = 8
+
 #: The order files the element's glue code includes, per direction.
 ORDER_FILES = {"IN": "inputs.h", "OUT": "outputs.h", "INOUT": "inouts.h"}
 
@@ -89,7 +93,7 @@ def order_files(interface: str) -> dict[str, str]:
     """The order files' contents, from the compiled model's interface."""
     files = {direction: "" for direction in ORDER_FILES}
     for direction, width, name, msb, lsb in PORT.findall(interface):
-        files[direction] += f"VL_DATA({width or 8},{name},{msb},{lsb})\n"
+        files[direction] += f"VL_DATA({width or NARROWEST_WORD},{name},{msb},{lsb})\n"
     return files
 
 

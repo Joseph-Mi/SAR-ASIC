@@ -14,7 +14,6 @@ analog spec, the switches' from a sized device -- go through the same law.
 
 from __future__ import annotations
 
-import math
 import shutil
 
 import pytest
@@ -22,8 +21,9 @@ import pytest
 import analog
 import bench
 import ngspice
-from bench import Bench, Phase, Supplies
+from bench import Bench, Block, Phase, Supplies
 from interface import N_BITS
+from measure import settled_for, tau_from_gaps
 from sar import VCM_FRACTION, ideal_units, top_plate_voltage
 from settling import c_seen_by_reference, residual, settle_time
 from sweep import (
@@ -77,30 +77,15 @@ FAIL_FRACTION = 0.5
 VIN_FROM, VIN_TO = 0.2 * VREF, 0.7 * VREF
 
 
-def settled_for(phase: float) -> float:
-    """How long a node has settled when a phase's read is taken.
-
-    Less than the phase: the read comes a fraction of it early, and the step
-    that started the settling ramps over an edge, which on average starts it
-    half an edge late.
-    """
-    return phase * (1 - bench.READ_BEFORE_END) - bench.EDGE / 2
-
-
-def tau_from_gaps(gap_short: float, gap_long: float, phase_short: float, phase_long: float):
-    """Time constant from what is left after two phase lengths."""
-    return (settled_for(phase_long) - settled_for(phase_short)) / math.log(gap_short / gap_long)
-
-
 def read(b: Bench, probe: str, tmp_path) -> list[float]:
     b.probes = {"m_x": probe}
     return ngspice.run(bench.deck(b), tmp_path)["m_x"]
 
 
-def sampling_gap(tmp_path, phase: float, node: str, **bench_args) -> float:
+def sampling_gap(tmp_path, phase: float, node: str, **block_args) -> float:
     """Gap to Vin at the end of a sample that follows a sample of another level."""
     phases = [Phase(sample=1, vin=VIN_FROM), Phase(sample=1, vin=VIN_TO)]
-    b = Bench(phases, Supplies(vdd=VDD, vref=VREF), N_BITS, phase=phase, **bench_args)
+    b = Bench(phases, Block(Supplies(vdd=VDD, vref=VREF), N_BITS, **block_args), phase=phase)
     return abs(read(b, node, tmp_path)[-1] - VIN_TO)
 
 
@@ -117,7 +102,7 @@ def test_the_top_plate_switch_charges_the_whole_array_too(tmp_path):
     gaps = []
     for k in (SHORT, LONG):
         phases = [Phase(sample=1, vin=VIN_FROM), Phase(sample=1, vin=VIN_TO)]
-        b = Bench(phases, Supplies(vdd=VDD, vref=VREF), N_BITS, phase=k * TAU, ron_top=R_TOP)
+        b = Bench(phases, Block(Supplies(vdd=VDD, vref=VREF), N_BITS, ron_top=R_TOP), phase=k * TAU)
         gaps.append(abs(read(b, "v(xdut.top)", tmp_path)[-1] - vcm))
     measured = tau_from_gaps(*gaps, SHORT * TAU, LONG * TAU)
     assert measured == pytest.approx(R_TOP * C_TOTAL, rel=TAU_TOLERANCE)
@@ -141,7 +126,9 @@ def reference_gap(tmp_path, phase: float, vin: float) -> float:
     """Gap to the model's top plate at the end of the first trial."""
     msb = 1 << (N_BITS - 1)
     phases = [Phase(sample=1), Phase(dac_b=msb)]
-    b = Bench(phases, Supplies(vdd=VDD, vref=VREF, vin=vin), N_BITS, phase=phase, r_vref=R_VREF)
+    b = Bench(
+        phases, Block(Supplies(vdd=VDD, vref=VREF, vin=vin), N_BITS, r_vref=R_VREF), phase=phase
+    )
     final = top_plate_voltage(vin, msb, ideal_units(N_BITS), VREF)
     return abs(read(b, "v(xdut.top)", tmp_path)[-1] - final)
 
@@ -154,9 +141,9 @@ def test_the_first_trial_loads_the_reference_with_a_quarter_of_the_array(tmp_pat
     assert measured == pytest.approx(R_VREF * C_REFERENCE, rel=TAU_TOLERANCE)
 
 
-def sweep_holds(tmp_path, phase: float, **bench_args) -> bool:
+def sweep_holds(tmp_path, phase: float, **block_args) -> bool:
     inputs = either_side(carry_codes(N_BITS), N_BITS)
-    got = convert(inputs, N_BITS, tmp_path, phase=phase, **bench_args)
+    got = convert(inputs, N_BITS, tmp_path, phase=phase, **block_args)
     return not mismatches(inputs, got, model(inputs, N_BITS), N_BITS)
 
 

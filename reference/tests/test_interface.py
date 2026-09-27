@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 
 import pytest
 
 from interface import N_BITS, PORTS, declarations
 
-REPO = pathlib.Path(__file__).resolve().parents[3]
+#: The repository root: the nearest folder up that holds the project's own
+#: configuration, however deep this file is moved.
+REPO = next(p for p in pathlib.Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
 SYMBOL = REPO / "xschem" / "sar_analog.sym"
 RTL_DIR = REPO / "hdl" / "rtl"
 
@@ -30,10 +33,12 @@ TERMINAL = re.compile(r"^B\s+(?:\S+\s+){5}\{name=(?P<name>\S+)\s+dir=(?P<dir>\w+
 #: Prose that states one is a second copy of the constant that no test reads.
 PROSE_RESOLUTION = re.compile(r"\b\d+(?:-|\s+)bits?\b|\b\d+-(?:cell|unit)\b", re.I)
 
-#: Prose is every Markdown file and every extensionless README, wherever it
-#: sits. Generated trees are not ours to word, and working notes are not
-#: documentation.
-PROSE_EXCLUDED = {".git", ".claude", "build", "runs"}
+#: Prose is every tracked Markdown file and every extensionless README. What git
+#: does not track -- generated trees, tool runs -- is not ours to word, and
+#: working notes are not documentation.
+PROSE_EXCLUDED = {".claude"}
+
+NEWLINE = "\n"
 
 
 @pytest.fixture(scope="module")
@@ -92,17 +97,19 @@ def test_no_document_restates_the_resolution():
     """Code is checked against the contract; prose is checked by nobody. A
     document that names a resolution by number is right until the day it is
     changed, and then it is trusted. Name `N_BITS` instead."""
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True
+    ).stdout.split()
     prose = [
-        path
-        for path in REPO.rglob("*")
-        if path.is_file()
-        and (path.suffix == ".md" or path.name == "README")
-        and not PROSE_EXCLUDED & set(path.relative_to(REPO).parts)
+        REPO / name
+        for name in tracked
+        if (name.endswith(".md") or pathlib.PurePath(name).name == "README")
+        and not PROSE_EXCLUDED & set(pathlib.PurePath(name).parts)
     ]
     # Whole files, not lines: prose wraps, and a number left at the end of one
     # line is still a number.
     stated = [
-        f"{path.relative_to(REPO)}:{text.count(chr(10), 0, m.start()) + 1}: {m.group(0)!r}"
+        f"{path.relative_to(REPO)}:{text.count(NEWLINE, 0, m.start()) + 1}: {m.group(0)!r}"
         for path in prose
         for text in [path.read_text()]
         for m in PROSE_RESOLUTION.finditer(text)

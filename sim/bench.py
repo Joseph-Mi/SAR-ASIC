@@ -50,7 +50,7 @@ RELTOL = 1e-4
 CHARGE_FRACTION = 0.01
 
 
-def options(block) -> str:
+def options(block: Block) -> str:
     """The solver options a block's netlist needs."""
     smallest = analog.DEFAULT_UNIT.farads
     if isinstance(block.unit, analog.Ideal):
@@ -123,15 +123,15 @@ class Supplies:
     vin: float = 0.0
 
 
-@dataclass
-class Bench:
-    phases: list[Phase]
+@dataclass(frozen=True)
+class Block:
+    """The analog block and everything that feeds it but its digital inputs
+    and the input's waveform: what every bench builds the same circuit from."""
+
     supplies: Supplies = field(default_factory=Supplies)
     n_bits: int = analog.N_BITS
     unit: analog.Ideal | analog.Mim = analog.DEFAULT_UNIT
     c_par: float = 0.0
-    #: Length of every phase. Settling is measured by shortening it.
-    phase: float = PHASE
     #: Series resistance between each source and its pin -- the package, bond
     #: wire and pad the signal crosses before it reaches the block.
     r_vin: float = 0.0
@@ -142,11 +142,19 @@ class Bench:
     #: How the block samples: ideal switches, or transistors and how their
     #: phases are made. Passed to the block.
     sampling: analog.Gapped | analog.NonOverlap | None = None
+    #: What drives the common-mode pin.
+    vcm: IdealVcm | PinVcm | Divider = field(default_factory=IdealVcm)
+
+
+@dataclass
+class Bench:
+    phases: list[Phase]
+    block: Block = field(default_factory=Block)
+    #: Length of every phase. Settling is measured by shortening it.
+    phase: float = PHASE
     #: Lines added to the control block after the reads, for measurements a
     #: phase-end read cannot make -- when an edge crosses a level, say.
     extra_control: list[str] = field(default_factory=list)
-    #: What drives the common-mode pin.
-    vcm: IdealVcm | PinVcm | Divider = field(default_factory=IdealVcm)
     #: Phases whose results are read; None reads every one. A sweep of many
     #: conversions in one run reads only the phases it checks, because every
     #: read is a measurement the simulator has to evaluate.
@@ -201,12 +209,8 @@ def node(terminal: str) -> str:
     return terminal.replace("[", "_").replace("]", "")
 
 
-def surroundings(block) -> list[str]:
-    """The block and what feeds it, except its input pin and digital inputs.
-
-    `block` is anything carrying the block's settings under `Bench`'s field
-    names, so every bench builds the same circuit around the same block.
-    """
+def surroundings(block: Block) -> list[str]:
+    """The block and what feeds it, except its input pin and digital inputs."""
     s = block.supplies
     header = [] if block.sampling is None else block.sampling.devices.header()
     lines = [
@@ -225,10 +229,11 @@ def deck(bench: Bench) -> str:
     if not bench.phases or not bench.phases[0].sample:
         raise ValueError("a bench starts by sampling, or the top plate has no DC path")
 
-    s = bench.supplies
-    lines = [f"* {NAME} bench", *surroundings(bench)]
+    block = bench.block
+    s = block.supplies
+    lines = [f"* {NAME} bench", *surroundings(block)]
     held = [s.vin if p.vin is None else p.vin for p in bench.phases]
-    lines += pin("vin", _pwl(held, bench.phase), bench.r_vin)
+    lines += pin("vin", _pwl(held, bench.phase), block.r_vin)
 
     drives = {
         "sample": [p.sample for p in bench.phases],
@@ -236,17 +241,17 @@ def deck(bench: Bench) -> str:
         "force_en": [p.force_en for p in bench.phases],
         "force_hi": [p.force_hi for p in bench.phases],
     }
-    for k in range(bench.n_bits):
+    for k in range(block.n_bits):
         drives[f"dac_b[{k}]"] = [(p.dac_b >> k) & 1 for p in bench.phases]
     for terminal, levels in drives.items():
         volts = [level * s.vdd for level in levels]
         lines.append(f"V_{node(terminal)} {node(terminal)} 0 {_pwl(volts, bench.phase)}")
 
-    lines.append("Xdut " + " ".join(node(t) for t in terminals(bench.n_bits)) + f" {NAME}")
+    lines.append("Xdut " + " ".join(node(t) for t in terminals(block.n_bits)) + f" {NAME}")
 
     stop = len(bench.phases) * bench.phase
     step = MAX_STEP * bench.phase
-    lines.append(options(bench))
+    lines.append(options(block))
     lines += [
         ".control",
         f"tran {step:.{TIME_DIGITS}g} {stop:.{TIME_DIGITS}g} 0 {step:.{TIME_DIGITS}g}",

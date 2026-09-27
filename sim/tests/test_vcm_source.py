@@ -10,7 +10,6 @@ input, so it scales with how far the input moved, not with the reference.
 
 from __future__ import annotations
 
-import math
 import shutil
 
 import pytest
@@ -18,9 +17,10 @@ import pytest
 import analog
 import bench
 import ngspice
-from bench import Bench, Phase, Supplies
+from bench import Bench, Block, Phase, Supplies
 from common_mode import divider, drift_within_conversion, loaded_reference
 from interface import N_BITS
+from measure import settled_for, tau_from_gaps
 from sar import VCM_FRACTION
 from settling import settle_time
 from sweep import EDGE_OFFSET_LSB, VDD, VREF, convert, lsb, mismatches, model
@@ -60,10 +60,6 @@ SHORT, LONG = 2.0, 5.0
 TAU_TOLERANCE = 0.01
 
 
-def settled_for(phase: float) -> float:
-    return phase * (1 - bench.READ_BEFORE_END) - bench.EDGE / 2
-
-
 def in_order(vref: float = VREF) -> list[float]:
     """Just below and just above each threshold in the block, ascending, for
     thresholds set by `vref`."""
@@ -90,8 +86,8 @@ def largest_step(inputs: list[float]) -> float:
     return max(abs(b - a) for a, b in zip(inputs, inputs[1:], strict=False))
 
 
-def holds(inputs, tmp_path, vref_model: float = VREF, **bench_args) -> bool:
-    got = convert(inputs, N_BITS, tmp_path, model_vref=vref_model, **bench_args)
+def holds(inputs, tmp_path, vref_model: float = VREF, **args) -> bool:
+    got = convert(inputs, N_BITS, tmp_path, model_vref=vref_model, **args)
     return not mismatches(inputs, got, model(inputs, N_BITS, vref_model), N_BITS)
 
 
@@ -101,6 +97,11 @@ def test_a_steady_but_wrong_vcm_converts_exactly_as_the_model(sign, tmp_path):
     assert holds(in_order(), tmp_path, vcm=vcm)
 
 
+#: Two inputs far enough apart that sampling one after the other kicks the
+#: tap well clear of the solver's floor.
+KICK_FROM, KICK_TO = 0.2 * VREF, 0.7 * VREF
+
+
 def test_the_divider_tap_recovers_through_its_halves_in_parallel(tmp_path):
     """One kick, read at two times: the tap recovers with its Thevenin
     resistance charging the whole array."""
@@ -108,17 +109,15 @@ def test_the_divider_tap_recovers_through_its_halves_in_parallel(tmp_path):
     settled = FRACTION * VREF
     gaps = []
     for k in (SHORT, LONG):
-        phases = [Phase(sample=1, vin=0.2 * VREF), Phase(sample=1, vin=0.7 * VREF)]
+        phases = [Phase(sample=1, vin=KICK_FROM), Phase(sample=1, vin=KICK_TO)]
         b = Bench(
             phases,
-            Supplies(vdd=VDD, vref=VREF),
-            N_BITS,
+            Block(Supplies(vdd=VDD, vref=VREF), N_BITS, vcm=bench.Divider(R_TOTAL, FRACTION)),
             phase=k * TAU,
-            vcm=bench.Divider(R_TOTAL, FRACTION),
             probes={"m_vcm": "v(vcm)"},
         )
         gaps.append(abs(ngspice.run(bench.deck(b), tmp_path)["m_vcm"][-1] - settled))
-    measured = (settled_for(LONG * TAU) - settled_for(SHORT * TAU)) / math.log(gaps[0] / gaps[1])
+    measured = tau_from_gaps(*gaps, SHORT * TAU, LONG * TAU)
     assert measured == pytest.approx(r_th * C_TOTAL, rel=TAU_TOLERANCE)
 
 

@@ -1,12 +1,12 @@
 """Static linearity metrics for a binary-weighted charge-redistribution DAC.
 
 These are computed from the branch weights directly, not by sweeping vin through
-`sar_convert`. The transition from code k-1 to k happens exactly where the DAC
+the golden model's conversion. The transition from code k-1 to k happens exactly where the DAC
 output for code k sits, so the whole transfer curve is one dot product per code
 rather than one conversion per code. That is what keeps a Monte Carlo sweep
 something you rerun while thinking rather than something you start and leave.
 
-`sar_convert` is still the authority on what the converter *does*; this module
+The golden model is still the authority on what the converter *does*; this module
 describes what its DAC *is*. Two implementations of one curve is exactly the
 shape that drifts apart, so the tests hold them against each other.
 """

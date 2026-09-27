@@ -17,7 +17,7 @@ SIM = "verilator"
 
 #: cocotb infers the toplevel language from the *last* entry in `sources`, and
 #: ours is the waiver control file, not HDL. State it instead of depending on
-#: list order. RTL is Verilog-2005 -- see STYLE.md, *Languages*.
+#: list order. RTL is Verilog-2005.
 HDL_TOPLEVEL_LANG = "verilog"
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

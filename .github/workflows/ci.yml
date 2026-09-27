@@ -135,3 +135,47 @@ jobs:
           name: sim-results
           path: build/sim/**/results.xml
           if-no-files-found: ignore
+
+  # The analog half and the closed loop need ngspice, Verilator, the element
+  # glue ngspice ships and the sky130 models together -- exactly the pinned tool
+  # image. They run inside it, and a test that finds a tool missing fails here
+  # instead of skipping: this is the environment that is meant to have them all.
+  analog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load tool versions
+        run: grep -E '^[A-Z0-9_]+=' versions.env >> "$GITHUB_ENV"
+
+      # The image is larger than a hosted runner's free disk. The runner ships
+      # toolchains this job never uses; removing them makes the room.
+      - name: Make room for the tool image
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force
+          df -h /
+
+      - name: Pull the pinned tool image
+        run: docker pull "hpretl/iic-osic-tools:${OSIC_TOOLS_TAG}"
+
+      # The image's own start-up scripts set its tool paths and PDK_ROOT; the
+      # repository's pdk.env then selects sky130 the same way the local
+      # container does. The tool locations are printed first so a missing one
+      # is named before any test runs.
+      - name: Analog and closed-loop tests in the pinned image
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp -e SAR_REQUIRE_TOOLS=1 \
+            -v "$PWD:/foss/designs/SAR-ASIC" -w /foss/designs/SAR-ASIC \
+            --entrypoint /bin/bash "hpretl/iic-osic-tools:${OSIC_TOOLS_TAG}" -c '
+              set -e
+              for f in /dockerstartup/scripts/env.sh /headless/.bashrc; do
+                [ -f "$f" ] && . "$f" || true
+              done
+              . ./pdk.env
+              echo "PDK_ROOT=$PDK_ROOT PDK=$PDK"
+              command -v ngspice verilator python3
+              make verify-analog verify-integration PYTHON=python3'

@@ -19,9 +19,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import sky130
 from devices import Generic, Sky130
 from interface import N_BITS, PORTS
-from mismatch import SKY130_CAP_MIN_AREA_MIM
 
 NAME = "sar_analog"
 
@@ -50,8 +50,6 @@ HOLD_FARADS = 1e-15
 SWITCH_VT = 0.5
 SWITCH_VH = 0.2
 
-PDK_MIM = "sky130_fd_pr__cap_mim_m3_1"
-
 
 @dataclass(frozen=True)
 class Ideal:
@@ -69,7 +67,7 @@ class Mim:
     shape differs in value.
     """
 
-    area: float = SKY130_CAP_MIN_AREA_MIM
+    area: float = sky130.CAP_MIN_AREA_MIM
 
     @property
     def side(self) -> float:
@@ -195,14 +193,19 @@ def _inverter(dev, name: str, a: str, y: str, g: GateSizes, scale: float = 1.0) 
     ]
 
 
-def _nor(dev, name: str, a: str, b: str, y: str, g: GateSizes) -> list[str]:
-    """Two PMOS in series from the supply, two NMOS in parallel to ground: the
-    output is high only when both inputs are low."""
-    return [
-        dev.pmos(f"{name}pa", f"{name}_m", a, "vdd", "vdd", 2 * g.w_p, g.length),
-        dev.pmos(f"{name}pb", y, b, f"{name}_m", "vdd", 2 * g.w_p, g.length),
-        dev.nmos(f"{name}na", y, a, "vss", "vss", g.w_n, g.length),
-        dev.nmos(f"{name}nb", y, b, "vss", "vss", g.w_n, g.length),
+def _nor(dev, name: str, inputs: list[str], y: str, g: GateSizes) -> list[str]:
+    """PMOS in series from the supply, one per input, and NMOS in parallel to
+    ground: the output is high only when every input is low. Each PMOS is as
+    many times wider as there are in the stack, so the stack pulls up as hard
+    as one inverter's PMOS."""
+    stack = len(inputs)
+    lines, above = [], "vdd"
+    for k, a in enumerate(inputs):
+        below = y if k == stack - 1 else f"{name}_m{k}"
+        lines.append(dev.pmos(f"{name}p{k}", below, a, above, "vdd", stack * g.w_p, g.length))
+        above = below
+    return lines + [
+        dev.nmos(f"{name}n{k}", y, a, "vss", "vss", g.w_n, g.length) for k, a in enumerate(inputs)
     ]
 
 
@@ -226,18 +229,6 @@ def _still_on(dev, name: str, line: str, out: str, g: GateSizes) -> list[str]:
         dev.pmos(f"{name}sp", f"{name}_lo", line, "vdd", "vdd", SENSE_W_P, SENSE_L_P),
         dev.nmos(f"{name}sn", f"{name}_lo", line, "vss", "vss", SENSE_W_N, g.length),
         *_inverter(dev, f"{name}r", f"{name}_lo", out, g),
-    ]
-
-
-def _nor3(dev, name: str, a: str, b: str, c: str, y: str, g: GateSizes) -> list[str]:
-    """The three-input NOR: three PMOS in series, three NMOS in parallel."""
-    return [
-        dev.pmos(f"{name}pa", f"{name}_m1", a, "vdd", "vdd", 3 * g.w_p, g.length),
-        dev.pmos(f"{name}pb", f"{name}_m2", b, f"{name}_m1", "vdd", 3 * g.w_p, g.length),
-        dev.pmos(f"{name}pc", y, c, f"{name}_m2", "vdd", 3 * g.w_p, g.length),
-        dev.nmos(f"{name}na", y, a, "vss", "vss", g.w_n, g.length),
-        dev.nmos(f"{name}nb", y, b, "vss", "vss", g.w_n, g.length),
-        dev.nmos(f"{name}nc", y, c, "vss", "vss", g.w_n, g.length),
     ]
 
 
@@ -291,9 +282,9 @@ def _generator(scheme: NonOverlap) -> list[str]:
         ]
     )
     conversion = (
-        _nor3(dev, "nor_cnv", "sample", "bot_on", "botn_on", "cnv_pre", g)
+        _nor(dev, "nor_cnv", ["sample", "bot_on", "botn_on"], "cnv_pre", g)
         if scheme.switches.w_unit_p
-        else _nor(dev, "nor_cnv", "sample", "bot_on", "cnv_pre", g)
+        else _nor(dev, "nor_cnv", ["sample", "bot_on"], "cnv_pre", g)
     )
     return [
         *_buffer(dev, "btop", "sample", "phi_top", TOP_BUFFER_STAGES, g),
@@ -301,8 +292,8 @@ def _generator(scheme: NonOverlap) -> list[str]:
         *_still_on(dev, "stop", "phi_top", "top_on", g),
         *_still_on(dev, "sbot", "phi_bot", "bot_on", g),
         *_still_on(dev, "scnv", "phi_conv", "cnv_on", g),
-        *_nor(dev, "nor_held", "sample", "top_on", "held_n", g),
-        *_nor(dev, "nor_bot", "held_n", "cnv_on", "bot_pre", g),
+        *_nor(dev, "nor_held", ["sample", "top_on"], "held_n", g),
+        *_nor(dev, "nor_bot", ["held_n", "cnv_on"], "bot_pre", g),
         *_buffer(dev, "bbot", "bot_pre", "phi_bot", BOTTOM_BUFFER_STAGES, g),
         *complement,
         *conversion,
@@ -377,7 +368,7 @@ def branch_multipliers(n_bits: int = N_BITS) -> list[int]:
 def _capacitor(name: str, top: str, bottom: str, units: int, unit) -> str:
     if isinstance(unit, Ideal):
         return f"C{name} {top} {bottom} {unit.farads * units:.6e}"
-    return f"X{name} {top} {bottom} {PDK_MIM} w={unit.side:.6g} l={unit.side:.6g} m={units}"
+    return f"X{name} {top} {bottom} {sky130.MIM} w={unit.side:.6g} l={unit.side:.6g} m={units}"
 
 
 def subckt(
@@ -391,7 +382,8 @@ def subckt(
     """The analog block, as one `.subckt`.
 
     `unit` is `Ideal(farads)` or `Mim()`. `c_par` adds that many farads from
-    the top plate to `vss`, the parasitic `top_plate_voltage` accounts for.
+    the top plate to `vss`, the parasitic the golden model's top-plate voltage
+    accounts for.
 
     `ron_unit` is the on-resistance of a bottom-plate switch sized for one
     unit. Branch k's switches are 2^k units wide, so 2^k times less resistive:
