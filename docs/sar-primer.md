@@ -254,19 +254,19 @@ generator keeping the order when a line is slowed many times over.
 ### Why each input switch is two transistors
 
 An NMOS conducts in proportion to how far its gate sits above the voltage it
-passes. Its gate is at the supply, so passing an input near ground it is a
-wide pipe, and passing one near the top of the range it is a straw: it has
-barely more drive than its own threshold. Near full scale it passes the
-input slowly and leaves an error there that the rest of the range does not
-have -- not an offset, not a gain, but a bend at one end, which is exactly
-what calibration cannot remove.
+passes. Its gate is at the supply, so it conducts least when passing an input
+at the top of the range. With the supply well above the reference that is
+still plenty; at a slow process corner and a low supply, where the threshold
+rises and the gate falls, the margin is what shrinks. A switch that runs out
+of drive at one end of the range leaves an error there that the rest of the
+range does not have -- a bend, which is exactly what calibration cannot
+remove.
 
 A PMOS is the mirror image: it conducts best passing high voltages. Put one
 beside each NMOS, its gate driven by the opposite line, and the pair -- a
-transmission gate -- conducts about equally across the whole range. What the
-pair leaves behind is a straight line: an offset and a gain, both
-correctable. The generator makes the PMOS line from the same source as the
-NMOS line, and conversion waits until both have let go.
+transmission gate -- conducts across the whole range at any corner. The
+generator makes the PMOS line from the same source as the NMOS line, and
+conversion waits until both have let go.
 
 The top-plate switch stays a single NMOS: it always passes Vcm, so its drive
 never changes with the input. It is the one switch that charges the whole

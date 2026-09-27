@@ -329,11 +329,15 @@ Step 4d (`sim/analog.py`, `model/injection.py:beyond_a_line`,
 `sim/tests/test_sampling_phases.py`, the designed-block tests in
 `test_sar_loop.py`):
 - Input switches are transmission gates (`MosSwitches.w_unit_p`, 1 um per
-  unit; 2 um buys nothing). Why, measured with transistor DAC switches: the
-  settled error is nearly straight either way (bend 0.023 LSB NMOS alone,
-  0.005 TG), but in the closed loop at the law's clock NMOS alone misses the
-  budget at full scale (1022.5 LSB -> 1022, model 1023): at vin ~ Vref the
-  NMOS has barely more drive than its threshold. The TG fixes that.
+  unit). Honest status of *why*: with generic models at nominal supply the
+  NMOS alone is nearly as good -- first-trial error at 0.999 V, 0.1 V before:
+  TG +0.015 / NMOS +0.058 LSB at the law's clock, -0.418 / -0.356 settled;
+  settled bend 0.005 vs 0.023 LSB. An NMOS with a 1.8 V gate passing <= 1 V
+  keeps >= 0.8 V Vgs. The TG's case rests on the slow corner at low supply
+  (Vt up, body effect, 1.62 V gate), not yet measured -- run the sky130
+  ss/-40/0.9*VDD full-scale comparison before calling the TG necessary. A
+  loop test asserting "NMOS alone fails" flipped between ngspice 42 and 46
+  (one code, at the budget edge) and was removed.
   CAUTION -- an earlier measurement with *ideal* conversion switches showed a
   ~0.96 LSB kink for NMOS alone; that was mostly the ideal switch snapping
   shut in the float window, an artifact. Don't trust float-window numbers
@@ -668,6 +672,12 @@ Delete each one when it is fixed.
   first-trial error, TG input switches: -0.90 LSB at 0.05 V to -0.45 at
   0.95 V, straight to 0.005 LSB (endpoint fit). Offset -0.68 LSB at
   mid-scale.
+- **The clock must come from the slow corner.** The acceptance test derives
+  the clock from the top switch's tau at nominal supply. At 0.9*VDD (generic
+  models) the top switch is weaker and the same clock leaves +1.8/+2.3 LSB at
+  0.95/0.999 V -- for TG and NMOS alike, so it is the top switch, not the
+  input switches. Step 6: measure tau at ss / low supply / temperature
+  extremes and take the worst.
 - **Full scale puts the top plate at ground.** At the first trial the top
   plate sits at Vcm - Vin + Vref/2; at vin ~ Vref that is ~0 V, and with the
   sampling offset slightly below it: the off NMOS top switch starts to

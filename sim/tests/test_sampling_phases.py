@@ -168,7 +168,7 @@ def test_under_the_generator_the_top_switch_leaves_one_step_for_every_input(tmp_
 
 
 #: Inputs across the whole range for the linearity test, closer together at
-#: the top, where an NMOS alone runs out of gate drive.
+#: the top, where an input switch has the least gate drive.
 RANGE = tuple(f * VREF for f in (0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 0.95))
 
 #: Sampling phases long enough that nothing is left of the previous state:
@@ -202,12 +202,10 @@ def first_trial_errors(tmp_path, switches: analog.MosSwitches) -> list[float]:
 
 
 def test_transmission_gates_leave_the_sampling_error_a_straight_line(tmp_path):
-    """What a transmission gate leaves is an offset and a gain -- straighter
-    than an NMOS alone, whose drive falls away toward the top of the range."""
-    tg = beyond_a_line(RANGE, first_trial_errors(tmp_path, analog.MosSwitches()))
-    single = beyond_a_line(RANGE, first_trial_errors(tmp_path, SINGLE))
-    assert tg < STRAIGHT
-    assert single > tg
+    """What the input switches leave across the whole range is an offset and
+    a gain, which calibration removes, and no bend, which it cannot."""
+    errors = first_trial_errors(tmp_path, analog.MosSwitches())
+    assert beyond_a_line(RANGE, errors) < STRAIGHT
 
 
 def crossings(
