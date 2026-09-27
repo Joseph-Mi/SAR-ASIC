@@ -6,6 +6,10 @@ raw file for any viewer that reads one. The figure puts, on one time axis,
 the top plate with the level the golden model expects at every trial, the
 trial word the controller drives, and every control line. Nothing is
 asserted: a disagreement is there to be seen.
+
+matplotlib is imported inside `draw`, as in `studies/plots.py`: CI's digital
+job does not install it, and a module-scope import fails test collection there
+before the ngspice skip can apply.
 """
 
 from __future__ import annotations
@@ -14,23 +18,18 @@ import argparse
 import pathlib
 from dataclasses import dataclass, replace
 
-import matplotlib
+import numpy as np
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib.ticker import MaxNLocator  # noqa: E402
-
-import analog  # noqa: E402
-import bench  # noqa: E402
-import cosim  # noqa: E402
-import loop  # noqa: E402
-import ngspice  # noqa: E402
-from bench import Block, Supplies  # noqa: E402
-from interface import N_BITS  # noqa: E402
-from measure import first_trial_error, law_clock  # noqa: E402
-from sar import VCM_FRACTION, ideal_units, sar_convert, top_plate_voltage  # noqa: E402
-from sweep import EDGE_OFFSET_LSB, lsb  # noqa: E402
+import analog
+import bench
+import cosim
+import loop
+import ngspice
+from bench import Block, Supplies
+from interface import N_BITS
+from measure import first_trial_error, law_clock
+from sar import VCM_FRACTION, ideal_units, sar_convert, top_plate_voltage
+from sweep import EDGE_OFFSET_LSB, lsb
 
 REPO = next(p for p in pathlib.Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
 CONTROLLER = REPO / "hdl" / "rtl" / "sar_fsm.v"
@@ -126,6 +125,12 @@ def draw(
     """The figure. `offset` is the block's sampling offset, in volts: when
     given, each code is also compared with the model told of it, as a
     calibrated converter would be."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
+
     block = run.block
     vref, vdd = block.supplies.vref, block.supplies.vdd
     units = ideal_units(block.n_bits)
