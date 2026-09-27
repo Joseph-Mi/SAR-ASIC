@@ -72,7 +72,7 @@ def pin_wire(pin: str) -> str:
 class Loop:
     """Conversions of `inputs` by the compiled controller `library`.
 
-    The block's settings carry `Bench`'s field names and meaning.
+    The block's settings mean what they mean on every bench.
     """
 
     inputs: list[float]
@@ -83,7 +83,7 @@ class Loop:
     c_par: float = 0.0
     r_vin: float = 0.0
     r_vref: float = 0.0
-    ron_unit: float = analog.IDEAL_RON
+    ron_unit: float = analog.IDEAL_RON_UNIT
     ron_top: float = analog.IDEAL_RON
     sampling: analog.Gapped | analog.NonOverlap | None = None
     vcm: IdealVcm | PinVcm | Divider = field(default_factory=IdealVcm)
@@ -158,12 +158,17 @@ def deck(loop: Loop) -> str:
     lines += cosim.element("ctl", loop.library, nets)
     lines += cosim.drives("out", [f"d_{w}" for w in drives], drives, s.vdd, bench.EDGE)
     lines.append("Xdut " + " ".join(bench.node(p) for p in ports) + f" {NAME}")
+    # The controller starts idle, so nothing joins the top plate to a source
+    # when the run begins, and a node with no path has no operating point. It
+    # starts at the level sampling will put it at; the first sample overwrites
+    # it either way.
+    lines.append(f".ic v(xdut.top)={loop.vcm.fraction * s.vref:.9g}")
 
     code = [w for w in drives if w.startswith(f"{CODE}_")]
     word = " + ".join(f"(v({w}) gt {half:.9g})*{2 ** int(w.rsplit('_', 1)[1])}" for w in code)
     stop = loop.start_at(len(loop.inputs)) + t
     step = bench.MAX_STEP * t
-    lines.append(f".options reltol={bench.RELTOL}")
+    lines.append(bench.options(loop))
     lines += [
         ".control",
         f"tran {step:.12g} {stop:.12g} 0 {step:.12g}",

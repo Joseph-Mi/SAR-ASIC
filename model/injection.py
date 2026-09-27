@@ -35,3 +35,15 @@ def referred_to_input(steps: list[float]) -> tuple[float, float]:
     """
     low, high = min(steps), max(steps)
     return (low + high) / 2, high - low
+
+
+def beyond_a_line(inputs: list[float], steps: list[float]) -> float:
+    """How far a set of per-input steps strays from the straight line through
+    its end points: what remains once an offset and a gain correction have
+    each done what one number can. A step that varies with the input in
+    proportion is a gain error, calibrated away like an offset; only a bend
+    is left for the converter's linearity to carry.
+    """
+    (x0, y0), (x1, y1) = (inputs[0], steps[0]), (inputs[-1], steps[-1])
+    slope = (y1 - y0) / (x1 - x0)
+    return max(abs(y - (y0 + slope * (x - x0))) for x, y in zip(inputs, steps, strict=True))

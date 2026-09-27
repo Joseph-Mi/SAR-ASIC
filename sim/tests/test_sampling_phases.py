@@ -19,6 +19,7 @@ The sky130 corner test needs the PDK.
 from __future__ import annotations
 
 import shutil
+from dataclasses import replace
 
 import pytest
 
@@ -27,7 +28,7 @@ import bench
 import ngspice
 from bench import Bench, Phase, Supplies
 from devices import Sky130, pdk_library
-from injection import referred_to_input
+from injection import beyond_a_line, referred_to_input
 from interface import N_BITS
 from sar import VCM_FRACTION, ideal_units, sar_convert, top_plate_voltage
 
@@ -37,9 +38,7 @@ VDD = 1.8
 VREF = 1.0
 LSB = VREF / 2**N_BITS
 
-#: A unit capacitor of about sky130's smallest MiM: its minimum area at a
-#: typical density.
-UNIT = analog.Ideal(8e-15)
+UNIT = analog.MIM_SIZED
 
 #: Inputs across the range: what varies across these is what no offset
 #: correction removes.
@@ -47,6 +46,12 @@ INPUTS = tuple(f * VREF for f in (0.1, 0.3, 0.5, 0.7, 0.9))
 
 #: How far each phase is set apart in the experiment, either way.
 GAP = 300e-12
+
+#: The order experiment's input switches: one NMOS each. What it shows is one
+#: channel's charge landing where the order puts it; a transmission gate's two
+#: channels carry opposite charges that partly cancel, which is a separate
+#: effect with its own test.
+SINGLE = analog.MosSwitches(w_unit_p=0.0)
 
 #: What may vary with the input and still count as an offset, and what a
 #: scheme must exceed to count as distortion, in LSB.
@@ -66,9 +71,9 @@ TEMPERATURES = (-40, 27, 125)
 
 #: A load on a switch's line -- a long gate wire, say -- far past anything
 #: the generator's buffer for that line is sized for, and how much slower that
-#: must make the line for the test to be about slowness. The bottom line's
-#: buffer drives every input switch, so it takes a larger load to slow.
-SLOWING_LOAD = {"top": 20e-12, "bottom": 200e-12}
+#: must make the line for the test to be about slowness. The input switches'
+#: lines each drive every input switch, so they take a larger load to slow.
+SLOWING_LOAD = {"top": 20e-12, "bottom": 200e-12, "bottom_n": 200e-12}
 SLOWED_BY = 5.0
 
 #: Phases long enough for a line that slow to finish moving within one.
@@ -85,6 +90,16 @@ SLOW_PHASE = 20 * bench.PHASE
 EDGE_AT = bench.PHASE
 OFF_LEVEL = 0.4
 MOVING_LEVEL = 0.9
+
+#: The input switches' PMOS line, mirrored: off above this fraction of the
+#: supply, which keeps its gate above the highest input the reference allows
+#: at the lowest supply tested, and started moving once it has left ground.
+P_OFF_LEVEL = 1 - OFF_LEVEL
+P_MOVING_LEVEL = 1 - MOVING_LEVEL
+
+#: Where the conversion switches let go: they read their line as a fraction of
+#: the supply and switch on their own hysteresis.
+CONVERSION_OFF = analog.SWITCH_VT - analog.SWITCH_VH
 
 
 def errors(tmp_path, sampling) -> list[float]:
@@ -111,19 +126,19 @@ def varies(tmp_path, sampling) -> float:
 
 
 def test_opening_the_top_switch_first_leaves_an_offset(tmp_path):
-    assert varies(tmp_path, analog.Gapped(+GAP)) < OFFSET_LIKE
+    assert varies(tmp_path, analog.Gapped(+GAP, switches=SINGLE)) < OFFSET_LIKE
 
 
 @pytest.mark.parametrize("gap", [0.0, -GAP], ids=["together", "bottoms_first"])
 def test_any_other_order_leaves_a_distortion(gap, tmp_path):
-    assert varies(tmp_path, analog.Gapped(gap)) > DISTORTING
+    assert varies(tmp_path, analog.Gapped(gap, switches=SINGLE)) > DISTORTING
 
 
 def test_the_offset_is_the_top_switch_channel(tmp_path):
     """Twice the width, twice the channel, twice the offset: the step that
     stays is the top switch's own."""
-    narrow = analog.Gapped(+GAP)
-    wide = analog.Gapped(+GAP, switches=analog.MosSwitches(w_top=2 * narrow.switches.w_top))
+    narrow = analog.Gapped(+GAP, switches=SINGLE)
+    wide = analog.Gapped(+GAP, switches=replace(SINGLE, w_top=2 * SINGLE.w_top))
     offset = referred_to_input(errors(tmp_path, narrow))[0]
     doubled = referred_to_input(errors(tmp_path, wide))[0]
     assert doubled / offset == pytest.approx(2.0, rel=SCALING_TOLERANCE)
@@ -152,6 +167,47 @@ def test_under_the_generator_the_top_switch_leaves_one_step_for_every_input(tmp_
     assert referred_to_input(steps)[1] / LSB < ONE_STEP
 
 
+#: Inputs across the whole range for the linearity test, closer together at
+#: the top, where an input switch has the least gate drive.
+RANGE = tuple(f * VREF for f in (0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 0.95))
+
+#: Sampling phases long enough that nothing is left of the previous state:
+#: what remains is what the switches leave, not what they had no time for.
+SETTLED_SAMPLE = 5
+
+#: How far the sampling error may stray from a straight line across the
+#: input range, in LSB: an offset and a gain are calibrated away, a bend is
+#: not.
+STRAIGHT = 0.1
+
+
+def first_trial_errors(tmp_path, switches: analog.MosSwitches) -> list[float]:
+    """The top plate against the model at the first trial, per input, in LSB."""
+    units = ideal_units(N_BITS)
+    msb = 1 << (N_BITS - 1)
+    out = []
+    for vin in RANGE:
+        b = Bench(
+            [Phase(sample=1)] * SETTLED_SAMPLE + [Phase(dac_b=msb)],
+            Supplies(vdd=VDD, vref=VREF, vin=vin),
+            N_BITS,
+            unit=UNIT,
+            sampling=analog.NonOverlap(switches=switches),
+            read=[SETTLED_SAMPLE],
+            probes={"m_top": "v(xdut.top)"},
+        )
+        got = ngspice.run(bench.deck(b), tmp_path)["m_top"][0]
+        out.append((got - top_plate_voltage(vin, msb, units, VREF)) / LSB)
+    return out
+
+
+def test_transmission_gates_leave_the_sampling_error_a_straight_line(tmp_path):
+    """What the input switches leave across the whole range is an offset and
+    a gain, which calibration removes, and no bend, which it cannot."""
+    errors = first_trial_errors(tmp_path, analog.MosSwitches())
+    assert beyond_a_line(RANGE, errors) < STRAIGHT
+
+
 def crossings(
     tmp_path, vdd: float, temp: float, scheme=None, phase=bench.PHASE
 ) -> dict[str, float]:
@@ -162,8 +218,11 @@ def crossings(
         ("bot_moving", "phi_bot", moving, "fall", 1),
         ("bot_off", "phi_bot", off, "fall", 1),
         ("cnv_moving", "phi_conv", off, "rise", 1),
-        ("cnv_off", "phi_conv", off, "fall", 1),
+        ("cnv_off", "phi_conv", CONVERSION_OFF * vdd, "fall", 1),
         ("bot_on_moving", "phi_bot", off, "rise", 1),
+        ("botn_moving", "phi_bot_n", P_MOVING_LEVEL * vdd, "rise", 1),
+        ("botn_off", "phi_bot_n", P_OFF_LEVEL * vdd, "rise", 1),
+        ("botn_on_moving", "phi_bot_n", P_OFF_LEVEL * vdd, "fall", 1),
     ]
     control = [
         f"meas tran {name} when v(xdut.{node})={level:.6g} {edge}={n}"
@@ -192,6 +251,9 @@ def assert_ordered(t: dict[str, float]):
     assert t["top_off"] < t["bot_moving"], "input switches began opening before the top was off"
     assert t["bot_off"] < t["cnv_moving"], "conversion began before the input switches were off"
     assert t["cnv_off"] < t["bot_on_moving"], "sampling began before conversion had stopped"
+    assert t["top_off"] < t["botn_moving"], "input PMOS began opening before the top was off"
+    assert t["botn_off"] < t["cnv_moving"], "conversion began before the input PMOS was off"
+    assert t["cnv_off"] < t["botn_on_moving"], "input PMOS turned on before conversion stopped"
 
 
 @pytest.mark.parametrize("vdd", SUPPLIES)
@@ -206,7 +268,7 @@ def test_the_generator_orders_every_edge_at_every_sky130_corner(corner, tmp_path
     assert_ordered(crossings(tmp_path, VDD, 27, analog.NonOverlap(devices=Sky130(corner))))
 
 
-@pytest.mark.parametrize("line", ["top", "bottom"])
+@pytest.mark.parametrize("line", ["top", "bottom", "bottom_n"])
 def test_the_order_is_kept_however_slow_a_line_is(line, tmp_path):
     """What makes the order hold by construction rather than by a tuned delay:
     load a switch's line until it is many times slower than everything else,
@@ -214,6 +276,6 @@ def test_the_order_is_kept_however_slow_a_line_is(line, tmp_path):
     slowed = analog.NonOverlap(**{f"{line}_line_load": SLOWING_LOAD[line]})
     t = crossings(tmp_path, VDD, 27, slowed, phase=SLOW_PHASE)
     nominal = crossings(tmp_path, VDD, 27, phase=SLOW_PHASE)
-    first = "top_off" if line == "top" else "bot_off"
+    first = {"top": "top_off", "bottom": "bot_off", "bottom_n": "botn_off"}[line]
     assert t[first] - SLOW_PHASE > SLOWED_BY * (nominal[first] - SLOW_PHASE)
     assert_ordered(t)

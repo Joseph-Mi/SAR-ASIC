@@ -322,7 +322,64 @@ Also proven: moving the pin after sampling changes no code (the comparator
 never sees the pin).
 
 Step 4 is split: 4a finite resistance (done), 4b Vcm source (done), 4c
-sampling phases (done). Step 5, closed loop (done). Next: Step 6, close M3.
+sampling phases (done). Step 5, closed loop (done). Step 4d, transmission-
+gate input switches (done). Next: Step 6, close M3.
+
+Step 4d (`sim/analog.py`, `model/injection.py:beyond_a_line`,
+`sim/tests/test_sampling_phases.py`, the designed-block tests in
+`test_sar_loop.py`):
+- Input switches are transmission gates (`MosSwitches.w_unit_p`, 1 um per
+  unit). Honest status of *why*: with generic models at nominal supply the
+  NMOS alone is nearly as good -- first-trial error at 0.999 V, 0.1 V before:
+  TG +0.015 / NMOS +0.058 LSB at the law's clock, -0.418 / -0.356 settled;
+  settled bend 0.005 vs 0.023 LSB. An NMOS with a 1.8 V gate passing <= 1 V
+  keeps >= 0.8 V Vgs. The TG's case rests on the slow corner at low supply
+  (Vt up, body effect, 1.62 V gate), not yet measured -- run the sky130
+  ss/-40/0.9*VDD full-scale comparison before calling the TG necessary. A
+  loop test asserting "NMOS alone fails" flipped between ngspice 42 and 46
+  (one code, at the budget edge) and was removed.
+  CAUTION -- an earlier measurement with *ideal* conversion switches showed a
+  ~0.96 LSB kink for NMOS alone; that was mostly the ideal switch snapping
+  shut in the float window, an artifact. Don't trust float-window numbers
+  taken with ideal conversion switches.
+- Bottom-plate DAC switches are transistors in the designed block
+  (`NonOverlap`): NMOS to ground, PMOS to Vref per branch
+  (`w_dac_n`/`w_dac_p`, binary-sized), gates as smooth B-source functions of
+  c_cnv and the bit. This is what ended the full-scale "timestep too small /
+  bvcm#branch" stalls in ngspice 46 (conversion 21 of 23, vin 1023.5 LSB,
+  where the top plate sits ~0 V and the top switch conducts while ideal
+  switches snap). Gapped keeps ideal DAC switches (its results are verified).
+  Gotcha found on the way: a node named `gnd` IS ground in ngspice -- the
+  dummy's gate "g" + "n" + "d" collided; gate nodes are gate_n{tag}.
+- Generator: `phi_bot_n` from `bot_pre` through a 3-stage buffer starting
+  one taper step up; a mirrored off-detector (`_still_on_p`, strong PMOS vs
+  long-L NMOS) on it; conversion waits on a 3-input NOR of sample and both
+  input lines. Order checked for the PMOS line at every supply/temp corner
+  and with the PMOS line alone slowed; mutation (NOR ignoring the PMOS
+  detector) caught.
+- Acceptance: the closed loop with transistor switches, the generator and
+  the RTL, clocked at the top switch's settling-law clock (tau measured from
+  a two-length gap ratio), inputs at mid-code around every carry, model given
+  the measured offset (`cmp_offset`): every code right. NMOS-only input
+  switches fail it at full scale (1020/1021 for 1023).
+- Solver lessons, all three needed for transistor benches:
+  (1) `chgtol` default (1e-14 C) exceeds one LSB of charge (C_unit * Vref,
+  8 fC at 8 fF): floating top plate drifted ~0.16 LSB per edge. Now
+  `bench.options`: chgtol = 1% of an LSB's charge on the smallest unit.
+  (2) Conversion switches read `phi_conv` as a 0-1 level with the switch's
+  own hysteresis, not a u() step (stalled at -40 C / 1.98 V: the jump
+  coupled back through the TG gates onto the line the step sat on).
+  (3) Ideal bottom-plate switches are defined by a time constant
+  (`IDEAL_UNIT_TAU`, 1 ps) not by 1 ohm: scaled per branch that was 2 mOhm
+  on the MSB, a sub-ps event the solver could not resolve with transistors
+  mid-transition (the "bvcm#branch timestep too small" stalls).
+  Tried and reverted: tighter reltol (stalls the ideal switches), smooth
+  ramps on every digital read (hung with (3); `limit()` in B-sources also
+  misbehaves -- use max/min), minbreak (no effect).
+- The order experiment (Gapped top-first/together/bottoms-first) now pins
+  NMOS-only switches: with TGs the "together" distortion falls to 0.496 LSB,
+  just under its 0.5 threshold -- the TG's cancelling charges, a separate
+  effect.
 
 Step 5 (`sim/cosim.py`, `sim/loop.py`, `sim/tests/test_cosim.py`,
 `hdl/verification/integration/tb_sar_loop/test_sar_loop.py`) done:
@@ -602,33 +659,49 @@ Delete each one when it is fixed.
   ~0.9 the baseline implies. Below gross-error onset the answer is the dithered
   quantiser, sqrt(q^2 + sigma_n^2). Fix = model + test, regenerate
   `noise_baseline.txt`. M5's preamp decision reads this table — fix it first.
-- **The float window after sampling.** With the generator, between the input
-  switches reaching off and the conversion switches closing, the whole array
-  floats: the input switches' injection drags it and the top plate dips to
-  about -0.3 V. The conversion error at the decision point then varies
-  ~2.9 LSB with Vin (vs ~0.1 with ideal-timed top-first). A leak-free top
-  switch halves it (-> ~1.3), so part is the NMOS top switch conducting
-  subthreshold while below ground; the rest is not yet explained. Candidates:
-  complementary or dummy input switches (cancel the injection), a realistic
-  MiM bottom-plate parasitic to substrate (anchors the island -- 20% halved the
-  dip in a quick try), a PMOS/transmission-gate top switch, and bounding the
-  float time. Belongs with switch sizing (M5/M6), measured with sky130.
-  Settled, the float window's own error is small: first-trial error with a
-  long sample runs -0.9 LSB (vin 0.05) to -0.56 (0.7), then +0.19 (0.9) and
-  +0.82 (0.95) -- 1.7 LSB spread, the smooth part a gain-like slope, the
-  kink at the top where the NMOS input switches are nearly off.
-- **NMOS-only input switches cannot sample high inputs in one clock.** This,
-  not the float window, is the tens-of-LSB error seen in back-to-back
-  conversions with the generator (closed loop and replay agree). One
-  conversion from DC is fine (+0.6 LSB, every decision right); 0.1 V then
-  0.95 V with a 1-clock (10 ns) sample: +48.6 LSB at the first trial; 2
-  clocks: +1.2; 5 clocks: +0.8. At vin 0.95 the NMOS has ~0.85 V of gate
-  drive before body effect: tau ~ ns per unit, and it depends on Vin (the
-  primer already says an NMOS cannot pass a voltage near its gate drive).
-  Fix: transmission-gate input switches (PMOS carries the top of the range;
-  opposite-sign channel charge also partly cancels the injection that makes
-  the float dip). Then re-derive the minimum clock with the TT pin (Step 6).
-  Acceptance: loop tests pass with `sampling=analog.NonOverlap()`.
+- **The top switch sets the sampling time, and Step 6 must size it.** One
+  NMOS (2 um) returns the whole array to Vcm after the bottom plates jump to
+  the new input: tau ~2.05 ns at 8 fF units (R ~250 ohm), so a full-scale
+  step needs ~20 ns to close to 0.05 LSB. This -- not the input switches,
+  which are binary-sized and settle each branch alike -- was the tens-of-LSB
+  error in back-to-back conversions at a 10 ns clock (0.1 V then 0.95 V:
+  +48.6 LSB at 10 ns, +1.2 at 20 ns). Widening it trades time constant
+  against its injection offset (W*L*Cox*Vov / 2C_total, constant because it
+  passes Vcm). Size it against the pin: tau_top <= R_pin * C_total.
+- **Sampling error with the designed block is offset + gain.** Settled
+  first-trial error, TG input switches: -0.90 LSB at 0.05 V to -0.45 at
+  0.95 V, straight to 0.005 LSB (endpoint fit). Offset -0.68 LSB at
+  mid-scale.
+- **With real sky130 devices the DAC's reference switch does not work at
+  Vref = 1.0 V. Blocks Step 6.** All switch sizes (`MosSwitches`) were only
+  ever checked with generic models. sky130's pfet_01v8 has |Vt| ~1 V, more
+  with body effect (body at VDD): a PMOS passing Vref = 1.0 V with its gate at
+  0 has |Vgs| = 1.0 V and is essentially off. Measured (tt, trimmed raw
+  skywater models; the IIC container agrees -- its corner run gave -100 to
+  -490 LSB everywhere): the MSB plate selected to Vref reaches 0.05 V in
+  10 ns, 0.25 V in 50 ns; top-plate error -482 LSB. Sweeping Vref (50 ns
+  trial): 1.2 V -> -179 LSB, 1.4 -> -39, 1.6 -> -8, 1.8 -> -2.2. So even at
+  Vref = VDD the 1 um/unit PMOS is too weak. Same cause makes the input TG's
+  PMOS nearly useless for Vin <= 1 V (why TG ~ NMOS in every measurement).
+  Decisions needed (Step 6 / M5): the Vref level (higher = stronger PMOS and
+  a larger LSB, but NMOS input switches weaken at the top of a larger range --
+  which is where the TG then earns its place); reference-switch device
+  (pfet_01v8_lvt, n-well tied to source, NMOS/TG) and size; and a
+  sky130-model acceptance run in the container as the gate for every sizing.
+  The closed-loop acceptance test uses generic models and does NOT catch
+  this.
+- **The clock must come from the slow corner.** The acceptance test derives
+  the clock from the top switch's tau at nominal supply. At 0.9*VDD (generic
+  models) the top switch is weaker and the same clock leaves +1.8/+2.3 LSB at
+  0.95/0.999 V -- for TG and NMOS alike, so it is the top switch, not the
+  input switches. Step 6: measure tau at ss / low supply / temperature
+  extremes and take the worst.
+- **Full scale puts the top plate at ground.** At the first trial the top
+  plate sits at Vcm - Vin + Vref/2; at vin ~ Vref that is ~0 V, and with the
+  sampling offset slightly below it: the off NMOS top switch starts to
+  conduct from Vcm (seen in the stall analysis). A real leak at the last few
+  codes. Options for Step 6 / M5: Vcm a little above Vref/2, a slightly
+  reduced input range, or a PMOS/TG top switch.
 - **Entering sampling, the array floats to ground.** The FSM clears `dac_b`
   on the same edge `sample` rises. With the generator the conversion switches
   stay on until `phi_conv` falls, so for that window every bottom plate is at

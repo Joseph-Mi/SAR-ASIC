@@ -2,7 +2,7 @@
 
 import pytest
 
-from injection import channel_charge, hold_step, referred_to_input
+from injection import beyond_a_line, channel_charge, hold_step, referred_to_input
 
 W, L, COX = 2e-6, 0.15e-6, 8e-3
 C_NODE = 1e-12
@@ -40,3 +40,21 @@ def test_a_constant_step_is_an_offset_and_a_varying_one_is_not():
     offset, residue = referred_to_input(varying)
     assert offset == pytest.approx(-1.1e-3)
     assert residue == pytest.approx(0.4e-3)
+
+
+LINE_INPUTS = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+
+def test_an_offset_and_a_gain_leave_nothing_beyond_a_line():
+    steps = [0.3 + 0.2 * x for x in LINE_INPUTS]
+    assert beyond_a_line(LINE_INPUTS, steps) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_a_bend_is_what_remains():
+    """A kink at one input stands out of the line by exactly its size, where
+    the offset/spread split would count the whole slope as spread too."""
+    kink = 0.1
+    steps = [0.2 * x for x in LINE_INPUTS]
+    steps[2] += kink
+    assert beyond_a_line(LINE_INPUTS, steps) == pytest.approx(kink)
+    assert referred_to_input(steps)[1] > beyond_a_line(LINE_INPUTS, steps)
