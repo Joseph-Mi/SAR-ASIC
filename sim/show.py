@@ -98,12 +98,16 @@ def record(
     nodes = ["xdut.top", "vcm", *lines(block), *dac]
     vectors = " ".join(f"v({n})" for n in nodes)
     table = out.with_suffix(".txt")
+    # Bare names: ngspice runs in out.parent, and a deck line cannot carry
+    # every path (pytest's tmp dir holds the user name, "1001\ndesigner" in
+    # the IIC image -- its newline split the wrdata line in two).
+    raw = out.with_suffix(".raw")
     run = loop.Loop(
         list(inputs),
         library,
         block,
         clock,
-        extra_control=[f"wrdata {table} {vectors}", f"write {out.with_suffix('.raw')} {vectors}"],
+        extra_control=[f"wrdata {table.name} {vectors}", f"write {raw.name} {vectors}"],
     )
     found = ngspice.run(loop.deck(run), out.parent)
     half = block.supplies.vdd / 2
