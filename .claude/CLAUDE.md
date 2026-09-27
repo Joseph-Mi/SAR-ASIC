@@ -327,6 +327,14 @@ Step 4 is split: 4a finite resistance (done), 4b Vcm source (done), 4c
 sampling phases (done). Step 5, closed loop (done). Step 4d, transmission-
 gate input switches (done). Next: Step 6, close M3.
 
+`make show-loop` (`sim/show.py`): runs the RTL against the block and writes
+`build/show/loop.png` + `loop.raw`. `VIN="0.3 0.95"`, `BITS=4`, `DESIGNED=1`
+(uses `bench.DESIGNED` and `measure.law_clock` for the clock, and prints the
+model code shifted by the block's measured sampling offset), `ZOOM=<i>` for
+one conversion. Nothing asserted -- it's for looking. Useful for Step 6:
+rerun with the sky130 switches and the -482 LSB reference switch is visible
+as the top plate never reaching the model's level.
+
 Step 4d (`sim/analog.py`, `model/injection.py:beyond_a_line`,
 `sim/tests/test_sampling_phases.py`, the designed-block tests in
 `test_sar_loop.py`):

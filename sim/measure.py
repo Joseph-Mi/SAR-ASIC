@@ -14,7 +14,18 @@ from dataclasses import replace
 import bench
 import ngspice
 from bench import Bench, Block, Phase
-from sar import ideal_units, top_plate_voltage
+from sar import VCM_FRACTION, ideal_units, top_plate_voltage
+from settling import settle_time
+
+#: Sample lengths at which the top plate's remaining gap is read, to find its
+#: time constant from their ratio: past the generator's start-up, and short
+#: enough that the gap is still far above the solver's floor.
+GAP_SHORT, GAP_LONG = bench.PHASE, 2 * bench.PHASE
+
+#: The inputs either side of the kick that sets the top switch's time constant,
+#: as fractions of the reference: across most of the range, so the kick is
+#: nearly a full-scale one.
+KICK_FROM, KICK_TO = 0.1, 0.95
 
 #: Sampling phases long enough that nothing of the previous state is left:
 #: what remains is what the switches leave, not what they had no time for.
@@ -53,3 +64,30 @@ def first_trial_error(workdir: pathlib.Path, block: Block, vin: float) -> float:
     )
     got = ngspice.run(bench.deck(b), workdir)["m_top"][0]
     return got - top_plate_voltage(vin, msb, units, block.supplies.vref)
+
+
+def top_gap(workdir: pathlib.Path, block: Block, phase: float) -> float:
+    """What is left between the top plate and Vcm at the end of a sample of
+    length `phase` that follows a conversion of another level."""
+    vref = block.supplies.vref
+    low, high = KICK_FROM * vref, KICK_TO * vref
+    b = Bench(
+        [Phase(sample=1, vin=low), Phase(vin=low), Phase(sample=1, vin=high)],
+        block,
+        phase=phase,
+        read=[2],
+        probes={"m_top": "v(xdut.top)"},
+    )
+    return abs(ngspice.run(bench.deck(b), workdir)["m_top"][0] - VCM_FRACTION * vref)
+
+
+def top_switch_tau(workdir: pathlib.Path, block: Block) -> float:
+    """The top switch's time constant against the whole array, in seconds."""
+    short, long = (top_gap(workdir, block, p) for p in (GAP_SHORT, GAP_LONG))
+    return tau_from_gaps(short, long, GAP_SHORT, GAP_LONG)
+
+
+def law_clock(workdir: pathlib.Path, block: Block, tolerance: float) -> float:
+    """The shortest clock the top switch allows: a full-reference step closed
+    to `tolerance` volts in one sample, which the controller gives one clock."""
+    return settle_time(top_switch_tau(workdir, block), block.supplies.vref, tolerance)

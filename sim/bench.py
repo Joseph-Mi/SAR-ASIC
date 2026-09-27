@@ -146,6 +146,11 @@ class Block:
     vcm: IdealVcm | PinVcm | Divider = field(default_factory=IdealVcm)
 
 
+#: The block as designed: transistor switches, the phase generator, an array
+#: of realistic size.
+DESIGNED = Block(unit=analog.MIM_SIZED, sampling=analog.NonOverlap())
+
+
 @dataclass
 class Bench:
     phases: list[Phase]

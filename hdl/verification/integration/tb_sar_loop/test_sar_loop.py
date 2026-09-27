@@ -20,10 +20,9 @@ import analog
 import bench
 import cosim
 import loop
-import ngspice
-from bench import EDGE, Bench, Block, Phase, Supplies
+from bench import EDGE, Block, Supplies
 from interface import N_BITS
-from measure import first_trial_error, tau_from_gaps
+from measure import first_trial_error, law_clock
 from protocol import SAMPLE, conversion_sequence
 from sar import VCM_FRACTION, ideal_units, sar_convert, top_plate_voltage
 from settling import settle_time
@@ -158,49 +157,19 @@ def test_a_clock_the_pin_law_allows_converts_and_a_faster_one_does_not(controlle
     assert not converts_at(controller, tmp_path, FAIL_FRACTION * needed)
 
 
-#: The block as designed: transistor switches, the phase generator, an array
-#: of realistic size.
-DESIGNED = analog.NonOverlap()
-UNIT = analog.MIM_SIZED
+#: The designed block's sampling scheme.
+DESIGNED = bench.DESIGNED.sampling
 
 
 def designed(sampling) -> Block:
-    """The block with transistor switches sampling as `sampling` says."""
-    return Block(SUPPLIES, unit=UNIT, sampling=sampling)
+    """The designed block, sampling as `sampling` says."""
+    return replace(bench.DESIGNED, supplies=SUPPLIES, sampling=sampling)
 
-
-#: Sample lengths at which the top plate's remaining gap is read, to find its
-#: time constant from their ratio: past the generator's start-up, and short
-#: enough that the gap is still far above the solver's floor.
-GAP_SHORT, GAP_LONG = bench.PHASE, 2 * bench.PHASE
-
-#: Inputs on either side of the kick that sets the top switch's time constant:
-#: across most of the range, so the kick is nearly a full-scale one.
-KICK_FROM, KICK_TO = 0.1 * VREF, 0.95 * VREF
 
 #: Where each designed-block input sits: mid-way between two thresholds, so a
 #: code is right as long as everything the calibrated converter cannot remove
 #: -- sampling error beyond the offset, settling -- stays within half an LSB.
 MID_CODE = 0.5
-
-
-def top_gap(workdir, phase: float, sampling) -> float:
-    """What is left between the top plate and Vcm at the end of a sample
-    that follows a conversion of another level."""
-    b = Bench(
-        [Phase(sample=1, vin=KICK_FROM), Phase(vin=KICK_FROM), Phase(sample=1, vin=KICK_TO)],
-        Block(SUPPLIES, N_BITS, unit=UNIT, sampling=sampling),
-        phase=phase,
-        read=[2],
-        probes={"m_top": "v(xdut.top)"},
-    )
-    return abs(ngspice.run(bench.deck(b), workdir)["m_top"][0] - VCM_FRACTION * VREF)
-
-
-def top_switch_tau(workdir, sampling) -> float:
-    """The top switch's time constant against the whole array."""
-    short, long = (top_gap(workdir, p, sampling) for p in (GAP_SHORT, GAP_LONG))
-    return tau_from_gaps(short, long, GAP_SHORT, GAP_LONG)
 
 
 def sampling_offset(workdir, sampling) -> float:
@@ -213,7 +182,7 @@ def designed_block_disagreements(controller, workdir, sampling) -> list[str]:
     """Mid-code inputs on both sides of every carry, converted by the loop at
     the clock the top switch's settling law allows, against the model given
     the block's measured offset."""
-    clock = settle_time(top_switch_tau(workdir, sampling), VREF, EDGE_OFFSET_LSB * lsb(N_BITS))
+    clock = law_clock(workdir, designed(sampling), EDGE_OFFSET_LSB * lsb(N_BITS))
     offset = sampling_offset(workdir, sampling)
     step = lsb(N_BITS)
     inputs = [(k + side * MID_CODE) * step for k in carry_codes(N_BITS) for side in (-1, +1)] + [
