@@ -77,6 +77,7 @@ and the disposable experiments under `sandbox/` — is in
 make container           # start the container; make shell to get into it
 make model               # validate golden models -- do this first
 make verify-unit         # cocotb unit tests
+make show-loop           # run the closed loop and draw it -> build/show/
 make verify              # model, then every verification level in order
 make lint                # verilator + verible + yosys structural check + ruff + layers
 make format              # rewrite Verilog and Python in canonical style

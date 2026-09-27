@@ -256,6 +256,14 @@ plots:
 verify-analog:
 	@$(PYTHON) -m pytest $(SIM_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
+## show-loop: run the controller against the analog block and draw it
+## 	VIN="0.3 0.95" (volts)  BITS=4  DESIGNED=1 (transistor switches)  ZOOM=1
+## 	-> build/show/loop.png, and loop.raw for any ngspice raw viewer
+show-loop:
+	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/show.py \
+	  $(if $(VIN),--vin $(VIN)) $(if $(BITS),--bits $(BITS)) \
+	  $(if $(DESIGNED),--designed) $(if $(ZOOM),--zoom $(ZOOM))
+
 ## verify-unit: cocotb unit tests
 verify-unit:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/unit $(PYTEST_ARGS); $(ALLOW_EMPTY)
@@ -276,4 +284,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: noise help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-analog verify-unit verify-integration verify-system verify clean
+.PHONY: show-loop noise help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-analog verify-unit verify-integration verify-system verify clean

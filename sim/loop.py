@@ -76,6 +76,9 @@ class Loop:
     block: Block = field(default_factory=Block)
     #: One controller clock cycle.
     clock: float = bench.PHASE
+    #: Lines added to the control block after the reads -- a waveform dump,
+    #: say.
+    extra_control: list[str] = field(default_factory=list)
 
     @property
     def period(self) -> int:
@@ -173,6 +176,7 @@ def deck(loop: Loop) -> str:
             f"meas tran t_done {done}",
             "meas tran m_low min v(xdut.top) from=$&t_sampled to=$&t_done",
         ]
+    lines += loop.extra_control
     lines += [".endc", ".end"]
     return "\n".join(lines) + "\n"
 

@@ -151,6 +151,10 @@ the codes against the model, the handover from sampling straight to the first
 trial word (the rule closing *Where the top plate is referenced*), and that
 the clock the pin's settling law allows is the one the loop needs.
 
+`make show-loop` runs the same loop and draws it: the top plate against the
+level the model expects at every trial, the trial word, and every control
+line on one time axis, plus the waveforms as an ngspice raw file.
+
 ---
 
 ## Between conversions: there is no discharge step
