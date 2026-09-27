@@ -135,6 +135,30 @@ The first version read the lines at the NOR's mid-supply threshold and failed
 a slowed-line test; the off-detectors are what made the order hold by
 construction. Keeps the interface frozen; timing lives next to the switches.
 
+**DD-12 — Single-ended, conventional binary switching.**
+One array; the comparator sees the top plate against `vcm`. Differential was
+weighed and not taken for risk and schedule, not area (a second array fits the
+strip): what limits this design is weak sky130 switches, which differential
+doubles; it needs a fourth `ua` pin and a differential bench source; and it
+reopens most of M3. Vcm-based switching halves the array but makes `vcm` a
+DAC level (Vcm != VREF/2 becomes INL, undoing DD-10's "steady is enough"),
+adds a mid-rail switch per branch, and makes `dac_b` three-level. Revisit it
+only if the floorplan stops fitting; differential is the second-tapeout
+upgrade. Reasoning in `docs/topology.md`.
+
+**DD-13 — The single-ended top plate is protected by layout, supplies and
+timing.** Top plate on the MiM's upper plate (met3 bottom plate shields it
+from substrate); comparator NMOS in deep n-well; double guard ring around
+array + comparator; nothing routed over the array; comparator inputs (top,
+`vcm`) routed as a matched pair; `dac_b` buffers at the array edge;
+star-routed analog ground; decap on the comparator supply; decap on
+`vref`/`vcm` only as the settling laws size it. In the RTL (M4): one clock
+domain, external SPI synchronised and register writes to the analog half held
+until a conversion ends, result pins change only at the end of a conversion
+(DFT streaming modes are exempt and are not accuracy measurements). Board:
+`vin` clamped to ground..VREF with series R. Shields cost comparator margin,
+never linearity (Step 1). List and reasoning in `docs/topology.md`.
+
 ---
 
 ## Environment
@@ -719,7 +743,9 @@ Delete each one when it is fixed.
   Decisions needed (Step 6 / M5): the Vref level (higher = stronger PMOS and
   a larger LSB, but NMOS input switches weaken at the top of a larger range --
   which is where the TG then earns its place); reference-switch device
-  (pfet_01v8_lvt, n-well tied to source, NMOS/TG) and size; and a
+  (pfet_01v8_lvt, n-well tied to source, NMOS/TG, or 3.3 V thick-oxide
+  devices driven from TT's optional VAPWR -- `_3v3` template, needs level
+  shifters on `dac_b`) and size; and a
   sky130-model acceptance run in the container as the gate for every sizing.
   The closed-loop acceptance test uses generic models and does NOT catch
   this.
