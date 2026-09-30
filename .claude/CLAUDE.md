@@ -138,9 +138,10 @@ construction. Keeps the interface frozen; timing lives next to the switches.
 **DD-12 — Single-ended, conventional binary switching.**
 One array; the comparator sees the top plate against `vcm`. Differential was
 weighed and not taken for risk and schedule, not area (a second array fits the
-strip): what limits this design is weak sky130 switches, which differential
-doubles; it needs a fourth `ua` pin and a differential bench source; and it
-reopens most of M3. Vcm-based switching halves the array but makes `vcm` a
+strip): what limits this design is settling time at the slow corner, and
+differential doubles the switches and the load on the reference pin; it needs
+a fourth `ua` pin and a differential bench source; and it reopens most of
+M3. Vcm-based switching halves the array but makes `vcm` a
 DAC level (Vcm != VREF/2 becomes INL, undoing DD-10's "steady is enough"),
 adds a mid-rail switch per branch, and makes `dac_b` three-level. Revisit it
 only if the floorplan stops fitting; differential is the second-tapeout
@@ -355,9 +356,25 @@ gate input switches (done). Next: Step 6, close M3.
 `build/show/loop.png` + `loop.raw`. `VIN="0.3 0.95"`, `BITS=4`, `DESIGNED=1`
 (uses `bench.DESIGNED` and `measure.law_clock` for the clock, and prints the
 model code shifted by the block's measured sampling offset), `ZOOM=<i>` for
-one conversion. Nothing asserted -- it's for looking. Useful for Step 6:
-rerun with the sky130 switches and the -482 LSB reference switch is visible
-as the top plate never reaching the model's level.
+one conversion. Nothing asserted -- it's for looking.
+
+Step 6 (in progress):
+- **The "-482 LSB reference switch" was a netlister bug, not sky130.** The
+  PDK's FET wrappers take `mult` only to scale their mismatch term
+  (`/sqrt(l*w*mult)`); the device inside is one transistor. `devices.Sky130`
+  made copies and fingers with `mult` alone, so every binary-sized sky130
+  switch was a single unit (the MSB's 512 was 1) and every wide device one
+  finger. Fixed: the instance carries `m=` too (`mult` kept equal, so the
+  mismatch is the whole device's); `sim/tests/test_devices.py` fails on the
+  old netlister. Generic models were never affected (`m=` on the M line).
+  Everything measured with sky130 before this is suspect: the Vref sweep,
+  "PMOS |Vt| ~1 V makes the reference switch useless", "the TG's PMOS is
+  useless at Vin <= 1 V". Generic-model results stand.
+- Re-measured (first trial after a settled sample, vin 0.05*Vref, Vref 1.0):
+  the design's 1 um/unit pfet_01v8 settles to the sampling offset
+  (-0.27 LSB) within a 10 ns trial at tt and ss; so do LVT, n-well-at-Vref and
+  3.3 V thick-oxide NMOS variants. No device change needed; Vref stays 1.0 V.
+  Exploration scripts in `build/step6/` (not committed).
 
 Step 4d (`sim/analog.py`, `model/injection.py:beyond_a_line`,
 `sim/tests/test_sampling_phases.py`, the designed-block tests in
@@ -729,26 +746,8 @@ Delete each one when it is fixed.
   first-trial error, TG input switches: -0.90 LSB at 0.05 V to -0.45 at
   0.95 V, straight to 0.005 LSB (endpoint fit). Offset -0.68 LSB at
   mid-scale.
-- **With real sky130 devices the DAC's reference switch does not work at
-  Vref = 1.0 V. Blocks Step 6.** All switch sizes (`MosSwitches`) were only
-  ever checked with generic models. sky130's pfet_01v8 has |Vt| ~1 V, more
-  with body effect (body at VDD): a PMOS passing Vref = 1.0 V with its gate at
-  0 has |Vgs| = 1.0 V and is essentially off. Measured (tt, trimmed raw
-  skywater models; the IIC container agrees -- its corner run gave -100 to
-  -490 LSB everywhere): the MSB plate selected to Vref reaches 0.05 V in
-  10 ns, 0.25 V in 50 ns; top-plate error -482 LSB. Sweeping Vref (50 ns
-  trial): 1.2 V -> -179 LSB, 1.4 -> -39, 1.6 -> -8, 1.8 -> -2.2. So even at
-  Vref = VDD the 1 um/unit PMOS is too weak. Same cause makes the input TG's
-  PMOS nearly useless for Vin <= 1 V (why TG ~ NMOS in every measurement).
-  Decisions needed (Step 6 / M5): the Vref level (higher = stronger PMOS and
-  a larger LSB, but NMOS input switches weaken at the top of a larger range --
-  which is where the TG then earns its place); reference-switch device
-  (pfet_01v8_lvt, n-well tied to source, NMOS/TG, or 3.3 V thick-oxide
-  devices driven from TT's optional VAPWR -- `_3v3` template, needs level
-  shifters on `dac_b`) and size; and a
-  sky130-model acceptance run in the container as the gate for every sizing.
-  The closed-loop acceptance test uses generic models and does NOT catch
-  this.
+- **A sky130 acceptance run gates every switch size.** The closed-loop
+  acceptance test uses generic models. Step 6 adds the sky130 one.
 - **The clock must come from the slow corner.** The acceptance test derives
   the clock from the top switch's tau at nominal supply. At 0.9*VDD (generic
   models) the top switch is weaker and the same clock leaves +1.8/+2.3 LSB at
