@@ -75,10 +75,10 @@ those is what limits this design:
 - **Charge injection** is already handled. The top switch passes a constant
   level, so its injection is an offset; bottom-plate sampling keeps the input
   switches' injection off the sample (DD-11).
-- **What does limit it**: the reference switch, which sky130's PMOS threshold
-  leaves too weak at the reference levels under consideration; sizing the top
-  switch; taking the clock from the slow corner. A differential array has twice
-  as many of those same switches.
+- **What does limit it** is time: how fast the switches and the pins settle
+  the array, at the slow corner, which sets the clock. A differential array has
+  twice as many switches to size and settle, and twice the capacitance on
+  the shared reference pin.
 
 What differential would cost:
 
@@ -108,8 +108,9 @@ switching, and spends far less energy per conversion. Here:
    INL. The pin that tolerates being wrong today would have to be accurate,
    and it would carry charge on every trial, not only at sampling.
 2. **It adds the hardest switch sky130 has.** A switch passing mid-rail is where
-   both the NMOS and the PMOS are weakest, and the reference switch that blocks
-   M3 is already a weak-switch problem.
+   both the NMOS and the PMOS are weakest: the NMOS's source is high enough for
+   body effect to raise its threshold, and the PMOS's gate drive is only the
+   level it passes.
 3. **It changes the contract.** `dac_b` becomes three levels per branch, so the
    protocol, the model, the RTL and the frozen interface all move.
 
@@ -120,11 +121,14 @@ floorplan stops fitting, and only then.
 
 TinyTapeout offers an analog supply at 3.3 V to a project that asks for it
 (the `_3v3` template). Switches built from the thick-oxide devices and driven
-from it have far more gate overdrive at the reference than the core devices
-have from the core supply. That is a candidate answer to the reference-switch
-finding, at the cost of level shifters on `dac_b` and larger devices. It
-competes with a higher reference and with low-threshold PMOS, and is decided by
-a sky130-model run like every other switch size.
+from it have far more gate overdrive than the core devices have from the core
+supply, at the cost of level shifters on `dac_b` and larger devices.
+
+The core devices are enough: measured with the sky130 models, the reference
+switch settles the first trial inside a clock at the slow corner, as the
+thick-oxide NMOS and the low-threshold PMOS do. The 3.3 V supply is kept as
+the answer if a switch at some corner turns out short of gate drive, not as a
+plan.
 
 ---
 
@@ -235,8 +239,8 @@ strobe**:
 ## When to re-derive this
 
 - The floorplan stops fitting: Vcm-based switching becomes worth its costs.
-- The reference switch is decided: if it is the 3.3 V supply, the level
-  shifters join the protection list as a new source of edges.
+- A switch moves to the 3.3 V supply: the level shifters join the protection
+  list as a new source of edges.
 - Silicon shows threshold noise that correlates with the digital half's
   activity: the paired routing was not enough, and the replica is next.
 - A second tapeout: differential, starting from this array.

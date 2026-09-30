@@ -64,12 +64,17 @@ class Sky130:
         return [f".lib {pdk_library()} {self.corner}"]
 
     def _instance(self, model, name, d, g, s, b, w, length, mult) -> str:
+        """The wrapper's own `mult` only scales its mismatch term -- the
+        device inside is one transistor whatever it says. The copies are made
+        by the instance's `m`, and `mult` is kept equal to it so the mismatch
+        is the whole device's."""
         if w < sky130.W_MIN:
             raise ValueError(f"{name}: W={w} um is below the {sky130.W_MIN} um sky130 draws")
         fingers = math.ceil(w / sky130.W_FINGER_MAX)
-        each = sky130.mosfet(w / fingers, length, mult * fingers)
+        copies = mult * fingers
+        each = sky130.mosfet(w / fingers, length, copies)
         params = " ".join(f"{k}={v:.6g}" for k, v in each.items())
-        return f"X{name} {d} {g} {s} {b} {model} {params}"
+        return f"X{name} {d} {g} {s} {b} {model} {params} m={copies}"
 
     def nmos(self, name, d, g, s, b, w: float, length: float, mult: int = 1) -> str:
         return self._instance(sky130.NFET, name, d, g, s, b, w, length, mult)
