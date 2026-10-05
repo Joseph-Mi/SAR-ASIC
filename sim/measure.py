@@ -51,14 +51,22 @@ def tau_from_gaps(gap_short: float, gap_long: float, phase_short: float, phase_l
     return (settled_for(phase_long) - settled_for(phase_short)) / math.log(gap_short / gap_long)
 
 
-def first_trial_error(workdir: pathlib.Path, block: Block, vin: float) -> float:
+def first_trial_error(
+    workdir: pathlib.Path, block: Block, vin: float, phase: float = bench.PHASE
+) -> float:
     """The top plate against the model at the first trial after a settled
-    sample of `vin`, in volts."""
+    sample of `vin`, in volts, read at the end of a trial `phase` long.
+
+    A block behind a reference pin is still recovering from the first trial's
+    charge for a while after it starts, so the error read depends on when: to
+    learn what the loop sees, read it at the clock the loop runs at.
+    """
     units = ideal_units(block.n_bits)
     msb = 1 << (block.n_bits - 1)
     b = Bench(
         [Phase(sample=1)] * SETTLED_SAMPLE + [Phase(dac_b=msb)],
         replace(block, supplies=replace(block.supplies, vin=vin)),
+        phase=phase,
         read=[SETTLED_SAMPLE],
         probes={"m_top": "v(xdut.top)"},
     )
@@ -81,13 +89,19 @@ def top_gap(workdir: pathlib.Path, block: Block, phase: float) -> float:
     return abs(ngspice.run(bench.deck(b), workdir)["m_top"][0] - VCM_FRACTION * vref)
 
 
-def top_switch_tau(workdir: pathlib.Path, block: Block) -> float:
-    """The top switch's time constant against the whole array, in seconds."""
+def sampling_tau(workdir: pathlib.Path, block: Block) -> float:
+    """The sampling loop's time constant, in seconds: the whole array,
+    charged through the top switch and whatever pins the block has."""
     short, long = (top_gap(workdir, block, p) for p in (GAP_SHORT, GAP_LONG))
+    if not long < short:
+        raise ValueError(
+            "the top plate settled to the solver's floor within the shorter sample: "
+            "the loop is too fast for these sample lengths to measure"
+        )
     return tau_from_gaps(short, long, GAP_SHORT, GAP_LONG)
 
 
 def law_clock(workdir: pathlib.Path, block: Block, tolerance: float) -> float:
-    """The shortest clock the top switch allows: a full-reference step closed
-    to `tolerance` volts in one sample, which the controller gives one clock."""
-    return settle_time(top_switch_tau(workdir, block), block.supplies.vref, tolerance)
+    """The shortest clock sampling allows: a full-reference step closed to
+    `tolerance` volts in one sample, which the controller gives one clock."""
+    return settle_time(sampling_tau(workdir, block), block.supplies.vref, tolerance)

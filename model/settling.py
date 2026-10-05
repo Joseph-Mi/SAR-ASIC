@@ -38,3 +38,16 @@ def c_seen_by_reference(c_selected: float, c_total: float) -> float:
     if c_total == 0.0:
         return 0.0
     return c_selected * (c_total - c_selected) / c_total
+
+
+def sampling_loop_resistance(r_vin: float, r_top: float, r_vcm: float) -> float:
+    """Resistance the array charges through while sampling.
+
+    Every bottom-plate step while sampling moves charge in one loop: in from
+    the input pin, across the array, out through the top switch and the
+    common-mode pin. The three are in series, so they add, and the sampling
+    time constant is their sum times the whole array. The common-mode pin is
+    as much a part of sampling as the input pin, however stiff its source is
+    off-chip: the decoupling is on the far side of the pin.
+    """
+    return r_vin + r_top + r_vcm

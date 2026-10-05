@@ -21,11 +21,11 @@ import pytest
 import analog
 import bench
 import ngspice
-from bench import Bench, Block, Phase, Supplies
+from bench import Bench, Block, Phase, PinVcm, Supplies
 from interface import N_BITS
 from measure import settled_for, tau_from_gaps
 from sar import VCM_FRACTION, ideal_units, top_plate_voltage
-from settling import c_seen_by_reference, residual, settle_time
+from settling import c_seen_by_reference, residual, sampling_loop_resistance, settle_time
 from sweep import (
     EDGE_OFFSET_LSB,
     VDD,
@@ -106,6 +106,29 @@ def test_the_top_plate_switch_charges_the_whole_array_too(tmp_path):
         gaps.append(abs(read(b, "v(xdut.top)", tmp_path)[-1] - vcm))
     measured = tau_from_gaps(*gaps, SHORT * TAU, LONG * TAU)
     assert measured == pytest.approx(R_TOP * C_TOTAL, rel=TAU_TOLERANCE)
+
+
+def test_sampling_charges_through_both_pins_and_the_top_switch_in_series(tmp_path):
+    """The input pin, the top switch and the common-mode pin each carry the
+    whole array's charge while sampling, one after the other: with all three,
+    the time constant is their sum on the array."""
+    share = R_TOP / 3
+    vcm = VCM_FRACTION * VREF
+    gaps = []
+    for k in (SHORT, LONG):
+        phases = [Phase(sample=1, vin=VIN_FROM), Phase(sample=1, vin=VIN_TO)]
+        block = Block(
+            Supplies(vdd=VDD, vref=VREF),
+            N_BITS,
+            r_vin=share,
+            ron_top=share,
+            vcm=PinVcm(share),
+        )
+        b = Bench(phases, block, phase=k * TAU)
+        gaps.append(abs(read(b, "v(xdut.top)", tmp_path)[-1] - vcm))
+    measured = tau_from_gaps(*gaps, SHORT * TAU, LONG * TAU)
+    loop = sampling_loop_resistance(share, share, share)
+    assert measured == pytest.approx(loop * C_TOTAL, rel=TAU_TOLERANCE)
 
 
 def test_binary_sized_switches_settle_every_branch_together(tmp_path):

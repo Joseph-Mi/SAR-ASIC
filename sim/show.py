@@ -247,7 +247,7 @@ def show(inputs, n_bits: int, designed: bool, clock=None, zoom=None, out=None):
     build = REPO / "build" / "sim" / "cosim" / f"sar_fsm_{n_bits}"
     library = cosim.build(CONTROLLER, build, {"N_BITS": n_bits})
     mid = VCM_FRACTION * block.supplies.vref
-    offset = first_trial_error(OUT_DIR, block, mid) if designed else 0.0
+    offset = first_trial_error(OUT_DIR, block, mid, clock) if designed else 0.0
     trace, result, run = record(inputs, block, clock, library, out)
     draw(trace, result, run, out, zoom, offset)
     units = ideal_units(n_bits)

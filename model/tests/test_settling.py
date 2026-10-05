@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from settling import c_seen_by_reference, residual, settle_time
+from settling import c_seen_by_reference, residual, sampling_loop_resistance, settle_time
 
 TAU = 1e-9
 STEP = 1.0
@@ -62,3 +62,10 @@ def test_the_reference_sees_most_at_the_msb_trial():
 def test_nothing_selected_or_everything_selected_loads_nothing():
     assert c_seen_by_reference(0.0, TOTAL) == 0.0
     assert c_seen_by_reference(TOTAL, TOTAL) == 0.0
+
+
+def test_the_common_mode_pin_counts_as_much_as_the_input_pin():
+    """Two pins of equal resistance double the sampling loop's: a stiff source
+    behind the common-mode pin does not take its pin out of the loop."""
+    r_pin = 1.0
+    assert sampling_loop_resistance(r_pin, 0.0, r_pin) == 2 * r_pin
