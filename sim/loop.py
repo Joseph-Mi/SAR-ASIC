@@ -52,6 +52,11 @@ START_OFFSET = 0.25
 CLOCK, RESET, START = "clk", "rst_n", "start"
 DONE, CODE, FLAG = "done", "code", "metastable"
 
+#: The block's sampling line and its top plate, as nodes of this deck. Named
+#: because the measurements and the list of nodes to store must agree: a node
+#: the deck does not store cannot be measured afterwards.
+SAMPLE, TOP = "sample", "xdut.top"
+
 
 def wire(port: str) -> str:
     """The wire a controller port is on: its name without the direction."""
@@ -79,6 +84,9 @@ class Loop:
     #: Lines added to the control block after the reads -- a waveform dump,
     #: say.
     extra_control: list[str] = field(default_factory=list)
+    #: Nodes stored beyond the ones the measurements read. Only a stored node
+    #: can be written out or drawn, so a dump names what it wants here.
+    extra_saves: list[str] = field(default_factory=list)
 
     @property
     def period(self) -> int:
@@ -153,15 +161,23 @@ def deck(loop: Loop) -> str:
     # when the run begins, and a node with no path has no operating point. It
     # starts at the level sampling will put it at; the first sample overwrites
     # it either way.
-    lines.append(f".ic v(xdut.top)={block.vcm.fraction * s.vref:.9g}")
+    lines.append(f".ic v({TOP})={block.vcm.fraction * s.vref:.9g}")
 
     code = [w for w in drives if w.startswith(f"{CODE}_")]
     word = " + ".join(f"(v({w}) gt {half:.9g})*{2 ** int(w.rsplit('_', 1)[1])}" for w in code)
     stop = loop.start_at(len(loop.inputs)) + t
     step = bench.MAX_STEP * t
+    # ngspice sizes its output for every node in the circuit unless told which
+    # to keep, and sky130's devices are subcircuits whose internal nodes
+    # multiply that: hundreds of vectors across tens of thousands of
+    # timepoints, where the measurements read a dozen. It refuses to allocate
+    # more than the machine has free, and then the run ends before the first
+    # conversion rather than at a result.
+    stored = dict.fromkeys([DONE, FLAG, SAMPLE, TOP, *code, *loop.extra_saves])
     lines.append(bench.options(block))
     lines += [
         ".control",
+        "save " + " ".join(f"v({n})" for n in stored),
         f"tran {step:.12g} {stop:.12g} 0 {step:.12g}",
         f"let word = {word}",
     ]
@@ -172,9 +188,9 @@ def deck(loop: Loop) -> str:
         lines += [
             f"meas tran m_code find word {done}",
             f"meas tran m_flag find v({FLAG}) {done}",
-            f"meas tran t_sampled when v(sample)={half:.9g} fall={k}",
+            f"meas tran t_sampled when v({SAMPLE})={half:.9g} fall={k}",
             f"meas tran t_done {done}",
-            "meas tran m_low min v(xdut.top) from=$&t_sampled to=$&t_done",
+            f"meas tran m_low min v({TOP}) from=$&t_sampled to=$&t_done",
         ]
     lines += loop.extra_control
     lines += [".endc", ".end"]

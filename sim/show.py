@@ -95,7 +95,7 @@ def record(
 ) -> tuple[Trace, loop.Result, loop.Loop]:
     """Run the loop once, keeping every waveform the figure needs."""
     dac = [f"dac_b_{k}" for k in range(block.n_bits)]
-    nodes = ["xdut.top", "vcm", *lines(block), *dac]
+    nodes = [loop.TOP, "vcm", *lines(block), *dac]
     vectors = " ".join(f"v({n})" for n in nodes)
     table = out.with_suffix(".txt")
     # Bare names: ngspice runs in the output's folder, and a folder's path
@@ -107,6 +107,7 @@ def record(
         block,
         clock,
         extra_control=[f"wrdata {table.name} {vectors}", f"write {raw.name} {vectors}"],
+        extra_saves=nodes,
     )
     found = ngspice.run(loop.deck(run), out.parent)
     half = block.supplies.vdd / 2
