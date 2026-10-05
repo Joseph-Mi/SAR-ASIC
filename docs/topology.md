@@ -42,9 +42,11 @@ does, and `test_a_steady_but_wrong_vcm_converts_exactly_as_the_model` holds
 the circuit to that.
 
 It moves because sampling pushes charge into it, in proportion to how far the
-input moved since the previous conversion. The kick settles through the pin's
-resistance times the array, the same law sampling `vin` already obeys, provided
-the off-chip source is stiff: a divider from the reference source with a large
+input moved since the previous conversion. That charge flows in one loop -- in
+through the `vin` pin, across the array, out through the top switch and the
+`vcm` pin -- so the two pins' resistances add, and together with the top
+switch they set how long sampling takes (`sampling_loop_resistance` in
+`model/settling.py`). That holds provided the off-chip source is stiff: a divider from the reference source with a large
 ceramic capacitor at the pin, or a bench supply. `drift_within_conversion`
 sizes the capacitor. An unbypassed divider is the failure the study found.
 

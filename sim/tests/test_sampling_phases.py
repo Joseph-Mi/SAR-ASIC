@@ -26,7 +26,7 @@ import pytest
 import analog
 import bench
 import ngspice
-from bench import Bench, Block, Phase, Supplies
+from bench import NOMINAL_TEMP, Bench, Block, Phase, Supplies
 from devices import Sky130, pdk_library
 from injection import beyond_a_line, referred_to_input
 from interface import N_BITS
@@ -68,7 +68,6 @@ SCALING_TOLERANCE = 0.2
 
 #: The supply and temperature range the generator's order must survive.
 SUPPLIES = (0.9 * VDD, VDD, 1.1 * VDD)
-NOMINAL_TEMP = 27
 TEMPERATURES = (-40, NOMINAL_TEMP, 125)
 
 #: A load on a switch's line -- a long gate wire, say -- far past anything
@@ -219,16 +218,19 @@ def crossings(
     scheme = analog.NonOverlap() if scheme is None else scheme
     b = Bench(
         [Phase(sample=1), Phase(), Phase(sample=1)],
-        Block(Supplies(vdd=vdd, vref=VREF, vin=0.5 * VREF), N_BITS, unit=UNIT, sampling=scheme),
+        Block(
+            Supplies(vdd=vdd, vref=VREF, vin=0.5 * VREF),
+            N_BITS,
+            unit=UNIT,
+            sampling=scheme,
+            temp=temp,
+        ),
         probes={},
         read=[],
         phase=phase,
         extra_control=control,
     )
-    deck = bench.deck(b)
-    if temp != NOMINAL_TEMP:
-        deck = deck.replace(".control", f".temp {temp:g}\n.control", 1)
-    return {k: v[0] for k, v in ngspice.run(deck, tmp_path).items()}
+    return {k: v[0] for k, v in ngspice.run(bench.deck(b), tmp_path).items()}
 
 
 def assert_ordered(t: dict[str, float]):

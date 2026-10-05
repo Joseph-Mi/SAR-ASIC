@@ -91,7 +91,11 @@ class MosSwitches:
     `w_unit_p` to zero for an NMOS alone.
     """
 
-    w_top: float = 2.0
+    #: The top switch returns the whole array to Vcm, in series with the input
+    #: and common-mode pins; sized so its on-resistance at the slowest corner
+    #: stays under one pin's, and no wider -- its channel charge, released onto
+    #: the top plate, grows with it.
+    w_top: float = 8.0
     w_unit: float = 0.5
     w_unit_p: float = 1.0
     length: float = 0.15

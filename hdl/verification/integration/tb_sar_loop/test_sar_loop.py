@@ -5,8 +5,9 @@ Expectations come from the golden model. Most tests run the block ideal --
 ideal switches, a behavioural comparator -- because what is under test is the
 loop: the controller's decisions, the boundary between the halves, and the
 timing the controller imposes on the block. The last run it as designed, with
-transistor switches and the phase generator, and hold it to the error budget
-a converter has to meet once its offset is calibrated out.
+transistor switches and the phase generator behind the platform's pins, and
+hold it to the error budget a converter has to meet once its offset is
+calibrated out: with the generic models, and with sky130's at every corner.
 """
 
 from __future__ import annotations
@@ -20,7 +21,8 @@ import analog
 import bench
 import cosim
 import loop
-from bench import EDGE, Block, Supplies
+from bench import EDGE, NOMINAL_TEMP, Block, Supplies
+from devices import Sky130, pdk_library
 from interface import N_BITS
 from measure import first_trial_error, law_clock
 from protocol import SAMPLE, conversion_sequence
@@ -172,23 +174,24 @@ def designed(sampling) -> Block:
 MID_CODE = 0.5
 
 
-def sampling_offset(workdir, sampling) -> float:
-    """The top plate's error at mid-scale, in volts: the constant a
-    calibration removes."""
-    return first_trial_error(workdir, designed(sampling), VCM_FRACTION * VREF)
+def sampling_offset(workdir, block: Block, clock: float) -> float:
+    """The top plate's error at mid-scale, in volts, at the clock the loop
+    runs at: the constant a calibration removes."""
+    return first_trial_error(workdir, block, VCM_FRACTION * VREF, clock)
 
 
-def designed_block_disagreements(controller, workdir, sampling) -> list[str]:
-    """Mid-code inputs on both sides of every carry, converted by the loop at
-    the clock the top switch's settling law allows, against the model given
-    the block's measured offset."""
-    clock = law_clock(workdir, designed(sampling), EDGE_OFFSET_LSB * lsb(N_BITS))
-    offset = sampling_offset(workdir, sampling)
+def designed_block_disagreements(controller, workdir, block: Block, clock=None) -> list[str]:
+    """Mid-code inputs on both sides of every carry, converted by the loop
+    against the model given the block's measured offset -- at `clock`, or
+    when none is given at the clock the block's own sampling loop allows."""
+    if clock is None:
+        clock = law_clock(workdir, block, EDGE_OFFSET_LSB * lsb(N_BITS))
+    offset = sampling_offset(workdir, block, clock)
     step = lsb(N_BITS)
     inputs = [(k + side * MID_CODE) * step for k in carry_codes(N_BITS) for side in (-1, +1)] + [
         MID_CODE * step
     ]
-    got = loop.convert(inputs, controller(N_BITS), workdir, designed(sampling), clock)
+    got = loop.convert(inputs, controller(N_BITS), workdir, block, clock)
     units = ideal_units(N_BITS)
     # A top plate that sits high reads as an input that sits low.
     want = [sar_convert(vin, units, VREF, cmp_offset=-offset)[0] for vin in inputs]
@@ -201,6 +204,57 @@ def designed_block_disagreements(controller, workdir, sampling) -> list[str]:
 
 def test_the_designed_block_converts_within_budget_once_its_offset_is_removed(controller, tmp_path):
     """Transistor switches, the phase generator and the real controller,
-    clocked as fast as the top switch's settling law allows: every code is the
+    clocked as fast as the sampling loop's settling law allows: every code is the
     model's, the model told only the block's one constant offset."""
-    assert not designed_block_disagreements(controller, tmp_path, DESIGNED)
+    assert not designed_block_disagreements(controller, tmp_path, designed(DESIGNED))
+
+
+#: The supply's tolerance either side of nominal.
+SUPPLY_SPREAD = 0.1
+
+#: Process corner, supply and temperature. Sampling is slowest at ss, low
+#: supply and hot -- the top switch's resistance peaks there -- so the clock
+#: comes from it; the rest are where the other edges of the design sit: cold
+#: slow, the largest injection (ff cold), and the most leakage (ff hot).
+SLOWEST_SAMPLING = ("ss", (1 - SUPPLY_SPREAD) * VDD, 125)
+SKY130_CORNERS = [
+    ("tt", VDD, NOMINAL_TEMP),
+    SLOWEST_SAMPLING,
+    ("ss", (1 - SUPPLY_SPREAD) * VDD, -40),
+    ("ff", (1 + SUPPLY_SPREAD) * VDD, -40),
+    ("ff", (1 + SUPPLY_SPREAD) * VDD, 125),
+]
+
+
+def at_corner(corner) -> Block:
+    """The designed block with sky130's devices at one corner."""
+    process, vdd, temp = corner
+    return replace(
+        bench.DESIGNED,
+        supplies=Supplies(vdd=vdd, vref=VREF),
+        sampling=replace(DESIGNED, devices=Sky130(process)),
+        temp=temp,
+    )
+
+
+needs_pdk = pytest.mark.skipif(not pdk_library().exists(), reason="sky130 model library not found")
+
+
+@pytest.fixture(scope="module")
+def sky130_clock(tmp_path_factory):
+    """One clock for every corner, as silicon has: the one the slowest
+    sampling corner allows."""
+    workdir = tmp_path_factory.mktemp("sky130_clock")
+    return law_clock(workdir, at_corner(SLOWEST_SAMPLING), EDGE_OFFSET_LSB * lsb(N_BITS))
+
+
+@needs_pdk
+@pytest.mark.parametrize("corner", SKY130_CORNERS, ids=lambda c: f"{c[0]}-{c[1]:g}V-{c[2]:g}C")
+def test_sky130_devices_convert_within_budget_at_every_corner(
+    controller, sky130_clock, corner, tmp_path
+):
+    """The gate for every switch size: the designed block with the real
+    process's devices, behind the platform's pins, converts every carry at
+    every corner at the one clock the slowest corner allows, once each
+    corner's offset is removed."""
+    assert not designed_block_disagreements(controller, tmp_path, at_corner(corner), sky130_clock)

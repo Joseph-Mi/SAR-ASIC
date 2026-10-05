@@ -101,8 +101,9 @@ static current; hung on the VREF pin it sags the reference into a gain error of
 tens of LSB; a light one needs nF of decoupling, which the tile cannot hold; a
 buffer is a new small-signal design. Off-chip, a divider from the Vref source
 plus a 1-10 uF ceramic at the pin (or a bench supply) costs nothing on-chip,
-and the pin's kick settles through R_pin * C_total -- the same law as sampling
-Vin, which already binds. Only its steadiness within a conversion matters, not
+and the pin's kick settles through R_pin * C_total -- in the same loop as
+sampling Vin: the two pins are in series with the top switch, so sampling's
+tau is (R_vin + R_top + R_vcm) * C_total (Step 6). Only its steadiness within a conversion matters, not
 its accuracy (proven: a 10%-wrong steady Vcm converts identically). Bonus: a
 settable Vcm is a zero-area DFT knob -- sweep it to measure comparator offset
 vs common mode, and to find where the top plate starts to leak.
@@ -350,7 +351,10 @@ never sees the pin).
 
 Step 4 is split: 4a finite resistance (done), 4b Vcm source (done), 4c
 sampling phases (done). Step 5, closed loop (done). Step 4d, transmission-
-gate input switches (done). Next: Step 6, close M3.
+gate input switches (done). Step 6, sky130 sizing and the corner acceptance
+(done): M3 is closed. Carried forward: the comparator's input common mode at
+full scale (M5), the top plate's transient dip at the first trial, and
+whether an on-chip vref decap earns its area (both in Step 6's notes).
 
 `make show-loop` (`sim/show.py`): runs the RTL against the block and writes
 `build/show/loop.png` + `loop.raw`. `VIN="0.3 0.95"`, `BITS=4`, `DESIGNED=1`
@@ -358,7 +362,7 @@ gate input switches (done). Next: Step 6, close M3.
 model code shifted by the block's measured sampling offset), `ZOOM=<i>` for
 one conversion. Nothing asserted -- it's for looking.
 
-Step 6 (in progress):
+Step 6 (done):
 - **The "-482 LSB reference switch" was a netlister bug, not sky130.** The
   PDK's FET wrappers take `mult` only to scale their mismatch term
   (`/sqrt(l*w*mult)`); the device inside is one transistor. `devices.Sky130`
@@ -375,6 +379,49 @@ Step 6 (in progress):
   (-0.27 LSB) within a 10 ns trial at tt and ss; so do LVT, n-well-at-Vref and
   3.3 V thick-oxide NMOS variants. No device change needed; Vref stays 1.0 V.
   Exploration scripts in `build/step6/` (not committed).
+- **Top switch: 2 -> 8 um.** sky130 on-resistance passing Vcm (DC, gate at
+  VDD): 2 um 686 ohm tt / 1438 worst; 8 um 163 / 326; 12 um 109 / 217. The
+  worst corner for it is ss *hot* (125 C, 1.62 V), not cold. 8 um keeps it
+  under one pin (500 ohm) at every corner. Cost: channel charge on the top
+  plate grows with width -- sky130 first-trial error at 12 um is -1.6/-1.1/
+  -0.6 LSB at 0.05/0.5/0.95 Vref (offset + ~1 LSB gain, bend ~0.06), ~6x
+  the 2 um figures; 8 um is two-thirds of that. The two-gap tau method is
+  unreliable for a switch alone (large-signal slewing, solver floor); use
+  DC resistance for the switch and the two-gap method only on the whole loop.
+- **Sampling charges through both pins in series.** The loop is vin pin ->
+  array -> top switch -> vcm pin: tau = (R_vin + R_top + R_vcm) * C_total
+  (`settling.sampling_loop_resistance`, circuit test in `test_settle.py`).
+  The vcm pin's off-chip decoupling is behind its pin R, so it does not take
+  the pin out of the loop -- DD-10's "same law as Vin" understated it 2x.
+- `bench.DESIGNED` is now behind `tinytapeout.R_PIN` (500 ohm, the spec's
+  bound, `tech/tinytapeout.py`) on `vin`, `vref` and `vcm`. `measure.law_clock`
+  takes its tau from `sampling_tau` (renamed from `top_switch_tau`): the
+  whole loop, pins included; it raises when the loop is too fast for its two
+  sample lengths instead of dividing by zero. `Block.temp` sets `.temp`.
+- **The reference pin sags at the first trial.** The ground-side NMOS
+  switches (no pin) pull their half down at once; the reference-side PMOS,
+  behind the pin, cannot keep up, so the top plate and the MSB plate are
+  dragged down (0.11 V / 0.23 V at vin 0.5, generic), the pin supplies ~1 mA
+  and sags to ~0.48 V -- which starves the PMOS, whose gate drive is the
+  sagging level. Recovery ~4 ns generic, not the R*C/4 = 1 ns law. At the
+  loop's clock it is long over; at `bench.PHASE` (10 ns) it is not, and
+  `first_trial_error` read a -44 LSB "offset" the loop never sees.
+  `first_trial_error(..., phase=)` now reads at the loop's clock. Open: the
+  transient dip of the top plate toward ground at high inputs (DD-08's
+  contract, transiently) and whether an on-chip vref decap is worth it.
+- **Acceptance with sky130 (done):** `test_sky130_devices_convert_within_budget_at_every_corner`
+  in `test_sar_loop.py`. The designed block, sky130 devices, 500 ohm on
+  `vin`/`vref`/`vcm`, the real RTL; mid-code inputs either side of every
+  carry (top code included); one clock for all corners, from the slowest
+  sampling corner (ss, 0.9*VDD, 125 C): tau 13.6 ns (the three-resistance
+  law says ~10.9 -- the measured loop is ~25% slower, so the clock takes the
+  measurement), clock 135 ns at 0.05 LSB, ~21 clocks per conversion. Every
+  code right with each corner's offset removed at tt / ss hot / ss cold /
+  ff cold / ff hot; no metastability flag. Mutation: at half the clock the
+  slowest corner gets 6/23 wrong. ~20 min in the container (needs the PDK;
+  skips without it).
+- The generic designed-block acceptance now runs behind the same pins, its
+  clock from its own loop.
 
 Step 4d (`sim/analog.py`, `model/injection.py:beyond_a_line`,
 `sim/tests/test_sampling_phases.py`, the designed-block tests in
@@ -733,33 +780,23 @@ Delete each one when it is fixed.
   ~0.9 the baseline implies. Below gross-error onset the answer is the dithered
   quantiser, sqrt(q^2 + sigma_n^2). Fix = model + test, regenerate
   `noise_baseline.txt`. M5's preamp decision reads this table — fix it first.
-- **The top switch sets the sampling time, and Step 6 must size it.** One
-  NMOS (2 um) returns the whole array to Vcm after the bottom plates jump to
-  the new input: tau ~2.05 ns at 8 fF units (R ~250 ohm), so a full-scale
-  step needs ~20 ns to close to 0.05 LSB. This -- not the input switches,
-  which are binary-sized and settle each branch alike -- was the tens-of-LSB
-  error in back-to-back conversions at a 10 ns clock (0.1 V then 0.95 V:
-  +48.6 LSB at 10 ns, +1.2 at 20 ns). Widening it trades time constant
-  against its injection offset (W*L*Cox*Vov / 2C_total, constant because it
-  passes Vcm). Size it against the pin: tau_top <= R_pin * C_total.
 - **Sampling error with the designed block is offset + gain.** Settled
   first-trial error, TG input switches: -0.90 LSB at 0.05 V to -0.45 at
   0.95 V, straight to 0.005 LSB (endpoint fit). Offset -0.68 LSB at
-  mid-scale.
-- **A sky130 acceptance run gates every switch size.** The closed-loop
-  acceptance test uses generic models. Step 6 adds the sky130 one.
-- **The clock must come from the slow corner.** The acceptance test derives
-  the clock from the top switch's tau at nominal supply. At 0.9*VDD (generic
-  models) the top switch is weaker and the same clock leaves +1.8/+2.3 LSB at
-  0.95/0.999 V -- for TG and NMOS alike, so it is the top switch, not the
-  input switches. Step 6: measure tau at ss / low supply / temperature
-  extremes and take the worst.
-- **Full scale puts the top plate at ground.** At the first trial the top
-  plate sits at Vcm - Vin + Vref/2; at vin ~ Vref that is ~0 V, and with the
-  sampling offset slightly below it: the off NMOS top switch starts to
-  conduct from Vcm (seen in the stall analysis). A real leak at the last few
-  codes. Options for Step 6 / M5: Vcm a little above Vref/2, a slightly
-  reduced input range, or a PMOS/TG top switch.
+  mid-scale (generic, 2 um top switch). With sky130 and the 8 um top switch,
+  at the loop's clock, the mid-scale offset is -0.66 to -1.27 LSB across
+  corners (largest ff, smallest ss cold): it moves with the corner, so a
+  one-time factory calibration is not enough -- M4's DFT modes (forced
+  input) let firmware measure it in the field.
+- **Full scale puts the comparator's input near ground (M5).** At the first
+  trial the top plate sits at Vcm - Vin + Vref/2, ~0 V at vin ~ Vref, and
+  the reference sag at the first trial drags it lower for a few ns. No code
+  is lost to the top switch's junction: the sky130 acceptance converts both
+  sides of the top code at every corner, ff/125 C included. What remains is
+  the comparator: DD-08 notes an NMOS-input StrongARM cannot resolve near
+  0 V, and the behavioural one here hides that. M5 must either resolve at
+  ~0 V input common mode (PMOS input pair) or the design moves Vcm above
+  Vref/2 -- `vcm` is a pin, so that is a bench setting, not a respin.
 - **Entering sampling, the array floats to ground.** The FSM clears `dac_b`
   on the same edge `sample` rises. With the generator the conversion switches
   stay on until `phi_conv` falls, so for that window every bottom plate is at

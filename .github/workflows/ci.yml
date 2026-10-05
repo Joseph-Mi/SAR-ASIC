@@ -157,9 +157,21 @@ jobs:
             /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           sudo docker image prune --all --force
           df -h /
+          free -m
 
       - name: Pull the pinned tool image
         run: docker pull "hpretl/iic-osic-tools:${OSIC_TOOLS_TAG}"
+
+      # ngspice checks free memory before allocating its output buffer and exits
+      # if it is short. Unpacking a ~20 GB image leaves the runner with almost
+      # none free -- reclaimable, as page cache, but not free, and ngspice reads
+      # only the latter. Reclaim it, and print the figure either side of the
+      # pull so a recurrence is one line of log rather than a run to reproduce.
+      - name: Reclaim the pull's page cache
+        run: |
+          sync
+          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches' || true
+          free -m
 
       # The image's own start-up scripts set its tool paths and PDK_ROOT; the
       # repository's pdk.env then selects sky130 the same way the local

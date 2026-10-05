@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 import analog
 from analog import NAME, terminals
 from sar import VCM_FRACTION
+from tinytapeout import R_PIN
 
 #: One protocol phase. Ideal switches settle in picoseconds; this only has to be
 #: long enough that the edges are a small part of it.
@@ -51,13 +52,17 @@ CHARGE_FRACTION = 0.01
 
 
 def options(block: Block) -> str:
-    """The solver options a block's netlist needs."""
+    """The solver options a block's netlist needs, and its temperature."""
     smallest = analog.DEFAULT_UNIT.farads
     if isinstance(block.unit, analog.Ideal):
         smallest = min(smallest, block.unit.farads)
     chgtol = CHARGE_FRACTION * smallest * block.supplies.vref
-    return f".options reltol={RELTOL} chgtol={chgtol:.6g}"
+    return f".options reltol={RELTOL} chgtol={chgtol:.6g}\n.temp {block.temp:g}"
 
+
+#: The simulator's own default temperature, degrees Celsius: the temperature
+#: every device model is typical at.
+NOMINAL_TEMP = 27
 
 #: Times are written with this many significant digits. A long sweep runs to
 #: tens of microseconds while its edges and read points are a fraction of a
@@ -144,11 +149,22 @@ class Block:
     sampling: analog.Gapped | analog.NonOverlap | None = None
     #: What drives the common-mode pin.
     vcm: IdealVcm | PinVcm | Divider = field(default_factory=IdealVcm)
+    #: Degrees Celsius. With the supplies and the devices' process corner, it
+    #: is the corner the block is simulated at.
+    temp: float = NOMINAL_TEMP
 
 
 #: The block as designed: transistor switches, the phase generator, an array
-#: of realistic size.
-DESIGNED = Block(unit=analog.MIM_SIZED, sampling=analog.NonOverlap())
+#: of realistic size, reached through the platform's pins -- every analog
+#: terminal the array draws charge through at the worst series resistance the
+#: platform allows.
+DESIGNED = Block(
+    unit=analog.MIM_SIZED,
+    sampling=analog.NonOverlap(),
+    r_vin=R_PIN,
+    r_vref=R_PIN,
+    vcm=PinVcm(R_PIN),
+)
 
 
 @dataclass
