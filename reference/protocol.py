@@ -46,6 +46,21 @@ class Step:
     bit_index: int | None = None
 
 
+def first_trial(n_bits: int) -> int:
+    """The word the array is given while sampling and at the first trial: the
+    MSB branch on VREF, every other branch on ground.
+
+    Sampling drives the bottom plates through the input switches, so what
+    `dac_b` says then never reaches the array. It is what the array takes when
+    those switches let go, and that is why it is this word and not zero:
+    all-ground there pulls the sealed top plate to Vcm - Vin, below ground,
+    where the top switch's junction forward-biases and leaks the held charge
+    (DD-08). Driving it from the start means the word does not change at all
+    between the sample and the first decision.
+    """
+    return 1 << (n_bits - 1)
+
+
 def conversion_sequence(vin, unit_caps, vref: float = 1.0, **comparator) -> list[Step]:
     """Expand one conversion into the cycles that produce it.
 
@@ -55,7 +70,7 @@ def conversion_sequence(vin, unit_caps, vref: float = 1.0, **comparator) -> list
     n_bits = n_bits_of(unit_caps)
     code, trace = sar_convert(vin, unit_caps, vref, **comparator)
 
-    steps = [Step(phase=SAMPLE, sample=1, dac_b=0, cmp_clk=0)]
+    steps = [Step(phase=SAMPLE, sample=1, dac_b=first_trial(n_bits), cmp_clk=0)]
     settled = 0
     for i, decision in enumerate(trace):
         bit_index = n_bits - 1 - i
