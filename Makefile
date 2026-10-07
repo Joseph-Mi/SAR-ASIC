@@ -39,6 +39,32 @@ DESIGNS        ?= $(abspath $(CURDIR)/..)
 DESIGN_NAME    := $(notdir $(CURDIR))
 CONTAINER_NAME ?= iic-osic-tools_xvnc_uid_$(shell id -u)
 
+# The base is what versions.env pins; what the container actually runs is that
+# base plus requirements.txt, built by `make image`. Both names are spelled out
+# here rather than left to the start script's defaults, because that script
+# defaults the tag to `latest` -- and a container created once from `latest` is
+# then reused forever, since starting an existing one never re-reads the image it
+# came from.
+OSIC_REGISTRY ?= docker.io
+OSIC_USER     ?= hpretl
+OSIC_IMAGE    ?= iic-osic-tools
+BASE_IMAGE    := $(OSIC_REGISTRY)/$(OSIC_USER)/$(OSIC_IMAGE):$(OSIC_TOOLS_TAG)
+IMAGE_USER    ?= sar-asic
+IMAGE         := $(IMAGE_USER)/$(OSIC_IMAGE):$(OSIC_TOOLS_TAG)
+DOCKERFILE    := docker/Dockerfile
+
+# Comparing what an existing container was created from is the only way the pin
+# means anything once one exists.
+CHECK_CONTAINER_IMAGE = \
+  from=$$(docker inspect -f '{{.Config.Image}}' $(CONTAINER_NAME) 2>/dev/null || true); \
+  if [ -n "$$from" ] && [ "$$from" != "$(IMAGE)" ]; then \
+    echo "$(CONTAINER_NAME) was created from $$from, not $(IMAGE)."; \
+    echo "Starting it again keeps that toolchain, whatever the pin says."; \
+    echo "Remove it and let make recreate it:"; \
+    echo "    docker rm -f $(CONTAINER_NAME)"; \
+    exit 1; \
+  fi
+
 # The container sources exactly one fixed path at shell start, and it lives
 # outside any repo. So $(DESIGNS)/.designinit is reduced to a shim that sources
 # pdk.env from this repo: the settings stay under git, reviewable and visible to
@@ -95,6 +121,7 @@ doctor:
 	  echo "Fix with:  make designinit"; \
 	  exit 1; \
 	}
+	@$(CHECK_CONTAINER_IMAGE)
 	@echo "host OK -- DESIGNS=$(DESIGNS), PDK from $(DESIGN_NAME)/pdk.env"
 
 # We read the helper scripts and never write them. A missing checkout is created
@@ -135,19 +162,36 @@ osic-tools: doctor
 	fi
 	@echo "iic-osic-tools $(OSIC_TOOLS_TAG) at $(OSIC_TOOLS_DIR)"
 
+## image-name: print the image the container runs, so nothing restates it
+image-name:
+	@echo "$(IMAGE)"
+
+## image: build the pinned image plus requirements.txt -- what the container runs
+image:
+	docker build --build-arg BASE=$(BASE_IMAGE) -t $(IMAGE) -f $(DOCKERFILE) .
+	@base=$$(docker inspect -f '{{.Config.User}}' $(BASE_IMAGE)); \
+	 built=$$(docker inspect -f '{{.Config.User}}' $(IMAGE)); \
+	 [ "$$base" = "$$built" ] || { \
+	   echo "$(IMAGE) runs as '$$built', $(BASE_IMAGE) runs as '$$base'."; \
+	   echo "$(DOCKERFILE) must leave the base's own user in place."; \
+	   exit 1; \
+	 }
+	@echo "$(IMAGE) built from $(BASE_IMAGE)"
+
 # start_vnc.sh is interactive for both an already-running container ("press s to
 # stop") and an exited one ("press s to start"), and in the exited case it can
 # return 0 with nothing running. Handle both states here so restarting is one
 # non-interactive command, and only fall through to the script to CREATE a
 # container that does not exist yet.
 ## container: start the pinned container (first run pulls ~20 GB)
-container: osic-tools
+container: osic-tools image
 	@[ -x "$(OSIC_START_SCRIPT)" ] || { \
 	  echo "$(OSIC_START_SCRIPT) is missing or not executable."; \
 	  echo "Upstream moved it, or OSIC_TOOLS_DIR points somewhere wrong."; \
 	  echo "Override with: make container OSIC_TOOLS_DIR=/path/to/iic-osic-tools"; \
 	  exit 1; \
 	}
+	@$(CHECK_CONTAINER_IMAGE)
 	@if [ -n "$$(docker ps -q -f name=$(CONTAINER_NAME))" ]; then \
 	  echo "already running"; \
 	elif [ -n "$$(docker ps -aq -f name=$(CONTAINER_NAME))" ]; then \
@@ -155,7 +199,9 @@ container: osic-tools
 	  docker start $(CONTAINER_NAME) >/dev/null; \
 	  sleep 3; \
 	else \
-	  DESIGNS="$(DESIGNS)" DOCKER_TAG="$(OSIC_TOOLS_TAG)" "$(OSIC_START_SCRIPT)"; \
+	  DESIGNS="$(DESIGNS)" DOCKER_REGISTRY="" DOCKER_USER="$(IMAGE_USER)" \
+	    DOCKER_IMAGE="$(OSIC_IMAGE)" DOCKER_TAG="$(OSIC_TOOLS_TAG)" \
+	    "$(OSIC_START_SCRIPT)"; \
 	fi
 	@port=$$(docker port $(CONTAINER_NAME) 80 2>/dev/null | head -1 | sed 's/.*://'); \
 	if [ -z "$$port" ]; then \
@@ -194,6 +240,7 @@ tool-versions:
 
 ## tool-manifest: record every tool version into docs/tool-manifest.txt
 tool-manifest:
+	@echo "probing every tool once; one that will not answer is recorded as such"
 	@tmp=$$(mktemp) && \
 	  OSIC_TOOLS_TAG="$(OSIC_TOOLS_TAG)" sh scripts/tool-manifest.sh > "$$tmp" && \
 	  mv "$$tmp" docs/tool-manifest.txt || { rm -f "$$tmp"; exit 1; }
@@ -209,6 +256,7 @@ check-tools:
 	@got=$$($(YOSYS) -V | awk '{print $$2}' | cut -d+ -f1); [ "$$got" = "$(YOSYS_VERSION)" ] || { echo "yosys: want $(YOSYS_VERSION), got $$got"; exit 1; }
 	@$(VERIBLE_FMT) --version | grep -qF '$(VERIBLE_VERSION)' || { echo "verible: want $(VERIBLE_VERSION), got $$($(VERIBLE_FMT) --version | head -1)"; exit 1; }
 	@echo "native tools match versions.env"
+	@$(PYTHON) scripts/check-python-pins.py
 
 ## format: rewrite Verilog and Python in canonical style
 format:
@@ -284,4 +332,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop noise help doctor designinit osic-tools container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-analog verify-unit verify-integration verify-system verify clean
+.PHONY: show-loop noise help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-analog verify-unit verify-integration verify-system verify clean

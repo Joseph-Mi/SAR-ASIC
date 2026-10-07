@@ -241,8 +241,10 @@ miserable.
 ## Do not install into a running container
 
 Anything `pip install`ed or `apt install`ed inside vanishes on restart and is not
-in anyone else's environment or in CI. If something genuinely is missing, add a
-thin `FROM hpretl/iic-osic-tools:<tag>` layer and commit it. Check the
+in anyone else's environment or in CI. The committed layer is where a missing
+package goes instead: a Python package into `requirements.txt`, anything else
+into the layer's own `Dockerfile`, then `make image` and remove the old container
+so make recreates it. Check the
 [tool list](https://github.com/iic-jku/iic-osic-tools#3-installed-tools) first —
 gdsfactory, gdspy, pygmid, pyuvm, spicebind, cace, and chipify are already there.
 

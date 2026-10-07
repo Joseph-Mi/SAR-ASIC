@@ -48,12 +48,11 @@ that are not a make target, because they need `sudo` and a restart.
 Verilator has no native Windows build, so the container (or WSL2) is the only
 place the suite actually runs. The Windows checkout is for editing and git.
 
-If you want the exact pins from `requirements.txt` rather than whatever the
-image ships, install them inside the container:
-
-```bash
-pip install -r requirements.txt
-```
+The container already has the Python pins. `make image` builds the pinned tool
+image plus `requirements.txt` and `make container` starts that, so the versions
+in that file are installed rather than merely written down. `make check-tools`
+fails if what is installed has drifted from it, and `make doctor` fails if the
+running container was created from a different image.
 
 Native tool versions are recorded in [docs/tool-versions.md](docs/tool-versions.md);
 `make check-tools` enforces them.

@@ -14,11 +14,21 @@
 
 set -eu
 
+# Seconds a tool gets to name its version. One that needs longer is stuck, and
+# recording that beats stalling a target whose output is buffered out of sight.
+PROBE_SECONDS=20
+
+# Every probe runs with stdin closed. Some of these tools fall through to an
+# interactive prompt after doing what they were asked -- netgen does it on
+# `quit` -- and a prompt reading a terminal never returns. `head` taking its one
+# line does not end it either: the substitution below waits for the whole
+# pipeline, so the tool sits there holding the script open.
 ver() {
 	name=$1
 	shift
 	if command -v "$1" >/dev/null 2>&1; then
-		out=$("$@" 2>&1 | head -1 | tr -s ' ' | sed 's/^ *//;s/ *$//')
+		out=$(timeout "$PROBE_SECONDS" "$@" </dev/null 2>&1 |
+			head -1 | tr -s ' ' | sed 's/^ *//;s/ *$//')
 		printf '%-12s %s\n' "$name" "${out:-<no version output>}"
 	else
 		printf '%-12s ABSENT\n' "$name"
@@ -30,7 +40,15 @@ printf '# Pinned inputs (versions.env): image tag %s\n' "${OSIC_TOOLS_TAG:-<unse
 printf '# Everything else below is pinned transitively BY that tag.\n\n'
 
 printf '## Environment\n'
-printf '%-12s %s\n' "image" "hpretl/iic-osic-tools:${OSIC_TOOLS_TAG:-<unset>}"
+# A container cannot see its own image name -- that is host-side knowledge. The
+# image built by `make image` records the base it came from, so this is an
+# observation. A container started outside that path has no such file, which is
+# exactly the drift worth reporting.
+if [ -r /etc/sar-asic-base-image ]; then
+	printf '%-12s %s\n' "image" "$(cat /etc/sar-asic-base-image)"
+else
+	printf '%-12s %s\n' "image" "<unknown -- this container was not built by make image>"
+fi
 printf '%-12s %s\n' "PDK" "${PDK:-<unset>}"
 printf '%-12s %s\n' "PDK_ROOT" "${PDK_ROOT:-<unset>}"
 
@@ -65,17 +83,19 @@ ver klayout klayout -v
 # ngspice leads with a banner line; the version is on the line naming it.
 if command -v ngspice >/dev/null 2>&1; then
 	printf '%-12s %s\n' "ngspice" \
-		"$(ngspice --version 2>&1 | grep -m1 -o 'ngspice-[0-9.]*' || echo '<unparsed>')"
+		"$(timeout "$PROBE_SECONDS" ngspice --version </dev/null 2>&1 |
+			grep -m1 -o 'ngspice-[0-9.]*' || echo '<unparsed>')"
 else
 	printf '%-12s ABSENT\n' "ngspice"
 fi
 ver xschem xschem --version
 printf '\n'
 
-# requirements.txt states the pins; nothing installs them into the image, so
-# what is recorded here is whatever the image ships unless someone installed
-# them. A mismatch against requirements.txt is a real finding, not noise.
-printf '## Python (pins live in requirements.txt; the image may differ)\n'
+# The image built by `make image` installs requirements.txt, so these should be
+# the pinned versions. A disagreement means this container predates the layer or
+# was built another way -- a real finding, not noise. `make check-tools` is what
+# fails on it.
+printf '## Python (pinned in requirements.txt, installed by the image layer)\n'
 ver python python --version
 for pkg in cocotb pytest numpy ruff; do
 	if python -c "import importlib.metadata as m; m.version('$pkg')" >/dev/null 2>&1; then
