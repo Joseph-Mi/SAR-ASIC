@@ -8,7 +8,6 @@
 // trial word from reset and from start, through sampling, into the first
 // trial. The conversion switches are still on for a moment after sample_o
 // rises, and all-ground there would drag the sealed top plate below ground.
-// reference/protocol.py:first_trial is the contract; DD-08 is why.
 //
 // code_o and metastable_o read together, and only while done_o is high. The
 // code holds the previous result until the last trial replaces it, and the

@@ -164,6 +164,36 @@ until a conversion ends, result pins change only at the end of a conversion
 `vin` clamped to ground..VREF with series R. Shields cost comparator margin,
 never linearity (Step 1). List and reasoning in `docs/topology.md`.
 
+**DD-14 — The result is read in parallel, its most significant bits on the
+dedicated outputs; SPI carries configuration, never the result.**
+A dedicated output cannot contend with anything on the board, so the result
+sits there, and the bidirectional group carries what is left over, the flag,
+and SPI where the platform's own conventions put it -- a convention worth more
+than a tidier map, because it is what lets an off-the-shelf daughterboard talk
+to the chip. Most significant bits first: those pins alone have to read as a
+number across the whole input range, where the low bits alone wrap, a resistor
+ladder on them draws a sawtooth instead of a ramp, and an analyser short of
+channels reads nothing meaningful. Rejected, and why: serialising the result
+(the conversion rate is nowhere near the pins' limit, so a protocol buys
+nothing and costs a decoder at the other end), a second beat on the dedicated
+outputs (measured, the bidirectional pins are electrically the same as the
+dedicated ones, so there is nothing to save), and truncating (the spare pins
+are there).
+
+The register behind those pins takes a result under one of two modes, each
+selected by a pin so the part moves between them with a jumper and no
+firmware: every conversion while the hold pin is low, or one when that pin's
+rising edge asks for it. A request outlives the edge that made it, so a press
+between conversions is never lost and a bouncing contact captures once rather
+than needing a debounce. The flag is up for exactly the cycle the register took
+a result, in both modes, so firmware is written against one rule -- wait for
+the flag, then read the pins -- and never has to know the mode. Holding the
+result does not hold the converter: an asynchronous pin gating the search is
+how a half-finished code gets latched.
+
+`pins.py` declares the map and derives the bidirectional group's output
+enables; a test fails if the RTL states either again.
+
 ---
 
 ## Environment
@@ -800,9 +830,6 @@ Delete each one when it is fixed.
   0 V, and the behavioural one here hides that. M5 must either resolve at
   ~0 V input common mode (PMOS input pair) or the design moves Vcm above
   Vref/2 -- `vcm` is a pin, so that is a bench setting, not a respin.
-- **Result output format (M4).** The code is 10 bits, `uo_out` is 8. Leaning:
-  parallel -- code[7:0] on `uo_out`, code[9:8] + ready on `uio` -- readable as
-  a number by anything; SPI (or `ui_in`) for configuration and DFT modes.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
 - **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
   DRC pitch may not fit the analog strip once power-stripe margins come off.

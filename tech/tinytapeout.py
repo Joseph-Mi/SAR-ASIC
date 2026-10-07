@@ -12,3 +12,18 @@ from __future__ import annotations
 #: analog switch, the bond wire and the trace. The specification gives an
 #: upper bound.
 R_PIN = 500.0
+
+#: Capacitance an analog pin presents, farads. It sits at the pad, outside the
+#: series resistance, so it loads whatever drives the pin rather than adding to
+#: what the pin charges through that resistance.
+C_PIN = 5e-12
+
+#: Current a pin may carry, amps. Applies to the analog pins and to a digital
+#: pin's drive alike.
+I_PIN = 4e-3
+
+#: Supply current, amps, that drops the on-chip supply by V_PDN_DROP volts
+#: through the power network. A budget for everything the project switches at
+#: once, not a limit on any one device.
+I_PDN_DROP = 20e-3
+V_PDN_DROP = 0.1
