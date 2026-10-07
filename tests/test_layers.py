@@ -41,9 +41,18 @@ def layer_of(path: str) -> str | None:
 
 
 def all_sources() -> list[str]:
-    """Every tracked Python file, whatever directory it sits in."""
+    """Every Python file git would keep, whatever directory it sits in.
+
+    Files not yet added count. A module is at its most dangerous before it is
+    committed: that is when nothing has been told about it, and when the linter
+    complains about the files importing it rather than about the omission.
+    """
     return subprocess.run(
-        ["git", "ls-files", "*.py"], cwd=REPO, capture_output=True, text=True, check=True
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.py"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.split()
 
 
