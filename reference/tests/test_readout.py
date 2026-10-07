@@ -19,6 +19,12 @@ CODES = (3, 7, 11, 21)
 BOUNCES = 3
 
 
+def test_the_default_mode_shows_every_conversion():
+    """A part with nothing attached to the pin has to convert and show it.
+    Waiting to be asked would read as a dead chip on a bench."""
+    assert Readout().mode == LEVEL_HOLD
+
+
 def test_a_mode_it_cannot_be_in_is_refused():
     with pytest.raises(ValueError):
         Readout(mode="hold_forever")
