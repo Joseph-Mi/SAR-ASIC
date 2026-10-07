@@ -14,11 +14,21 @@
 
 set -eu
 
+# Seconds a tool gets to name its version. One that needs longer is stuck, and
+# recording that beats stalling a target whose output is buffered out of sight.
+PROBE_SECONDS=20
+
+# Every probe runs with stdin closed. Some of these tools fall through to an
+# interactive prompt after doing what they were asked -- netgen does it on
+# `quit` -- and a prompt reading a terminal never returns. `head` taking its one
+# line does not end it either: the substitution below waits for the whole
+# pipeline, so the tool sits there holding the script open.
 ver() {
 	name=$1
 	shift
 	if command -v "$1" >/dev/null 2>&1; then
-		out=$("$@" 2>&1 | head -1 | tr -s ' ' | sed 's/^ *//;s/ *$//')
+		out=$(timeout "$PROBE_SECONDS" "$@" </dev/null 2>&1 |
+			head -1 | tr -s ' ' | sed 's/^ *//;s/ *$//')
 		printf '%-12s %s\n' "$name" "${out:-<no version output>}"
 	else
 		printf '%-12s ABSENT\n' "$name"
@@ -73,7 +83,8 @@ ver klayout klayout -v
 # ngspice leads with a banner line; the version is on the line naming it.
 if command -v ngspice >/dev/null 2>&1; then
 	printf '%-12s %s\n' "ngspice" \
-		"$(ngspice --version 2>&1 | grep -m1 -o 'ngspice-[0-9.]*' || echo '<unparsed>')"
+		"$(timeout "$PROBE_SECONDS" ngspice --version </dev/null 2>&1 |
+			grep -m1 -o 'ngspice-[0-9.]*' || echo '<unparsed>')"
 else
 	printf '%-12s ABSENT\n' "ngspice"
 fi

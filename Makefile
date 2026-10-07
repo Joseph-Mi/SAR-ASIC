@@ -240,6 +240,7 @@ tool-versions:
 
 ## tool-manifest: record every tool version into docs/tool-manifest.txt
 tool-manifest:
+	@echo "probing every tool once; one that will not answer is recorded as such"
 	@tmp=$$(mktemp) && \
 	  OSIC_TOOLS_TAG="$(OSIC_TOOLS_TAG)" sh scripts/tool-manifest.sh > "$$tmp" && \
 	  mv "$$tmp" docs/tool-manifest.txt || { rm -f "$$tmp"; exit 1; }
