@@ -13,6 +13,21 @@ make check-tools      # fail if it disagrees with versions.env
 make tool-manifest    # record the FULL inventory into tool-manifest.txt
 ```
 
+**The container runs the Python pins, it does not merely state them.** The base
+image ships its own stack and no linter, and bumping our pins to match it would
+break the agreement with the TinyTapeout template -- so the layer is the fix and
+the pins stay. `make image` builds the base plus `requirements.txt`, `make
+container` starts that image, `make check-tools` fails on drift from the file,
+and `make doctor` fails when the running container came from something else. One
+consequence: pinning `pytest` to the TinyTapeout version leaves the base image's
+own `charlib` unsatisfiable, which is acceptable because nothing here uses it.
+
+**A container is created once and started forever.** Starting one never re-reads
+the image it came from, so a container made from a floating tag keeps that
+toolchain however the pin changes afterwards. That is why the image check is on
+the container rather than on the tag, and why the manifest records the base the
+image itself declares instead of the tag it was told.
+
 `versions.env` holds the few tools we choose. [`tool-manifest.txt`](tool-manifest.txt)
 records everything we got, including the dozen pinned transitively by the image
 tag. It is generated, committed, and never hand-edited, so a version change
@@ -65,13 +80,3 @@ version from source; the container ships whatever it was built with. Until those
 agree, local and CI lint with different tools. Two ways out: run CI inside the
 container, or accept that CI is the reference and the container is not.
 
-**The container does not honor `requirements.txt`.** The pins are correct --
-`pytest` and `cocotb` match the TinyTapeout template exactly, which is the
-constraint that matters -- but the image ships different versions of the Python
-stack and no `ruff` at all, so `make lint-py` and `make format-check` fail inside
-the container. Pinned is not the same as installed. See
-[`tool-manifest.txt`](tool-manifest.txt) for what the image actually ships.
-
-The fix is a thin `FROM hpretl/iic-osic-tools:<tag>` layer that installs
-`requirements.txt`, not a change to the pins. Bumping the pins to match the image
-would break the TinyTapeout agreement, which is the wrong trade.

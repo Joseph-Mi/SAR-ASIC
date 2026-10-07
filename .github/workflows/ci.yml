@@ -162,6 +162,12 @@ jobs:
       - name: Pull the pinned tool image
         run: docker pull "hpretl/iic-osic-tools:${OSIC_TOOLS_TAG}"
 
+      # The tests run against the versions requirements.txt pins, which the base
+      # image does not ship. Building the same layer the container uses locally
+      # is what keeps one Python stack across both.
+      - name: Build the image layer
+        run: make image
+
       # ngspice checks free memory before allocating its output buffer and exits
       # if it is short. Unpacking a ~20 GB image leaves the runner with almost
       # none free -- reclaimable, as page cache, but not free, and ngspice reads
@@ -182,7 +188,7 @@ jobs:
           docker run --rm --user "$(id -u):$(id -g)" \
             -e HOME=/tmp -e SAR_REQUIRE_TOOLS=1 \
             -v "$PWD:/foss/designs/SAR-ASIC" -w /foss/designs/SAR-ASIC \
-            --entrypoint /bin/bash "hpretl/iic-osic-tools:${OSIC_TOOLS_TAG}" -c '
+            --entrypoint /bin/bash "$(make -s image-name)" -c '
               set -e
               for f in /dockerstartup/scripts/env.sh /headless/.bashrc; do
                 [ -f "$f" ] && . "$f" || true

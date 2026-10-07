@@ -1,0 +1,4 @@
+# The image layer needs one file. Everything else would be sent to the daemon
+# for nothing, and this tree holds simulation output measured in gigabytes.
+*
+!requirements.txt

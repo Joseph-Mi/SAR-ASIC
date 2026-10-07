@@ -30,7 +30,15 @@ printf '# Pinned inputs (versions.env): image tag %s\n' "${OSIC_TOOLS_TAG:-<unse
 printf '# Everything else below is pinned transitively BY that tag.\n\n'
 
 printf '## Environment\n'
-printf '%-12s %s\n' "image" "hpretl/iic-osic-tools:${OSIC_TOOLS_TAG:-<unset>}"
+# A container cannot see its own image name -- that is host-side knowledge. The
+# image built by `make image` records the base it came from, so this is an
+# observation. A container started outside that path has no such file, which is
+# exactly the drift worth reporting.
+if [ -r /etc/sar-asic-base-image ]; then
+	printf '%-12s %s\n' "image" "$(cat /etc/sar-asic-base-image)"
+else
+	printf '%-12s %s\n' "image" "<unknown -- this container was not built by make image>"
+fi
 printf '%-12s %s\n' "PDK" "${PDK:-<unset>}"
 printf '%-12s %s\n' "PDK_ROOT" "${PDK_ROOT:-<unset>}"
 
@@ -72,10 +80,11 @@ fi
 ver xschem xschem --version
 printf '\n'
 
-# requirements.txt states the pins; nothing installs them into the image, so
-# what is recorded here is whatever the image ships unless someone installed
-# them. A mismatch against requirements.txt is a real finding, not noise.
-printf '## Python (pins live in requirements.txt; the image may differ)\n'
+# The image built by `make image` installs requirements.txt, so these should be
+# the pinned versions. A disagreement means this container predates the layer or
+# was built another way -- a real finding, not noise. `make check-tools` is what
+# fails on it.
+printf '## Python (pinned in requirements.txt, installed by the image layer)\n'
 ver python python --version
 for pkg in cocotb pytest numpy ruff; do
 	if python -c "import importlib.metadata as m; m.version('$pkg')" >/dev/null 2>&1; then
