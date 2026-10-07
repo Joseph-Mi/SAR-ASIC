@@ -25,8 +25,8 @@ module sar_readout #(
   // A request outlives the edge that made it: the edge lands on whatever cycle
   // the pin moves, which is almost never the cycle a conversion ends, and a
   // request dropped between the two is a press that did nothing.
-  reg pending;
-  reg hold_q;
+  reg  pending;
+  reg  hold_q;
 
   wire asked = edge_capture_i & hold_i & ~hold_q;
   wire permit = edge_capture_i ? (pending | asked) : ~hold_i;
