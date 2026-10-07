@@ -4,7 +4,7 @@
 # Everything else below is pinned transitively BY that tag.
 
 ## Environment
-image        hpretl/iic-osic-tools:2026.07
+image        docker.io/hpretl/iic-osic-tools:2026.07
 PDK          sky130A
 PDK_ROOT     /foss/pdks
 open_pdks    f6eeac7dad085ffcc829ccfd721f7b4ce39edcf7
@@ -24,9 +24,9 @@ klayout      KLayout 0.30.9
 ngspice      ngspice-46
 xschem       XSCHEM V3.4.8RC
 
-## Python (pins live in requirements.txt; the image may differ)
+## Python (pinned in requirements.txt, installed by the image layer)
 python       Python 3.12.3
 cocotb       2.0.1
-pytest       9.1.1
-numpy        2.5.1
-ruff         ABSENT
+pytest       8.4.2
+numpy        2.5.2
+ruff         0.16.4
