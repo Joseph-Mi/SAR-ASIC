@@ -127,11 +127,8 @@ COUNT = max(FIELD_ADDRESS[f.name] + f.registers for f in FIELDS)
 
 def fields_at(address: int) -> list[Field]:
     """The fields any part of which lives at `address`."""
-    return [
-        f
-        for f in FIELDS
-        if FIELD_ADDRESS[f.name] <= address < FIELD_ADDRESS[f.name] + f.registers
-    ]
+    spans = ((f, FIELD_ADDRESS[f.name]) for f in FIELDS)
+    return [f for f, start in spans if start <= address < start + f.registers]
 
 
 def placement(field: Field, address: int) -> tuple[int, int, int]:
