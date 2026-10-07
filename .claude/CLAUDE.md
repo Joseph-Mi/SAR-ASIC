@@ -83,9 +83,12 @@ near 0 V. Referenced to Vcm (`VCM_FRACTION` of VREF in `sar.py`) it is
 result carries over. Contract this creates: leaving the sample phase, bottom
 plates go straight to the first trial word -- never through all-ground, which
 would drop the node to Vcm - Vin, down to -VREF/2 even with Vcm. The
-comparator compares the top plate against Vcm. In M3 Vcm is an ideal source;
-whether silicon gets it from its own pin or an on-chip divider is an open
-interface question, answered by M3's settling runs, not decided here.
+comparator compares the top plate against Vcm. The FSM honours this by
+driving the first trial word (`protocol.py:first_trial`) from reset and from
+start, so `dac_b` is never all-zeros while a sample is held and the word does
+not change between the sample and the first decision. In M3 Vcm is an ideal
+source; whether silicon gets it from its own pin or an on-chip divider is an
+open interface question, answered by M3's settling runs, not decided here.
 
 **DD-09 — Circuit simulation harness lives in `sim/`, not `sandbox/`.**
 Design code may not import from the sandbox, and M3's harness is design code:
@@ -797,15 +800,6 @@ Delete each one when it is fixed.
   0 V, and the behavioural one here hides that. M5 must either resolve at
   ~0 V input common mode (PMOS input pair) or the design moves Vcm above
   Vref/2 -- `vcm` is a pin, so that is a bench setting, not a respin.
-- **Entering sampling, the array floats to ground.** The FSM clears `dac_b`
-  on the same edge `sample` rises. With the generator the conversion switches
-  stay on until `phi_conv` falls, so for that window every bottom plate is at
-  ground with the top plate floating: it drops to Vcm - Vin(prev) + ...,
-  measured -0.4 V at high inputs, forward-biasing the top switch's junction.
-  Harmless to the new sample (the top switch re-drives the node), but it is
-  substrate current and a kick on Vcm. Candidate fix: the FSM holds `dac_b`
-  through sampling (the block ignores it then) -- a protocol/model change
-  first (`protocol.py` has SAMPLE with dac_b = 0), then the unit tests, then RTL.
 - **Result output format (M4).** The code is 10 bits, `uo_out` is 8. Leaning:
   parallel -- code[7:0] on `uo_out`, code[9:8] + ready on `uio` -- readable as
   a number by anything; SPI (or `ui_in`) for configuration and DFT modes.

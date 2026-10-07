@@ -4,6 +4,12 @@
 // cmp_clk_o is high; it is captured on the rising edge that ends that cycle.
 // Termination does not depend on the answers.
 //
+// dac_b_o is never all-zeros while a sample is held: it carries the first
+// trial word from reset and from start, through sampling, into the first
+// trial. The conversion switches are still on for a moment after sample_o
+// rises, and all-ground there would drag the sealed top plate below ground.
+// reference/protocol.py:first_trial is the contract; DD-08 is why.
+//
 // code_o and metastable_o read together, and only while done_o is high. The
 // code holds the previous result until the last trial replaces it, and the
 // next start clears the flag, so a reader that samples either at another time
@@ -66,7 +72,7 @@ module sar_fsm #(
       state        <= ST_IDLE;
       bit_index    <= {IDX_W{1'b0}};
       settled      <= {N_BITS{1'b0}};
-      dac_b_o      <= {N_BITS{1'b0}};
+      dac_b_o      <= {1'b1, {(N_BITS - 1) {1'b0}}};
       code_o       <= {N_BITS{1'b0}};
       sample_o     <= 1'b0;
       cmp_clk_o    <= 1'b0;
@@ -84,7 +90,7 @@ module sar_fsm #(
         ST_IDLE: begin
           if (start_i) begin
             settled      <= {N_BITS{1'b0}};
-            dac_b_o      <= {N_BITS{1'b0}};
+            dac_b_o      <= {1'b1, {(N_BITS - 1) {1'b0}}};
             bit_index    <= N_BITS[IDX_W-1:0] - {{(IDX_W - 1) {1'b0}}, 1'b1};
             metastable_o <= 1'b0;
           end

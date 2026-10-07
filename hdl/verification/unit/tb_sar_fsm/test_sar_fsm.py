@@ -16,7 +16,7 @@ from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 
 from interface import N_BITS
-from protocol import EVALUATE, SAMPLE, code_of, conversion_sequence
+from protocol import EVALUATE, SAMPLE, code_of, conversion_sequence, first_trial
 from sar import ideal_units
 from tb_common import rtl, run
 
@@ -191,7 +191,9 @@ async def reset_returns_it_to_ready(dut):
     assert int(dut.ready_o.value) == 1
     assert int(dut.done_o.value) == 0
     assert int(dut.sample_o.value) == 0
-    assert int(dut.dac_b_o.value) == 0
+    # Reset abandons a held sample, so it is one of the moments the array must
+    # not be left at all-ground under a floating top plate.
+    assert int(dut.dac_b_o.value) == first_trial(N_BITS)
 
 
 @cocotb.test()
