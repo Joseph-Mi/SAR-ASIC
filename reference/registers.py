@@ -2,8 +2,15 @@
 
 Contract: a write names a register; a field is the unit that means something. A
 field wider than one register occupies consecutive addresses, least significant
-register first, and is written one register at a time -- so a word wider than the
-bus is never half-applied to the analog half: see `held`.
+register first, and is written one register at a time.
+
+A held write reaches the analog half only once no conversion is running and no
+frame of writes is open. Both conditions earn their place, for different
+reasons: a conversion must not have the array's drive change under it, and a
+field wider than the bus takes more than one write, so the frame is what makes
+those writes one change rather than several. A host that spreads such a field
+over two frames gets no such promise -- which is the reason a frame may carry
+more than one write.
 
 Reading back a writable field returns what was last written to it, not what is in
 effect. The two differ only while a conversion is running, and a host that needs
@@ -179,6 +186,8 @@ class Registers:
         self._written = {f.name: f.reset for f in FIELDS}
         self._live = dict(self._written)
         self._observed = {f.name: f.reset for f in FIELDS if f.access == RO}
+        self._converting = False
+        self._selected = False
 
     def _check(self, address: int) -> None:
         if not 0 <= address < COUNT:
@@ -208,9 +217,21 @@ class Registers:
         return out
 
     def converting(self, busy: bool) -> None:
-        """Whether a conversion is in progress. A held write reaches the analog
-        half whenever one is not, so no write is ever stranded."""
-        if not busy:
+        """Whether a conversion is in progress."""
+        self._converting = bool(busy)
+        self._settle()
+
+    def selected(self, open_frame: bool) -> None:
+        """Whether a frame of writes is open. Nothing a frame carries takes
+        effect until it closes, so the writes that make up one field wider than
+        the bus become one change."""
+        self._selected = bool(open_frame)
+        self._settle()
+
+    def _settle(self) -> None:
+        """Held writes reach the analog half whenever it is safe, so no write is
+        left stranded by a part that is never asked to convert again."""
+        if not self._converting and not self._selected:
             self._live = dict(self._written)
 
     def observe(self, **values: int) -> None:

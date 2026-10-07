@@ -137,6 +137,30 @@ def test_a_held_write_lands_once_the_conversion_ends():
     assert reg["raw_dac"] == 1
 
 
+def test_a_field_wider_than_the_bus_is_whole_before_it_is_used():
+    """It takes more than one write, so a conversion ending between them would
+    otherwise hand the analog half half of the word."""
+    reg = Registers()
+    word = (1 << N_BITS) - 1 - (1 << (N_BITS - 1))
+    reg.selected(True)
+    for address, value in writes_for(dac=word):
+        reg.write(address, value)
+        reg.converting(True)
+        reg.converting(False)
+    reg.selected(False)
+    assert reg["dac"] == word
+
+
+def test_nothing_in_an_open_frame_takes_effect_yet():
+    reg = Registers()
+    reg.write(ADDRESS["control"], 1)
+    reg.selected(True)
+    reg.converting(False)
+    assert reg["raw_dac"] == 0
+    reg.selected(False)
+    assert reg["raw_dac"] == 1
+
+
 def test_a_held_write_made_while_idle_does_not_wait_for_a_conversion():
     """Nothing is stranded by a part that is never asked to convert again."""
     reg = Registers()
