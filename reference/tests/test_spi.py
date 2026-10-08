@@ -8,10 +8,20 @@ on a register that exists.
 
 from __future__ import annotations
 
+import pathlib
+import re
+
 import pytest
 
 from registers import ADDRESS, COUNT, REGISTER_WIDTH, VIEW_SEARCH
 from spi import ADDRESS_MASK, DIRECTION, IDLE_BYTE, WRITE, Slave, command
+
+REPO = next(p for p in pathlib.Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
+RTL_DIR = REPO / "hdl" / "rtl"
+
+#: A register width written into the RTL. Synthesis reads the default, not what a
+#: testbench passes, so the default is the one that has to agree.
+RTL_REGISTER_WIDTH = re.compile(r"^\s*parameter\s+(?:integer\s+)?REGISTER_WIDTH\s*=\s*(\d+)", re.M)
 
 FULL = (1 << REGISTER_WIDTH) - 1
 
@@ -168,3 +178,17 @@ def test_the_direction_bit_is_the_top_one():
     """Where it sits decides how much address a command can carry."""
     assert WRITE == 1 << DIRECTION
     assert ADDRESS_MASK == (1 << DIRECTION) - 1
+
+
+def test_the_rtl_defaults_to_the_width_the_map_uses():
+    """A register wider in the RTL than in the map decodes a different address
+    out of the same command byte, and every frame lands somewhere else."""
+    declared = [
+        (path.name, int(m.group(1)))
+        for path in sorted(RTL_DIR.rglob("*.v"))
+        for m in RTL_REGISTER_WIDTH.finditer(path.read_text())
+    ]
+    if not declared:
+        pytest.skip("no RTL declares a register width yet")
+    for name, value in declared:
+        assert value == REGISTER_WIDTH, f"{name} defaults to {value}, the map uses {REGISTER_WIDTH}"
