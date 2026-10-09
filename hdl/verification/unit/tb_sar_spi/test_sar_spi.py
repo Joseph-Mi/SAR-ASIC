@@ -153,10 +153,16 @@ async def a_read_frame_returns_consecutive_registers(dut):
 
 @cocotb.test()
 async def a_quiet_line_changes_nothing(dut):
-    """A line nobody drives reads the first register and writes none of them."""
+    """A line nobody drives reads the first register and writes none of them.
+
+    Both registers the quiet frame touches are given a bit first, and through the
+    model as well so the two agree on what a read should return: a register
+    holding its reset value of zero would read the same whether or not the frame
+    wrote it.
+    """
     registers = await start(dut)
     slave = Slave()
-    await frame(dut, [command(0, write=True), 1, 0])
+    await agrees(dut, registers, slave, [command(0, write=True), 1, 1], "setup")
     before = state(registers)
     await agrees(dut, registers, slave, list(QUIET_FRAME), "quiet frame")
     assert state(registers) == before
