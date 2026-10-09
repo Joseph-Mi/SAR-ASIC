@@ -20,17 +20,17 @@
 module sar_spi #(
     parameter integer REGISTER_WIDTH = 8
 ) (
-    input  wire                       clk_i,
-    input  wire                       rst_ni,
-    input  wire                       sck_i,
-    input  wire                       cs_ni,
-    input  wire                       mosi_i,
-    output wire                       miso_o,
-    output reg  [REGISTER_WIDTH-2:0]  address_o,
-    output reg  [REGISTER_WIDTH-1:0]  wdata_o,
-    output reg                        write_o,
-    output wire                       selected_o,
-    input  wire [REGISTER_WIDTH-1:0]  rdata_i
+    input  wire                      clk_i,
+    input  wire                      rst_ni,
+    input  wire                      sck_i,
+    input  wire                      cs_ni,
+    input  wire                      mosi_i,
+    output wire                      miso_o,
+    output reg  [REGISTER_WIDTH-2:0] address_o,
+    output reg  [REGISTER_WIDTH-1:0] wdata_o,
+    output reg                       write_o,
+    output wire                      selected_o,
+    input  wire [REGISTER_WIDTH-1:0] rdata_i
 );
 
   // The command byte's top bit says which way the frame goes; the rest is the
@@ -77,19 +77,19 @@ module sar_spi #(
   // be handed the address of the byte after the one it is writing.
   reg                       step_address;
 
-  wire sck_rise = sck_s & ~sck_q;
-  wire sck_fall = ~sck_s & sck_q;
+  wire                      sck_rise = sck_s & ~sck_q;
+  wire                      sck_fall = ~sck_s & sck_q;
 
   // The byte that is complete on this rising edge: what was shifted in before,
   // plus the bit arriving now.
   wire [REGISTER_WIDTH-1:0] byte_in = {shift, mosi_s};
-  wire last_bit = bit_count == {COUNT_WIDTH{1'b1}};
+  wire                      last_bit = bit_count == {COUNT_WIDTH{1'b1}};
 
   // Stops at the top of the address space instead of wrapping. Wrapping would
   // carry a long frame back round onto a register that exists, and land a write
   // the host never asked for; the top of the space reaches nothing.
-  wire [ADDRESS_WIDTH-1:0] next_address = address_o + {{(ADDRESS_WIDTH - 1) {1'b0}}, 1'b1};
-  wire address_full = address_o == {ADDRESS_WIDTH{1'b1}};
+  wire [ ADDRESS_WIDTH-1:0] next_address = address_o + {{(ADDRESS_WIDTH - 1) {1'b0}}, 1'b1};
+  wire                      address_full = address_o == {ADDRESS_WIDTH{1'b1}};
 
   assign selected_o = ~cs_n_s;
   assign miso_o = out_shift[REGISTER_WIDTH-1];
