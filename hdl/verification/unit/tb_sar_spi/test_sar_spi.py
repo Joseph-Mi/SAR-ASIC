@@ -17,7 +17,16 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 
-from registers import COUNT, FIELDS, REGISTER_WIDTH, RW, Registers
+from registers import (
+    ADDRESS,
+    COUNT,
+    FIELDS,
+    IDENTITY,
+    IDENTITY_VALUE,
+    REGISTER_WIDTH,
+    RW,
+    Registers,
+)
 from spi import Slave, command
 from tb_common import rtl, run
 
@@ -127,7 +136,8 @@ async def agrees(dut, registers, slave, data, what) -> list[int]:
 async def a_write_frame_reaches_the_register(dut):
     registers = await start(dut)
     slave = Slave()
-    await agrees(dut, registers, slave, [command(1, write=True), 0x5A], "write")
+    data = [command(ADDRESS["clk_div"], write=True), 0x5A]
+    await agrees(dut, registers, slave, data, "write")
     assert registers["clk_div"] == 0x5A
 
 
@@ -137,7 +147,7 @@ async def one_frame_sets_a_field_wider_than_the_bus(dut):
     change rather than two."""
     registers = await start(dut)
     slave = Slave()
-    data = [command(2, write=True), WIDE & FULL, WIDE >> REGISTER_WIDTH]
+    data = [command(ADDRESS["dac"], write=True), WIDE & FULL, WIDE >> REGISTER_WIDTH]
     await agrees(dut, registers, slave, data, "wide write")
     assert registers["dac"] == WIDE
 
@@ -145,35 +155,38 @@ async def one_frame_sets_a_field_wider_than_the_bus(dut):
 @cocotb.test()
 async def a_read_frame_returns_consecutive_registers(dut):
     registers = await start(dut)
-    await frame(dut, [command(2, write=True), WIDE & FULL, WIDE >> REGISTER_WIDTH])
-    got = await frame(dut, [command(2, write=False), 0, 0])
+    await frame(dut, [command(ADDRESS["dac"], write=True), WIDE & FULL, WIDE >> REGISTER_WIDTH])
+    got = await frame(dut, [command(ADDRESS["dac"], write=False), 0, 0])
     assert got == [0, WIDE & FULL, WIDE >> REGISTER_WIDTH]
     assert registers["dac"] == WIDE
 
 
 @cocotb.test()
-async def a_quiet_line_changes_nothing(dut):
-    """A line nobody drives reads the first register and writes none of them.
+async def a_quiet_line_returns_the_identity_and_changes_nothing(dut):
+    """A line nobody drives reads the bottom of the map, which is the register
+    that says which map this is -- so the harmless case is also the one that
+    proves the part is answering.
 
-    Both registers the quiet frame touches are given a bit first, and through the
-    model as well so the two agree on what a read should return: a register
-    holding its reset value of zero would read the same whether or not the frame
-    wrote it.
+    The registers the frame reaches are given a bit first, and through the model
+    as well so the two agree on what a read returns: a register holding its reset
+    value of zero reads the same whether or not the frame wrote it.
     """
     registers = await start(dut)
     slave = Slave()
-    await agrees(dut, registers, slave, [command(0, write=True), 1, 1], "setup")
+    setup = [command(ADDRESS["control"], write=True), 1, 1]
+    await agrees(dut, registers, slave, setup, "setup")
     before = state(registers)
-    await agrees(dut, registers, slave, list(QUIET_FRAME), "quiet frame")
+    got = await agrees(dut, registers, slave, list(QUIET_FRAME), "quiet frame")
+    assert got[1] == IDENTITY_VALUE, f"quiet frame read {got[1]:#04x} at {IDENTITY}"
     assert state(registers) == before
 
 
 @cocotb.test()
 async def the_slave_says_nothing_through_a_write(dut):
     registers = await start(dut)
-    await frame(dut, [command(1, write=True), FULL])
+    await frame(dut, [command(ADDRESS["clk_div"], write=True), FULL])
     assert registers["clk_div"] == FULL
-    got = await frame(dut, [command(1, write=True), 0x3C])
+    got = await frame(dut, [command(ADDRESS["clk_div"], write=True), 0x3C])
     assert got == [0, 0]
 
 
@@ -193,7 +206,8 @@ async def a_frame_cut_short_leaves_nothing_behind(dut):
     await ClockCycles(dut.clk_i, SCK_PHASE_CYCLES)
 
     slave = Slave()
-    await agrees(dut, registers, slave, [command(1, write=True), 0x42], "after an abandoned frame")
+    data = [command(ADDRESS["clk_div"], write=True), 0x42]
+    await agrees(dut, registers, slave, data, "after an abandoned frame")
     assert registers["clk_div"] == 0x42
 
 

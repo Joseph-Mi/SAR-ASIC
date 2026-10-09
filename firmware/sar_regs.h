@@ -17,11 +17,18 @@
 #include <stdint.h>
 
 #define SAR_REGISTER_WIDTH 8u
-#define SAR_REGISTER_COUNT 7u
+#define SAR_REGISTER_COUNT 8u
 
 /* The map both ends have to agree on. Firmware states the map it was written
- * against once, and SAR_REQUIRE_MAP refuses to compile against another. */
-#define SAR_MAP_HASH 0x3b6f8834u
+ * against once, and SAR_REQUIRE_MAP refuses to compile against another.
+ *
+ * That check is against this header. The part itself is asked at run time:
+ * read SAR_IDENTITY_ADDR and compare it against SAR_IDENTITY_VALUE
+ * before writing any configuration, because the map a part was taped out
+ * with is frozen and this one is not. The value is never what an undriven
+ * line reads as, so the same check catches a bus that is not answering. */
+#define SAR_MAP_HASH 0xf18e5cd9u
+#define SAR_IDENTITY_VALUE 0x68u
 #define SAR_REQUIRE_MAP(hash) \
   _Static_assert((hash) == SAR_MAP_HASH, "the register map has moved")
 
@@ -47,10 +54,21 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_FIELD_SET(reg, shift, mask, value) \
   (((reg) & ~((mask) << (shift))) | (((value) & (mask)) << (shift)))
 
-/* control @ 0x00 */
-#define SAR_ADDR_CONTROL 0x00u
+/* identity @ 0x00 */
+#define SAR_ADDR_IDENTITY 0x00u
+/* identity: 8 bit, ro, constant */
+#define SAR_IDENTITY_ADDR 0x00u
+#define SAR_IDENTITY_REGISTERS 1u
+#define SAR_IDENTITY_WIDTH 8u
+#define SAR_IDENTITY_SHIFT 0u
+#define SAR_IDENTITY_MASK 0xffu
+#define SAR_IDENTITY_WRITABLE 0
+#define SAR_IDENTITY_HELD 0
+
+/* control @ 0x01 */
+#define SAR_ADDR_CONTROL 0x01u
 /* raw_dac: 1 bit, rw, held */
-#define SAR_RAW_DAC_ADDR 0x00u
+#define SAR_RAW_DAC_ADDR 0x01u
 #define SAR_RAW_DAC_REGISTERS 1u
 #define SAR_RAW_DAC_WIDTH 1u
 #define SAR_RAW_DAC_SHIFT 0u
@@ -59,7 +77,7 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_RAW_DAC_HELD 1
 #define SAR_RAW_DAC_RESET 0x0u
 /* force_en: 1 bit, rw, held */
-#define SAR_FORCE_EN_ADDR 0x00u
+#define SAR_FORCE_EN_ADDR 0x01u
 #define SAR_FORCE_EN_REGISTERS 1u
 #define SAR_FORCE_EN_WIDTH 1u
 #define SAR_FORCE_EN_SHIFT 1u
@@ -68,7 +86,7 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_FORCE_EN_HELD 1
 #define SAR_FORCE_EN_RESET 0x0u
 /* force_hi: 1 bit, rw, held */
-#define SAR_FORCE_HI_ADDR 0x00u
+#define SAR_FORCE_HI_ADDR 0x01u
 #define SAR_FORCE_HI_REGISTERS 1u
 #define SAR_FORCE_HI_WIDTH 1u
 #define SAR_FORCE_HI_SHIFT 2u
@@ -77,10 +95,10 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_FORCE_HI_HELD 1
 #define SAR_FORCE_HI_RESET 0x0u
 
-/* clk_div @ 0x01 */
-#define SAR_ADDR_CLK_DIV 0x01u
+/* clk_div @ 0x02 */
+#define SAR_ADDR_CLK_DIV 0x02u
 /* clk_div: 8 bit, rw, held */
-#define SAR_CLK_DIV_ADDR 0x01u
+#define SAR_CLK_DIV_ADDR 0x02u
 #define SAR_CLK_DIV_REGISTERS 1u
 #define SAR_CLK_DIV_WIDTH 8u
 #define SAR_CLK_DIV_SHIFT 0u
@@ -89,10 +107,10 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_CLK_DIV_HELD 1
 #define SAR_CLK_DIV_RESET 0xffu
 
-/* dac @ 0x02..0x03 */
-#define SAR_ADDR_DAC 0x02u
+/* dac @ 0x03..0x04 */
+#define SAR_ADDR_DAC 0x03u
 /* dac: 10 bit, rw, held */
-#define SAR_DAC_ADDR 0x02u
+#define SAR_DAC_ADDR 0x03u
 #define SAR_DAC_REGISTERS 2u
 #define SAR_DAC_WIDTH 10u
 #define SAR_DAC_SHIFT 0u
@@ -101,10 +119,10 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_DAC_HELD 1
 #define SAR_DAC_RESET 0x0u
 
-/* view @ 0x04 */
-#define SAR_ADDR_VIEW 0x04u
+/* view @ 0x05 */
+#define SAR_ADDR_VIEW 0x05u
 /* view: 2 bit, rw */
-#define SAR_VIEW_ADDR 0x04u
+#define SAR_VIEW_ADDR 0x05u
 #define SAR_VIEW_REGISTERS 1u
 #define SAR_VIEW_WIDTH 2u
 #define SAR_VIEW_SHIFT 0u
@@ -113,10 +131,10 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_VIEW_HELD 0
 #define SAR_VIEW_RESET 0x0u
 
-/* status @ 0x05 */
-#define SAR_ADDR_STATUS 0x05u
+/* status @ 0x06 */
+#define SAR_ADDR_STATUS 0x06u
 /* ready: 1 bit, ro */
-#define SAR_READY_ADDR 0x05u
+#define SAR_READY_ADDR 0x06u
 #define SAR_READY_REGISTERS 1u
 #define SAR_READY_WIDTH 1u
 #define SAR_READY_SHIFT 0u
@@ -125,7 +143,7 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_READY_HELD 0
 #define SAR_READY_RESET 0x0u
 /* done: 1 bit, ro */
-#define SAR_DONE_ADDR 0x05u
+#define SAR_DONE_ADDR 0x06u
 #define SAR_DONE_REGISTERS 1u
 #define SAR_DONE_WIDTH 1u
 #define SAR_DONE_SHIFT 1u
@@ -134,7 +152,7 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_DONE_HELD 0
 #define SAR_DONE_RESET 0x0u
 /* metastable: 1 bit, ro */
-#define SAR_METASTABLE_ADDR 0x05u
+#define SAR_METASTABLE_ADDR 0x06u
 #define SAR_METASTABLE_REGISTERS 1u
 #define SAR_METASTABLE_WIDTH 1u
 #define SAR_METASTABLE_SHIFT 2u
@@ -143,7 +161,7 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_METASTABLE_HELD 0
 #define SAR_METASTABLE_RESET 0x0u
 /* cmp_out: 1 bit, ro */
-#define SAR_CMP_OUT_ADDR 0x05u
+#define SAR_CMP_OUT_ADDR 0x06u
 #define SAR_CMP_OUT_REGISTERS 1u
 #define SAR_CMP_OUT_WIDTH 1u
 #define SAR_CMP_OUT_SHIFT 3u
@@ -152,10 +170,10 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_CMP_OUT_HELD 0
 #define SAR_CMP_OUT_RESET 0x0u
 
-/* search @ 0x06 */
-#define SAR_ADDR_SEARCH 0x06u
+/* search @ 0x07 */
+#define SAR_ADDR_SEARCH 0x07u
 /* bit_index: 4 bit, ro */
-#define SAR_BIT_INDEX_ADDR 0x06u
+#define SAR_BIT_INDEX_ADDR 0x07u
 #define SAR_BIT_INDEX_REGISTERS 1u
 #define SAR_BIT_INDEX_WIDTH 4u
 #define SAR_BIT_INDEX_SHIFT 0u

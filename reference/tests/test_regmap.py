@@ -11,7 +11,6 @@ compile is found by whoever vendors it rather than by us.
 
 from __future__ import annotations
 
-import copy
 import json
 import pathlib
 import shutil
@@ -20,7 +19,7 @@ import subprocess
 import pytest
 
 import regmap
-from registers import COUNT, FIELDS, RW
+from registers import COUNT, FIELDS, MAP_HASH, RW
 
 REPO = next(p for p in pathlib.Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
 OUTPUT = REPO / regmap.OUTPUT_DIR
@@ -50,25 +49,6 @@ def test_the_committed_rendering_is_what_the_layout_generates(name, generated):
     assert path.read_text(encoding=regmap.ENCODING) == generated[name], (
         f"{name} is not what the layout says: run `{regmap.REGENERATE}`"
     )
-
-
-def test_the_hash_moves_when_a_field_moves():
-    """The whole point of the hash. A map that differs in anything a host could
-    act on has to hash differently, or the check it exists for passes while the
-    two ends disagree."""
-    described = regmap.canonical()
-    moved = copy.deepcopy(described)
-    moved["fields"][0]["shift"] += 1
-    assert regmap.hash_of(moved) != regmap.hash_of(described)
-
-
-def test_the_hash_ignores_the_order_fields_are_described_in():
-    """Two descriptions of the same map hash the same, so a reordering of the
-    declaration does not read as a map change to every host in the field."""
-    described = regmap.canonical()
-    shuffled = copy.deepcopy(described)
-    shuffled["fields"].reverse()
-    assert regmap.hash_of(shuffled) == regmap.hash_of(described)
 
 
 def test_every_field_reaches_both_renderings(generated):
@@ -130,7 +110,7 @@ def test_the_header_compiles(generated, tmp_path):
     if not found:
         pytest.skip("no C compiler")
     (tmp_path / "sar_regs.h").write_text(generated["sar_regs.h"], encoding=regmap.ENCODING)
-    source = _probe(regmap.map_hash())
+    source = _probe(MAP_HASH)
     done = subprocess.run(
         [found, *COMPILE_FLAGS, f"-I{tmp_path}"], input=source, capture_output=True, text=True
     )
@@ -144,7 +124,7 @@ def test_the_header_refuses_a_hash_that_is_not_its_own(generated, tmp_path):
     if not found:
         pytest.skip("no C compiler")
     (tmp_path / "sar_regs.h").write_text(generated["sar_regs.h"], encoding=regmap.ENCODING)
-    source = _probe(regmap.map_hash() ^ 1)
+    source = _probe(MAP_HASH ^ 1)
     done = subprocess.run(
         [found, *COMPILE_FLAGS, f"-I{tmp_path}"], input=source, capture_output=True, text=True
     )

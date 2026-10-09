@@ -11,16 +11,14 @@ written and never again. These are generated, committed, and compared against a
 fresh generation by a test, so a field that moves either comes with regenerated
 outputs or fails.
 
-The hash is what lets the two ends check they mean the same map. It covers
-everything a host could get wrong -- where each field sits, how wide it is,
-whether it is writable, whether it is held, what it resets to -- so any change
-that would mislead firmware changes it, and a change that could not (prose, the
-order fields are declared within one address) does not.
+Neither rendering states a fact of its own. The map's identity and the hash it
+comes from are the layout's, carried through to where a host can check them: at
+compile time against the whole hash, and at run time against the byte the part
+reports.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import pathlib
 
@@ -28,18 +26,19 @@ from registers import (
     ADDRESS,
     COUNT,
     FIELD_ADDRESS,
-    FIELDS,
+    HASH_BITS,
+    IDENTITY,
+    IDENTITY_VALUE,
     LAYOUT,
+    MAP_HASH,
     REGISTER_WIDTH,
+    REPORTED,
     RW,
+    description,
     fields_at,
     placement,
 )
 from spi import ADDRESS_MASK, IDLE_BYTE, WRITE
-
-#: Bits of the hash the renderings carry. Wide enough that two maps colliding is
-#: not the thing to worry about, and still one word on any host.
-HASH_BITS = 32
 
 #: The hash as hex: one digit per four bits.
 HASH_DIGITS = HASH_BITS // 4
@@ -72,53 +71,6 @@ GUARD = f"{PREFIX}_REGS_H"
 
 def _name(*parts: str) -> str:
     return "_".join((PREFIX, *parts)).upper()
-
-
-#: The key a description's fields are hashed in order of. A field's name is its
-#: identity, so sorting by it is what makes two descriptions of one map hash the
-#: same however each was built.
-HASH_ORDER = "name"
-
-
-def canonical() -> dict:
-    """Everything about the map a host could act on, in address order."""
-    return {
-        "register_width": REGISTER_WIDTH,
-        "register_count": COUNT,
-        "frame": {"write_bit": WRITE, "address_mask": ADDRESS_MASK, "idle_byte": IDLE_BYTE},
-        "fields": [
-            {
-                "name": field.name,
-                "address": FIELD_ADDRESS[field.name],
-                "registers": field.registers,
-                "shift": field.offset,
-                "width": field.width,
-                "access": field.access,
-                "held": field.held,
-                "reset": field.reset,
-            }
-            for field in FIELDS
-        ],
-    }
-
-
-def hash_of(described: dict) -> int:
-    """The hash of a map described that way.
-
-    Order is not part of the description: the fields are hashed by name and the
-    keys sorted, so the same map laid out in a different order in the source
-    does not read as a map change to every host already in the field.
-    """
-    ordered = dict(described, fields=sorted(described["fields"], key=lambda f: f[HASH_ORDER]))
-    text = json.dumps(ordered, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha256(text.encode(ENCODING)).digest()
-    return int.from_bytes(digest, "big") >> (len(digest) * 8 - HASH_BITS)
-
-
-def map_hash() -> int:
-    """A number both ends can compare. Derived, never set: a version somebody
-    has to remember to raise is a version that stays where it was."""
-    return hash_of(canonical())
 
 
 def slices() -> list[dict]:
@@ -154,7 +106,8 @@ def as_data() -> dict:
     """The map as data, for a host that is not C."""
     return {
         "generated": f"Do not edit. Regenerate with `{REGENERATE}`.",
-        "map_hash": f"{map_hash():#0{HASH_DIGITS + 2}x}",
+        "map_hash": f"{MAP_HASH:#0{HASH_DIGITS + 2}x}",
+        "identity_value": IDENTITY_VALUE,
         "register_width": REGISTER_WIDTH,
         "register_count": COUNT,
         "frame": {
@@ -163,7 +116,7 @@ def as_data() -> dict:
             "idle_byte": IDLE_BYTE,
             "address_steps_per_byte": 1,
         },
-        "fields": canonical()["fields"],
+        "fields": description(),
         "registers": slices(),
     }
 
@@ -196,8 +149,15 @@ def _header_lines() -> list[str]:
         f"#define {_name('REGISTER_COUNT')} {COUNT}{SUFFIX}",
         "",
         "/* The map both ends have to agree on. Firmware states the map it was written",
-        f" * against once, and {_name('REQUIRE_MAP')} refuses to compile against another. */",
-        f"#define {_name('MAP_HASH')} {map_hash():#0{HASH_DIGITS + 2}x}{SUFFIX}",
+        f" * against once, and {_name('REQUIRE_MAP')} refuses to compile against another.",
+        " *",
+        " * That check is against this header. The part itself is asked at run time:",
+        f" * read {_name(IDENTITY, 'ADDR')} and compare it against {_name(IDENTITY, 'VALUE')}",
+        " * before writing any configuration, because the map a part was taped out",
+        " * with is frozen and this one is not. The value is never what an undriven",
+        " * line reads as, so the same check catches a bus that is not answering. */",
+        f"#define {_name('MAP_HASH')} {MAP_HASH:#0{HASH_DIGITS + 2}x}{SUFFIX}",
+        f"#define {_name(IDENTITY, 'VALUE')} {IDENTITY_VALUE:#04x}{SUFFIX}",
         f"#define {_name('REQUIRE_MAP')}(hash) \\",
         f'  _Static_assert((hash) == {_name("MAP_HASH")}, "the register map has moved")',
         "",
@@ -239,6 +199,8 @@ def _header_lines() -> list[str]:
             tags = [field.access]
             if field.held:
                 tags.append("held")
+            if field.name in REPORTED:
+                tags.append("constant")
             lines.append(f"/* {field.name}: {field.width} bit, {', '.join(tags)} */")
             lines.append(
                 f"#define {_name(field.name, 'ADDR')} {FIELD_ADDRESS[field.name]:#04x}{SUFFIX}"
@@ -249,7 +211,8 @@ def _header_lines() -> list[str]:
             lines.append(f"#define {_name(field.name, 'MASK')} {field.mask:#x}{SUFFIX}")
             lines.append(f"#define {_name(field.name, 'WRITABLE')} {int(field.access == RW)}")
             lines.append(f"#define {_name(field.name, 'HELD')} {int(field.held)}")
-            lines.append(f"#define {_name(field.name, 'RESET')} {field.reset:#x}{SUFFIX}")
+            if field.name not in REPORTED:
+                lines.append(f"#define {_name(field.name, 'RESET')} {field.reset:#x}{SUFFIX}")
         lines.append("")
 
     lines.append(f"#endif /* {GUARD} */")

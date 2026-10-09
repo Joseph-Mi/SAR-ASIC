@@ -1,8 +1,9 @@
 {
   "generated": "Do not edit. Regenerate with `make regmap`.",
-  "map_hash": "0x3b6f8834",
+  "map_hash": "0xf18e5cd9",
+  "identity_value": 104,
   "register_width": 8,
-  "register_count": 7,
+  "register_count": 8,
   "frame": {
     "write_bit": 128,
     "address_mask": 127,
@@ -11,8 +12,18 @@
   },
   "fields": [
     {
-      "name": "raw_dac",
+      "name": "identity",
       "address": 0,
+      "registers": 1,
+      "shift": 0,
+      "width": 8,
+      "access": "ro",
+      "held": false,
+      "reset": 0
+    },
+    {
+      "name": "raw_dac",
+      "address": 1,
       "registers": 1,
       "shift": 0,
       "width": 1,
@@ -22,7 +33,7 @@
     },
     {
       "name": "force_en",
-      "address": 0,
+      "address": 1,
       "registers": 1,
       "shift": 1,
       "width": 1,
@@ -32,7 +43,7 @@
     },
     {
       "name": "force_hi",
-      "address": 0,
+      "address": 1,
       "registers": 1,
       "shift": 2,
       "width": 1,
@@ -42,7 +53,7 @@
     },
     {
       "name": "clk_div",
-      "address": 1,
+      "address": 2,
       "registers": 1,
       "shift": 0,
       "width": 8,
@@ -52,7 +63,7 @@
     },
     {
       "name": "dac",
-      "address": 2,
+      "address": 3,
       "registers": 2,
       "shift": 0,
       "width": 10,
@@ -62,7 +73,7 @@
     },
     {
       "name": "view",
-      "address": 4,
+      "address": 5,
       "registers": 1,
       "shift": 0,
       "width": 2,
@@ -72,7 +83,7 @@
     },
     {
       "name": "ready",
-      "address": 5,
+      "address": 6,
       "registers": 1,
       "shift": 0,
       "width": 1,
@@ -82,7 +93,7 @@
     },
     {
       "name": "done",
-      "address": 5,
+      "address": 6,
       "registers": 1,
       "shift": 1,
       "width": 1,
@@ -92,7 +103,7 @@
     },
     {
       "name": "metastable",
-      "address": 5,
+      "address": 6,
       "registers": 1,
       "shift": 2,
       "width": 1,
@@ -102,7 +113,7 @@
     },
     {
       "name": "cmp_out",
-      "address": 5,
+      "address": 6,
       "registers": 1,
       "shift": 3,
       "width": 1,
@@ -112,7 +123,7 @@
     },
     {
       "name": "bit_index",
-      "address": 6,
+      "address": 7,
       "registers": 1,
       "shift": 0,
       "width": 4,
@@ -124,6 +135,19 @@
   "registers": [
     {
       "address": 0,
+      "group": "identity",
+      "parts": [
+        {
+          "field": "identity",
+          "field_bit": 0,
+          "width": 8,
+          "shift": 0,
+          "access": "ro"
+        }
+      ]
+    },
+    {
+      "address": 1,
       "group": "control",
       "parts": [
         {
@@ -150,24 +174,11 @@
       ]
     },
     {
-      "address": 1,
+      "address": 2,
       "group": "clk_div",
       "parts": [
         {
           "field": "clk_div",
-          "field_bit": 0,
-          "width": 8,
-          "shift": 0,
-          "access": "rw"
-        }
-      ]
-    },
-    {
-      "address": 2,
-      "group": "dac",
-      "parts": [
-        {
-          "field": "dac",
           "field_bit": 0,
           "width": 8,
           "shift": 0,
@@ -181,6 +192,19 @@
       "parts": [
         {
           "field": "dac",
+          "field_bit": 0,
+          "width": 8,
+          "shift": 0,
+          "access": "rw"
+        }
+      ]
+    },
+    {
+      "address": 4,
+      "group": "dac",
+      "parts": [
+        {
+          "field": "dac",
           "field_bit": 8,
           "width": 2,
           "shift": 0,
@@ -189,7 +213,7 @@
       ]
     },
     {
-      "address": 4,
+      "address": 5,
       "group": "view",
       "parts": [
         {
@@ -202,7 +226,7 @@
       ]
     },
     {
-      "address": 5,
+      "address": 6,
       "group": "status",
       "parts": [
         {
@@ -236,7 +260,7 @@
       ]
     },
     {
-      "address": 6,
+      "address": 7,
       "group": "search",
       "parts": [
         {
