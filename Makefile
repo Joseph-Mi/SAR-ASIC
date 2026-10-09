@@ -287,6 +287,10 @@ lint-py:
 model:
 	@$(PYTHON) -m pytest $(REF_DIR) $(MODEL_DIR) $(STUDY_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
+## regmap: regenerate the firmware register map -- commit the diff
+regmap:
+	@PYTHONPATH=$(TECH_DIR):$(REF_DIR) $(PYTHON) $(REF_DIR)/regmap.py
+
 ## study: regenerate the mismatch sweep artifact -- commit the diff
 ## 	ARGS="--gradient 0.01 --out build/studies/grad.txt" for an exploratory run
 study:
@@ -332,4 +336,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop noise help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model study plots verify-analog verify-unit verify-integration verify-system verify clean
+.PHONY: show-loop noise help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-analog verify-unit verify-integration verify-system verify clean

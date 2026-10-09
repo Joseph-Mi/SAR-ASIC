@@ -1,0 +1,252 @@
+{
+  "generated": "Do not edit. Regenerate with `make regmap`.",
+  "map_hash": "0x3b6f8834",
+  "register_width": 8,
+  "register_count": 7,
+  "frame": {
+    "write_bit": 128,
+    "address_mask": 127,
+    "idle_byte": 0,
+    "address_steps_per_byte": 1
+  },
+  "fields": [
+    {
+      "name": "raw_dac",
+      "address": 0,
+      "registers": 1,
+      "shift": 0,
+      "width": 1,
+      "access": "rw",
+      "held": true,
+      "reset": 0
+    },
+    {
+      "name": "force_en",
+      "address": 0,
+      "registers": 1,
+      "shift": 1,
+      "width": 1,
+      "access": "rw",
+      "held": true,
+      "reset": 0
+    },
+    {
+      "name": "force_hi",
+      "address": 0,
+      "registers": 1,
+      "shift": 2,
+      "width": 1,
+      "access": "rw",
+      "held": true,
+      "reset": 0
+    },
+    {
+      "name": "clk_div",
+      "address": 1,
+      "registers": 1,
+      "shift": 0,
+      "width": 8,
+      "access": "rw",
+      "held": true,
+      "reset": 255
+    },
+    {
+      "name": "dac",
+      "address": 2,
+      "registers": 2,
+      "shift": 0,
+      "width": 10,
+      "access": "rw",
+      "held": true,
+      "reset": 0
+    },
+    {
+      "name": "view",
+      "address": 4,
+      "registers": 1,
+      "shift": 0,
+      "width": 2,
+      "access": "rw",
+      "held": false,
+      "reset": 0
+    },
+    {
+      "name": "ready",
+      "address": 5,
+      "registers": 1,
+      "shift": 0,
+      "width": 1,
+      "access": "ro",
+      "held": false,
+      "reset": 0
+    },
+    {
+      "name": "done",
+      "address": 5,
+      "registers": 1,
+      "shift": 1,
+      "width": 1,
+      "access": "ro",
+      "held": false,
+      "reset": 0
+    },
+    {
+      "name": "metastable",
+      "address": 5,
+      "registers": 1,
+      "shift": 2,
+      "width": 1,
+      "access": "ro",
+      "held": false,
+      "reset": 0
+    },
+    {
+      "name": "cmp_out",
+      "address": 5,
+      "registers": 1,
+      "shift": 3,
+      "width": 1,
+      "access": "ro",
+      "held": false,
+      "reset": 0
+    },
+    {
+      "name": "bit_index",
+      "address": 6,
+      "registers": 1,
+      "shift": 0,
+      "width": 4,
+      "access": "ro",
+      "held": false,
+      "reset": 0
+    }
+  ],
+  "registers": [
+    {
+      "address": 0,
+      "group": "control",
+      "parts": [
+        {
+          "field": "raw_dac",
+          "field_bit": 0,
+          "width": 1,
+          "shift": 0,
+          "access": "rw"
+        },
+        {
+          "field": "force_en",
+          "field_bit": 0,
+          "width": 1,
+          "shift": 1,
+          "access": "rw"
+        },
+        {
+          "field": "force_hi",
+          "field_bit": 0,
+          "width": 1,
+          "shift": 2,
+          "access": "rw"
+        }
+      ]
+    },
+    {
+      "address": 1,
+      "group": "clk_div",
+      "parts": [
+        {
+          "field": "clk_div",
+          "field_bit": 0,
+          "width": 8,
+          "shift": 0,
+          "access": "rw"
+        }
+      ]
+    },
+    {
+      "address": 2,
+      "group": "dac",
+      "parts": [
+        {
+          "field": "dac",
+          "field_bit": 0,
+          "width": 8,
+          "shift": 0,
+          "access": "rw"
+        }
+      ]
+    },
+    {
+      "address": 3,
+      "group": "dac",
+      "parts": [
+        {
+          "field": "dac",
+          "field_bit": 8,
+          "width": 2,
+          "shift": 0,
+          "access": "rw"
+        }
+      ]
+    },
+    {
+      "address": 4,
+      "group": "view",
+      "parts": [
+        {
+          "field": "view",
+          "field_bit": 0,
+          "width": 2,
+          "shift": 0,
+          "access": "rw"
+        }
+      ]
+    },
+    {
+      "address": 5,
+      "group": "status",
+      "parts": [
+        {
+          "field": "ready",
+          "field_bit": 0,
+          "width": 1,
+          "shift": 0,
+          "access": "ro"
+        },
+        {
+          "field": "done",
+          "field_bit": 0,
+          "width": 1,
+          "shift": 1,
+          "access": "ro"
+        },
+        {
+          "field": "metastable",
+          "field_bit": 0,
+          "width": 1,
+          "shift": 2,
+          "access": "ro"
+        },
+        {
+          "field": "cmp_out",
+          "field_bit": 0,
+          "width": 1,
+          "shift": 3,
+          "access": "ro"
+        }
+      ]
+    },
+    {
+      "address": 6,
+      "group": "search",
+      "parts": [
+        {
+          "field": "bit_index",
+          "field_bit": 0,
+          "width": 4,
+          "shift": 0,
+          "access": "ro"
+        }
+      ]
+    }
+  ]
+}
