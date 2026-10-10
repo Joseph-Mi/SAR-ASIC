@@ -16,9 +16,25 @@ Reading back a writable field returns what was last written to it, not what is i
 effect. The two differ only while a conversion is running, and a host that needs
 to know a held write has landed waits for the conversion to end.
 
-Addresses are not written down. A register's address is its position in the
-layout, so a field that outgrows one register pushes the rest along instead of
-landing on top of them.
+Addresses are not written down, with one exception. A register's address is its
+position in the layout, so a field that outgrows one register pushes the rest
+along instead of landing on top of them. The exception is the identity register,
+which is declared first and so sits at the bottom of the map.
+
+The identity is a constant the hardware reports, derived from everything else
+the layout says. A host compares it against the value it was built against and
+stops rather than writing configuration into a map it does not share -- a check
+worth having because the map the silicon holds is frozen at tapeout while this
+one keeps moving. It sits at the bottom for two reasons: a check whose own
+address can move cannot be found by the host that needs it, and a frame of all
+zeros reads the bottom register, so the value a line nobody drives returns is
+the one that proves the part is answering at all. For that second reason the
+identity is never a value a line that is not being driven can produce.
+
+What the identity is derived from does not include the identity: a number
+covering itself would have nothing to settle on. Nor does it include the
+framing, which is not this map's to state -- but the width of a register is,
+and the framing follows from that.
 
 Nothing here decides how a write arrives. The framing on the wire belongs to
 whatever carries it; this is only what the registers are and what they do.
@@ -26,6 +42,8 @@ whatever carries it; this is only what the registers are and what they do.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 
 from interface import N_BITS
@@ -36,6 +54,17 @@ REGISTER_WIDTH = 8
 
 #: Whether the host may write a field, or only read what the converter reports.
 RW, RO = "rw", "ro"
+
+#: The register that says which map this is.
+IDENTITY = "identity"
+
+#: Bits of the derived hash a host checks at compile time. The identity register
+#: carries as many of them as a register holds.
+HASH_BITS = 32
+
+#: What a line nobody drives reads as, high or low. The identity takes
+#: neither, so a host can tell the part from a dead wire.
+UNDRIVEN = (0, (1 << REGISTER_WIDTH) - 1)
 
 #: What the dedicated outputs show. The result unless asked otherwise, so a part
 #: nobody has configured reads as a converter.
@@ -77,6 +106,7 @@ class Field:
 #: register holds nothing else: that field's bits are the whole of every address
 #: it covers.
 LAYOUT = (
+    (IDENTITY, (Field(IDENTITY, width=REGISTER_WIDTH, access=RO),)),
     (
         "control",
         (
@@ -132,6 +162,60 @@ BY_NAME = {field.name: field for field in FIELDS}
 COUNT = max(FIELD_ADDRESS[f.name] + f.registers for f in FIELDS)
 
 
+def description() -> list[dict]:
+    """Everything about this map a host could act on, in address order.
+
+    Where each field sits, how wide it is, whether the host may write it, whether
+    it waits for a conversion, and what it comes up as. A change to any of these
+    misleads a host built against the map it replaced; a change to anything else
+    here -- prose, the order fields are declared within one address -- cannot, so
+    it is not described.
+    """
+    return [
+        {
+            "name": field.name,
+            "address": FIELD_ADDRESS[field.name],
+            "registers": field.registers,
+            "shift": field.offset,
+            "width": field.width,
+            "access": field.access,
+            "held": field.held,
+            "reset": field.reset,
+        }
+        for field in FIELDS
+    ]
+
+
+def hash_of(described: list[dict]) -> int:
+    """The number two ends compare to tell whether they mean the same map.
+
+    Derived, never set: a version somebody has to remember to raise is a version
+    that stays where it was. Order is not part of a description, so the fields
+    are hashed by name -- reordering the declaration does not read as a map
+    change to every host already in the field.
+    """
+    canonical = {
+        "register_width": REGISTER_WIDTH,
+        "register_count": COUNT,
+        "fields": sorted(described, key=lambda field: field["name"]),
+    }
+    text = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(text.encode()).digest()
+    return int.from_bytes(digest, "big") >> (len(digest) * 8 - HASH_BITS)
+
+
+#: The whole hash, which a host checks where it has room for all of it.
+MAP_HASH = hash_of(description())
+
+#: As much of it as the identity register holds, mapped onto the values a line
+#: that is not being driven cannot produce.
+IDENTITY_VALUE = min(UNDRIVEN) + 1 + MAP_HASH % ((1 << REGISTER_WIDTH) - len(UNDRIVEN))
+
+#: What the hardware reports in a field nothing else drives: a tie-off, not a
+#: register, so no reset and no write reaches it.
+REPORTED = {IDENTITY: IDENTITY_VALUE}
+
+
 def fields_at(address: int) -> list[Field]:
     """The fields any part of which lives at `address`."""
     spans = ((f, FIELD_ADDRESS[f.name]) for f in FIELDS)
@@ -185,7 +269,7 @@ class Registers:
     def __init__(self) -> None:
         self._written = {f.name: f.reset for f in FIELDS}
         self._live = dict(self._written)
-        self._observed = {f.name: f.reset for f in FIELDS if f.access == RO}
+        self._observed = {f.name: REPORTED.get(f.name, f.reset) for f in FIELDS if f.access == RO}
         self._converting = False
         self._selected = False
 

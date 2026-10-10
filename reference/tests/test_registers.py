@@ -7,6 +7,8 @@ simulation of the search itself would show.
 
 from __future__ import annotations
 
+import copy
+
 import pytest
 
 from interface import N_BITS
@@ -15,15 +17,21 @@ from registers import (
     COUNT,
     FIELD_ADDRESS,
     FIELDS,
+    IDENTITY,
+    IDENTITY_VALUE,
     LAYOUT,
+    MAP_HASH,
     REGISTER_WIDTH,
     RO,
     RW,
+    UNDRIVEN,
     VIEW_CODE,
     VIEW_SEARCH,
     Registers,
     bits_for,
+    description,
     fields_at,
+    hash_of,
     placement,
     writes_for,
 )
@@ -244,3 +252,46 @@ def test_an_address_the_map_does_not_have_is_refused(address):
 
 def test_every_field_is_one_of_the_two_accesses():
     assert all(f.access in (RW, RO) for f in FIELDS)
+
+
+def test_the_identity_sits_at_the_bottom_of_the_map():
+    """A host that cannot find the check cannot make it, and the bottom is the
+    one address a frame of all zeros reaches."""
+    assert ADDRESS[IDENTITY] == 0
+
+
+def test_the_identity_reads_as_the_value_derived_from_the_map():
+    assert Registers().read(ADDRESS[IDENTITY]) == IDENTITY_VALUE
+
+
+def test_the_identity_is_never_what_an_undriven_line_reads_as():
+    """Otherwise the check passes on a bus that is answering with nothing."""
+    assert IDENTITY_VALUE not in UNDRIVEN
+
+
+def test_the_identity_is_not_the_hosts_to_write():
+    reg = Registers()
+    reg.write(ADDRESS[IDENTITY], FULL)
+    assert reg.read(ADDRESS[IDENTITY]) == IDENTITY_VALUE
+
+
+def test_the_identity_is_not_described_by_its_own_value():
+    """What the identity is derived from cannot include the identity: a number
+    covering itself has nothing to settle on. It is reported, not stored."""
+    described = next(f for f in description() if f["name"] == IDENTITY)
+    assert described["reset"] != IDENTITY_VALUE
+    assert IDENTITY_VALUE not in [f["reset"] for f in description()]
+
+
+def test_the_hash_moves_when_a_field_moves():
+    """The whole point of it. A map differing in anything a host acts on has to
+    hash differently, or the check passes while the two ends disagree."""
+    moved = copy.deepcopy(description())
+    moved[-1]["shift"] += 1
+    assert hash_of(moved) != MAP_HASH
+
+
+def test_the_hash_ignores_the_order_the_fields_are_described_in():
+    """So reordering a declaration does not read as a map change to every host
+    already in the field."""
+    assert hash_of(list(reversed(description()))) == MAP_HASH
