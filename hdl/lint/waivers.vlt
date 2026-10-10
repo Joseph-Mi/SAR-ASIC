@@ -7,4 +7,9 @@
 
 `verilator_config
 
-// (no waivers yet)
+// The register map is generated as one set of declarations for every module
+// that includes it, so a module reads the facts it needs and leaves the rest.
+// An unread declaration there is the generator being complete, not the module
+// being wrong -- and the alternative, a rendering per module, is the
+// duplication the generator exists to remove.
+lint_off -rule UNUSEDPARAM -file "*/sar_regs.vh"
