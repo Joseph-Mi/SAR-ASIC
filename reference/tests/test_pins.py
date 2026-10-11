@@ -15,6 +15,7 @@ import pytest
 
 from interface import N_BITS
 from pins import (
+    CODE,
     DIRECTIONS,
     GROUP_WIDTH,
     GROUPS,
@@ -37,6 +38,37 @@ RTL_DIR = REPO / "hdl" / "rtl"
 #: An output-enable word written out in the RTL. Deriving it in two places is
 #: two values that drift; this finds the copy so the test can compare it.
 RTL_UIO_OE = re.compile(r"localparam\s+(?:\[[^\]]*\]\s*)?UIO_OE\s*=\s*\d+'b([01_]+)", re.M)
+
+#: A pin position written out in the RTL. The RTL has to index a pin by number
+#: to reach it, so the map's positions are copied there; this finds the copies.
+RTL_POSITION = re.compile(r"localparam\s+integer\s+([A-Z][A-Z0-9_]*)\s*=\s*(\d+)\s*;", re.M)
+
+#: A parameter's declared default in the RTL.
+RTL_DEFAULT = r"^\s*parameter\s+integer\s+{name}\s*=\s*(\d+)\s*[,)]"
+
+#: How the RTL names the position of a signal: its group and its own name, both
+#: as the map spells them.
+POSITION = "{group}_{signal}"
+
+
+def rtl_positions() -> dict[str, int]:
+    """Every integer position the RTL declares, by name."""
+    found: dict[str, int] = {}
+    for path in sorted(RTL_DIR.glob("*.v")):
+        for name, value in RTL_POSITION.findall(path.read_text()):
+            found[name] = int(value)
+    return found
+
+
+def rtl_defaults(name: str) -> list[tuple[str, int]]:
+    """Every declared default for a parameter of this name, with its file."""
+    pattern = re.compile(RTL_DEFAULT.format(name=name), re.M)
+    return [
+        (path.name, int(found))
+        for path in sorted(RTL_DIR.glob("*.v"))
+        for found in pattern.findall(path.read_text())
+    ]
+
 
 #: Groups the platform fixes the direction of, and that direction.
 FIXED_DIRECTION = {"ui_in": IN, "uo_out": OUT}
@@ -113,6 +145,48 @@ def test_spi_sits_where_the_platform_puts_it():
 def test_the_hold_pin_is_an_input():
     """It is driven from outside -- a button, or the board's microcontroller."""
     assert DIRECTIONS[UI_IN[0]] == IN
+
+
+def test_the_rtl_places_every_named_signal_where_the_map_does():
+    """The map is the only place the assignment is declared. The RTL has to
+    reach a pin by number, so those numbers are a copy, and a copy nobody
+    compares is what lets a signal quietly move to the wrong pin."""
+    want = {
+        POSITION.format(group=group.upper(), signal=signal.upper()): bit
+        for (group, bit), signal in assignments().items()
+        if not signal.startswith(CODE)
+    }
+    found = rtl_positions()
+    if not found:
+        pytest.skip("no RTL places a pin yet")
+    assert want
+    for name, bit in sorted(want.items()):
+        assert found.get(name) == bit, f"{name}: RTL says {found.get(name)}, the map says {bit}"
+
+
+def test_the_rtl_puts_the_spilled_result_bits_where_the_map_does():
+    """It drives them as one run of pins, so they have to be a run -- and the
+    RTL names only where that run starts."""
+    found = rtl_positions()
+    if not found:
+        pytest.skip("no RTL places a pin yet")
+    if not SPILLED:
+        pytest.skip("the dedicated outputs hold the whole result")
+    group, first = code_pins()[0]
+    assert code_pins()[: len(SPILLED)] == [(group, first + k) for k in range(len(SPILLED))], (
+        "the spilled result bits are not consecutive"
+    )
+    assert found.get(f"{group.upper()}_SPILL") == first
+
+
+def test_the_rtl_sizes_a_pin_group_the_way_the_platform_does():
+    """A group narrower than the platform gives leaves pins undriven; wider
+    does not elaborate."""
+    found = rtl_defaults("PINS")
+    if not found:
+        pytest.skip("no RTL sizes a pin group yet")
+    for where, value in found:
+        assert value == GROUP_WIDTH, f"{where} gives a group {value} pins, the platform gives 8"
 
 
 def test_the_rtl_restates_no_output_enable_word():

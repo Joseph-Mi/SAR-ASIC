@@ -33,6 +33,8 @@ from registers import (
     MAP_HASH,
     REGISTER_WIDTH,
     RW,
+    VIEW_COMPARATOR,
+    VIEW_SEARCH,
     VIEWS,
     Registers,
     bits_for,
@@ -381,6 +383,8 @@ def rtl_defaults(name: str) -> list[tuple[str, int]]:
         ("REGISTER_WIDTH", REGISTER_WIDTH),
         ("VIEW_WIDTH", bits_for(len(VIEWS))),
         ("DIVISOR_WIDTH", BY_NAME[DIVISOR_FIELD].width),
+        ("VIEW_COMPARATOR", VIEW_COMPARATOR),
+        ("VIEW_SEARCH", VIEW_SEARCH),
     ],
 )
 def test_the_rtl_defaults_to_the_width_the_map_declares(name, want):

@@ -27,19 +27,24 @@
 module sar_fsm #(
     parameter integer N_BITS = 10
 ) (
-    input  wire              clk_i,
-    input  wire              rst_ni,
-    input  wire              en_i,
-    input  wire              start_i,
-    input  wire              cmp_out_i,
-    input  wire              cmp_out_n_i,
-    output reg  [N_BITS-1:0] dac_b_o,
-    output reg               sample_o,
-    output reg               cmp_clk_o,
-    output reg  [N_BITS-1:0] code_o,
-    output reg               ready_o,
-    output reg               done_o,
-    output reg               metastable_o
+    input  wire                      clk_i,
+    input  wire                      rst_ni,
+    input  wire                      en_i,
+    input  wire                      start_i,
+    input  wire                      cmp_out_i,
+    input  wire                      cmp_out_n_i,
+    output reg  [        N_BITS-1:0] dac_b_o,
+    output reg                       sample_o,
+    output reg                       cmp_clk_o,
+    output reg  [        N_BITS-1:0] code_o,
+    output reg                       ready_o,
+    output reg                       done_o,
+    output reg                       metastable_o,
+    // Which bit is being trialled, for whoever is watching the search rather
+    // than its answer. It means nothing while the search is idle: the index
+    // left over is the last trial's, and the code is what the answer is read
+    // from.
+    output wire [$clog2(N_BITS)-1:0] bit_index_o
 );
 
   localparam integer N_STATES = 5;
@@ -55,8 +60,10 @@ module sar_fsm #(
   localparam integer IDX_W = (N_BITS > 1) ? $clog2(N_BITS) : 1;
 
   reg [ST_W-1:0] state, next_state;
-  reg [IDX_W-1:0] bit_index;
+  reg [ IDX_W-1:0] bit_index;
   reg [N_BITS-1:0] settled;
+
+  assign bit_index_o = bit_index;
 
   // Combinational, so the array holds it for the whole cycle the comparator
   // decides in rather than arriving a cycle late.
