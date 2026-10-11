@@ -296,6 +296,11 @@ Two things that are easy to get wrong:
   CI. Fails on inferred latches and undriven wires. Runs in seconds.
 - Python Monte Carlo model runs in CI as a regression, so changing the unit cap
   size shows up as a diff in DNL/INL numbers rather than a vibe.
+- `make coverage` answers the question a passing suite cannot: how much of the
+  design the suite reached. Verilator's line, toggle, branch and expression
+  coverage merged over every bench, and `pytest --cov` over the model. A
+  passing suite that never drove a path is the failure mode this exists to
+  surface, and it found one the first time it ran.
 - CI's `analog` job runs `make verify-analog verify-integration` inside the
   pinned image with `SAR_REQUIRE_TOOLS=1` (root `conftest.py`: a skip fails).
   The `digital` job still builds its tools on ubuntu-latest. Consider
@@ -307,7 +312,7 @@ Simulation shows it does the right thing for the inputs tried. The rest:
 
 | Question | Tool | What it says |
 |---|---|---|
-| Right for *every* input? | SymbiYosys (`sby`) formal — check it is in the image | proves properties, e.g. "DONE is always reached within the protocol's cycle bound"; the hostile-comparator tests only sample this |
+| Right for *every* input? | SymbiYosys (`sby`), `make verify-formal` | proves what the benches only sample: DONE within the protocol's step bound, `dac_b` never all-ground while a sample is held (DD-08's digital side), the strobe precharging between trials, the flag up for one step, the metastability flag both ways, and the phases being mutually exclusive — over every comparator answer, request and stall. Mutation-checked: four known defects are introduced and each must fail a proof |
 | What hardware was built? | `yosys stat` / `show` | cell and flop counts, the actual gates |
 | Limiting path | OpenSTA (inside LibreLane) | critical path = slowest flop-to-flop chain; its slack sets the max clock |
 | Current-limited nets | STA max-slew / max-cap checks | a small gate on a big load charges slowly (I = C dV/dt) |

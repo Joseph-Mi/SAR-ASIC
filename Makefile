@@ -19,6 +19,7 @@ include versions.env
 
 PYTHON       ?= python
 VERILATOR    ?= verilator
+VERILATOR_COV ?= verilator_coverage
 RUFF         ?= ruff
 YOSYS        ?= yosys
 VERIBLE_FMT  ?= verible-verilog-format
@@ -84,10 +85,15 @@ TECH_DIR  := tech
 VERIF_DIR := hdl/verification
 SIM_DIR   := sim
 BUILD_DIR := build
+COVERAGE_DIR := $(BUILD_DIR)/coverage
 WAIVERS   := hdl/lint/waivers.vlt
 
 RTL_SOURCES := $(shell find $(RTL_DIR) -name '*.v' 2>/dev/null)
 RTL_SEARCH  := $(addprefix -y ,$(sort $(dir $(RTL_SOURCES))))
+# Formal properties are SystemVerilog, bound to the design from outside. They
+# are formatted with the design and proved by their own target, never linted
+# as if they were a module that has to synthesise.
+FORMAL_SOURCES := $(shell find $(VERIF_DIR)/formal -name '*.sv' 2>/dev/null)
 
 # A generated header carries the register map's derived values, so the include
 # path has to reach the RTL tree. Only Verilator needs telling: yosys resolves
@@ -266,13 +272,13 @@ check-tools:
 
 ## format: rewrite Verilog and Python in canonical style
 format:
-	@if [ -n "$(RTL_SOURCES)" ]; then $(VERIBLE_FMT) --inplace $(RTL_SOURCES); fi
+	@if [ -n "$(RTL_SOURCES)$(FORMAL_SOURCES)" ]; then $(VERIBLE_FMT) --inplace $(RTL_SOURCES) $(FORMAL_SOURCES); fi
 	$(RUFF) format .
 	$(RUFF) check --fix .
 
 ## format-check: fail if anything is unformatted (CI uses this, never `format`)
 format-check:
-	@for f in $(RTL_SOURCES); do $(VERIBLE_FMT) $$f | diff -u $$f - || exit 1; done
+	@for f in $(RTL_SOURCES) $(FORMAL_SOURCES); do $(VERIBLE_FMT) $$f | diff -u $$f - || exit 1; done
 	$(RUFF) format --check .
 
 ## lint: every linter
@@ -330,16 +336,40 @@ verify-unit:
 verify-integration:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/integration $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
+## coverage: how much of the design and of the model the suite actually reaches
+coverage: coverage-rtl coverage-py
+
+## coverage-rtl: verilator line, toggle, branch and expression coverage,
+## 	merged across every bench that builds the design
+coverage-rtl:
+	@rm -rf $(COVERAGE_DIR)/rtl $(BUILD_DIR)/sim
+	@mkdir -p $(COVERAGE_DIR)
+	@RTL_COVERAGE=1 $(PYTHON) -m pytest $(VERIF_DIR)/unit $(VERIF_DIR)/system $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@found=$$(find $(BUILD_DIR)/sim -name '*.dat'); \
+	  if [ -z "$$found" ]; then echo "no coverage data: did any bench build?"; exit 1; fi; \
+	  $(VERILATOR_COV) --annotate $(COVERAGE_DIR)/rtl --annotate-all $$found
+
+## coverage-py: which lines of the model and the contract the suite reaches
+coverage-py:
+	@$(PYTHON) -m pytest $(REF_DIR) $(MODEL_DIR) $(STUDY_DIR) \
+	  --cov=$(TECH_DIR) --cov=$(REF_DIR) --cov=$(MODEL_DIR) --cov=$(STUDY_DIR) \
+	  --cov-report=term-missing:skip-covered \
+	  --cov-report=html:$(COVERAGE_DIR)/python $(PYTEST_ARGS); $(ALLOW_EMPTY)
+
+## verify-formal: prove the control FSM's properties, and that they still bite
+verify-formal:
+	@$(PYTHON) -m pytest $(VERIF_DIR)/formal $(PYTEST_ARGS); $(ALLOW_EMPTY)
+
 ## verify-system: full-converter tests (slow)
 verify-system:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/system $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## verify: model, then every verification level, in order
-verify: model verify-analog verify-unit verify-integration verify-system
+verify: model verify-analog verify-unit verify-formal verify-integration verify-system
 
 ## clean: remove generated output
 clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop noise help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-analog verify-unit verify-integration verify-system verify clean
+.PHONY: show-loop noise help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py clean

@@ -92,6 +92,19 @@ def conversion_sequence(vin, unit_caps, vref: float = 1.0, **comparator) -> list
     return steps
 
 
+def trial_words(vin, unit_caps, vref: float = 1.0, **comparator) -> list[int]:
+    """The words a conversion puts on the array, in the order it puts them.
+
+    Read off the sequence rather than reconstructed, so there is one account of
+    what a conversion does to the array. Anything that evaluates a quantity at
+    the operating points a conversion visits -- settling, charge off the
+    reference, a parasitic's size -- needs exactly this list, and a second way
+    of producing it would be a second answer.
+    """
+    steps = conversion_sequence(vin, unit_caps, vref, **comparator)
+    return [s.dac_b for s in steps if s.phase == SETTLE]
+
+
 def trace_of(steps: list[Step]) -> list[int]:
     """The bit decisions, MSB first, as `sar_convert` would return them."""
     return [s.decision for s in steps if s.phase == EVALUATE]

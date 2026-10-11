@@ -148,11 +148,13 @@ shows up as a reviewable diff rather than as a number nobody compared.
 
 The transfer curve exists as a matmul in `metrics.py` and as a loop in
 `sar.py`; the conversion result exists as a binary search in `sar.py` and as a
-lookup in `dynamic.py`. Both duplications are deliberate -- the fast forms are
-what make sweeps interactive -- and both are exactly the shape that silently
-drifts apart. Each is therefore pinned by a test that runs the two against each
-other on a mismatched array. If you add a third route to the same number, add
-the third cross-check with it.
+lookup in `dynamic.py`; the top-plate voltage exists as a rearranged closed
+form in `sar.py` and as a numerical charge balance in `junction.py`. All three
+duplications are deliberate -- the fast forms are what make sweeps
+interactive, and the slow form is what extends to a parasitic the closed form
+cannot hold -- and all three are exactly the shape that silently drifts apart.
+Each is therefore pinned by a test that runs the two against each other. If
+you add a fourth route to the same number, add the cross-check with it.
 
 ---
 
@@ -160,24 +162,123 @@ the third cross-check with it.
 
 Named here because an unnamed assumption is indistinguishable from an oversight.
 
-- **What a top-plate parasitic costs.** Capacitance from the floating node to
-  a fixed potential is in `top_plate_voltage` as `c_par`, and it moves no
-  threshold: at every decision the node is back at `Vcm`, where it was
-  sampled, so the parasitic holds the same charge it started with -- linear or
-  not. What it does is divide the swing the comparator sees by
-  `C_total / (C_total + c_par)`, which scales the comparator's offset and noise,
-  referred to the input, up by the inverse. Its cost lands in the comparator
-  budget, not in gain or linearity.
 - **kT/C sampling noise.** `cmp_noise_rms` covers the comparator only. Nothing
   models the noise trapped on the array at the instant of sampling. Its budget
   shrinks with the square of the LSB, so whether it binds depends on
   `N_BITS`, and the model does not compute it: an assumption, not a result.
 - **The switching scheme.** `dac_voltage` encodes conventional binary-weighted
-  switching. Monotonic, Vcm-based and split-capacitor schemes have different
-  equations and far better switching energy; `docs/topology.md` argues the
-  choice.
+  switching, and `power.py` says what that costs the reference. Monotonic,
+  Vcm-based and split-capacitor schemes have different equations and cost
+  less; `docs/topology.md` argues the choice.
+- **Comparator and digital power.** `power.py` accounts for the reference pin
+  only. The comparator's bias and the digital macro's switching are a measured
+  circuit and a synthesised netlist respectively, and neither exists yet.
 - **Single-ended only.** Decided, not assumed: `docs/topology.md` argues it. A
   differential array would change `dac_voltage`.
+
+---
+
+## What a nonlinear top-plate parasitic costs
+
+A switch drain on the floating node is a reverse-biased junction, so the
+parasitic it adds falls as the node moves away from its body. `junction.py`
+carries the depletion law (`PHI_B`, `ABRUPT`, `LINEARLY_GRADED`) and solves
+charge conservation with it.
+
+**It moves no threshold, however nonlinear it is, and adds no INL.** The
+argument is one line once the right quantity is named: a decision is taken
+when the top plate reaches the comparator's own switching point, and that
+point is the same voltage at every threshold. The parasitic therefore holds
+exactly the charge it held at sampling -- the two voltages are equal -- and
+its term cancels out of the balance. A capacitance that varies with voltage
+stores a definite charge at a definite voltage like any other, so the
+cancellation never used linearity. `input_at_decision` is the closed form that
+shows it: the parasitic appears only as a difference of stored charge between
+two *fixed* voltages.
+
+With a comparator offset those two voltages differ, the term survives, and it
+is the same number for every threshold -- so an offset is amplified by
+`1 + C_j/C_total` and stays an offset. Still not a nonlinearity.
+
+What it does cost, each with a figure in the module:
+
+| Cost | Why it is not the one above |
+|---|---|
+| `swing_gain` | the comparator resolves a divided swing, and the divider is tightest where the node comes closest to the body -- the bottom of the input range for a grounded body, which is where the comparator is already hardest to bias |
+| `tau_multiplier` | charge conservation does not care how long the node took to arrive; a settling budget does, and the capacitance being charged is not the same at every trial. This is the one route by which the nonlinearity reaches the codes |
+| `leakage_droop_lsb` | the junction also passes a reverse current, and the node is floating while the sample is held. Charge that left does not come back |
+
+The solve refuses to report a voltage below the junction's body, because there
+it conducts rather than storing charge -- so the sampling contract that keeps
+the node out of that region is enforced by the model rather than merely
+documented beside it.
+
+---
+
+## What a moving input costs
+
+Every other part of the model converts one voltage at a time, which assumes
+the input stood still. `sampling.py` drops that: sampling pushes charge
+proportional to the input's change between conversions into the common-mode
+node, and whatever is still recovering when sampling ends recovers during the
+conversion, as a threshold shift.
+
+**That mechanism is a first difference of the input, and a first difference is
+a filter.** By itself it costs gain and phase against frequency and produces
+no harmonics at all, however large it is. Budgeting it as distortion would buy
+decoupling that does nothing.
+
+Distortion needs the coefficient to depend on the signal, which it does as
+soon as anything in the recovery path does -- a switch resistance that varies
+with the voltage across it, a decoupling capacitance that varies with bias.
+Then the error is a product of the step and the level, and the harmonics
+appear and grow with input frequency. `sweep` separates the two cases;
+`step_coefficient` is the settling law, not a second one, so a circuit
+measurement of how curved that path is enters at one point.
+
+A sweep refuses to report a record the memory has pushed into the rail: the
+amplitude the converter sees is not the amplitude offered, and a clipped
+record measures saturation rather than sampling.
+
+`spectrum.py` is what reads a record. SNDR alone cannot say whether the energy
+that is not the tone is spread over every bin or sitting in one, and those
+have different causes, so SNR, THD and SFDR are reported beside it. The record
+length and cycle count are coprime by construction and a harmonic that folds
+onto the tone or onto DC is refused, because reported against, every
+distortion figure would read as perfect.
+
+---
+
+## What a conversion costs the reference
+
+`power.py` walks a conversion transition by transition and sums the charge the
+reference supplies. The reference pin is where this architecture spends: the
+same number bounds the energy, the average pin current, and the sag that
+current leaves while the comparator is deciding.
+
+**The cost falls as the input rises, by about two and a half times across the
+range at eight bits.** This is the opposite of the textbook mid-code peak, and
+the reason is the architecture: with the input sampled onto the bottom plates
+the first trial costs the same whatever the input, so what varies is how many
+*later* trials are undone -- and a trial that fails is charge taken from the
+reference and handed to ground. A low code is a conversion whose trials mostly
+fail.
+
+The bookkeeping is checked against the one invariant the circuit cannot
+violate: the top plate is floating, so its charge does not change from the end
+of sampling to the last decision. That check includes the terminating unit,
+which is sampled with the rest and grounded afterwards -- its charge comes
+from ground and never from the reference.
+
+**The pin's current limit is not what bounds the converter.** Settling through
+the pin's resistance is slower than its current limit by more than two orders
+of magnitude, taking every resistance in the sampling loop at the pin's own
+bound. So the reference pin is budgeted for sag during a trial, not for
+average current.
+
+`walden_fom` and `schreier_fom` are the figures converters are compared by.
+Both need a power number the design does not have yet, which is why they take
+one rather than compute it.
 
 ---
 

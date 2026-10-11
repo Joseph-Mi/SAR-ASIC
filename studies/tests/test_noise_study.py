@@ -10,11 +10,14 @@ import numpy as np
 import pytest
 
 from noise_study import (
+    BASELINE,
     GROSS_ERROR_ONSET_LSB,
     QUANTISATION_RMS_LSB,
     NoiseStudy,
     effective_bits,
+    format_table,
     run_point,
+    sweep,
 )
 
 #: How far apart the resolutions may land before the claim is in doubt. The
@@ -43,6 +46,19 @@ UNIFORM_RMS = 1 / np.sqrt(12)
 @pytest.fixture(scope="module")
 def study() -> NoiseStudy:
     return NoiseStudy(conversions=CONVERSIONS)
+
+
+def test_committed_baseline_still_reproduces():
+    """The whole point of committing the artifact, and the one check the other
+    tests here cannot make: they assert the shape of the result, which a model
+    can keep while every digit in it moves. A diff here means either the model
+    changed or the seeding did, and both are things to look at.
+
+    Run at the study's own settings, not the fast ones the shape tests use --
+    the committed table is a particular run, and only that run reproduces it.
+    """
+    full = NoiseStudy()
+    assert format_table(full, sweep(full)) == BASELINE.read_text()
 
 
 def test_a_silent_comparator_costs_nothing(study):

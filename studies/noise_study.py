@@ -152,6 +152,13 @@ def main() -> None:
     args = parser.parse_args()
 
     study = NoiseStudy(conversions=args.conversions, seed=args.seed)
+    if study != NoiseStudy() and args.out == BASELINE:
+        parser.error(
+            f"refusing to write {BASELINE.name} from a non-default study -- the "
+            "committed baseline is what the regression test compares against. "
+            "Pass --out to write an exploratory run somewhere else."
+        )
+
     table = format_table(study, sweep(study))
     args.out.write_text(table)
     print(table, end="")
