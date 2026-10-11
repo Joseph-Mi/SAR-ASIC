@@ -26,6 +26,7 @@ from registers import (
     ADDRESS,
     COUNT,
     FIELD_ADDRESS,
+    FIELDS,
     HASH_BITS,
     IDENTITY,
     IDENTITY_VALUE,
@@ -47,10 +48,6 @@ HASH_DIGITS = HASH_BITS // 4
 #: collide with its own.
 PREFIX = "SAR"
 
-#: Where the generated files go: a directory a firmware repository can vendor
-#: or point at, rather than one of the layers, none of which it belongs to.
-OUTPUT_DIR = "firmware"
-
 #: What the generated files are written as.
 ENCODING = "utf-8"
 INDENT = 2
@@ -61,6 +58,10 @@ NEWLINE = "\n"
 SUFFIX = "u"
 WIDE_TYPE = "uint32_t"
 BYTE_TYPE = "uint8_t"
+
+#: Names the two language renderings share, so one register's facts are found
+#: under the same spelling whichever file a reader has open.
+ADDR, SHIFT, WIDTH, REGISTERS, VALUE = "addr", "shift", "width", "registers", "value"
 
 #: The command `make` runs to rewrite these files. Named here because a
 #: generated file whose reader cannot tell how to regenerate it gets edited.
@@ -223,20 +224,138 @@ def as_c_header() -> str:
     return NEWLINE.join(_header_lines()) + NEWLINE
 
 
-#: What each generated file is called, and what fills it.
-RENDERINGS = {"sar_regs.h": as_c_header, "sar_regs.json": as_json}
+def packed(per_address) -> list[str]:
+    """One constant holding a byte per register, as the concatenation Verilog
+    reads it: the highest address first, so a part-select at an address times a
+    register's width lands on that register's byte."""
+    lines = []
+    for address in reversed(range(COUNT)):
+        value = per_address(address)
+        comma = "" if address == 0 else ","
+        lines.append(
+            f"    {REGISTER_WIDTH}'h{value:0{REGISTER_WIDTH // 4}x}{comma}"
+            f"  // {address:#04x} {_group_at(address)}"
+        )
+    return lines
+
+
+def _group_at(address: int) -> str:
+    """The register's own name, or the name of the group that reaches into it."""
+    reaching = {start: name for name, start in ADDRESS.items() if start <= address}
+    return reaching[max(reaching)]
+
+
+def _bits(address: int, wanted) -> int:
+    """The bits at `address` belonging to fields `wanted` accepts, in place."""
+    value = 0
+    for field in fields_at(address):
+        if not wanted(field):
+            continue
+        start, width, shift = placement(field, address)
+        value |= ((field.reset >> start) & ((1 << width) - 1)) << shift
+    return value
+
+
+def _placed_mask(address: int, wanted) -> int:
+    value = 0
+    for field in fields_at(address):
+        if not wanted(field):
+            continue
+        _, width, shift = placement(field, address)
+        value |= ((1 << width) - 1) << shift
+    return value
+
+
+def _verilog_lines() -> list[str]:
+    writable = f"{PREFIX}_WRITABLE"
+    held = f"{PREFIX}_HELD"
+    reset = f"{PREFIX}_RESET"
+    count = _name("REGISTER_COUNT")
+    width = _name("REGISTER_WIDTH")
+    word = f"[{count}*{width}-1:0]"
+
+    lines = [
+        "// The register map, generated from the layout that declares it.",
+        "//",
+        f"// Do not edit. Regenerate with `{REGENERATE}`.",
+        "//",
+        "// Declarations, not macros: these are included inside the module that needs",
+        "// them, so they are scoped to it. A macro would outlive the file that set it",
+        "// and reach every file compiled after.",
+        "//",
+        "// The scalars are untyped on purpose. Declared as integers they would be",
+        "// thirty-two bits wide, which widens every comparison against an address bus",
+        "// and every part-select that uses one, and the lint warning for it would be",
+        "// raised in the module rather than here.",
+        "//",
+        "// The packed words carry one register per byte, the lowest address in the",
+        "// lowest byte, so a part-select at an address times a register's width",
+        "// lands on that register's byte. A bit set in them means, in turn: the host",
+        "// may write it, that write waits for a conversion to end, and what it comes",
+        "// up as out of reset. A bit no writable field claims is not stored, so it is",
+        "// clear in all three.",
+        "",
+        f"localparam {width} = {REGISTER_WIDTH};",
+        f"localparam {count} = {COUNT};",
+        "",
+        "// What reading the identity register must return. A host checks it to know",
+        "// it means the same map, and because the value is never what an undriven",
+        "// line reads as, the same read catches a bus that is not answering.",
+        f"localparam [{width}-1:0] {_name(IDENTITY, VALUE)} ="
+        f" {REGISTER_WIDTH}'h{IDENTITY_VALUE:02x};",
+        "",
+        f"localparam {word} {writable} = {{",
+        *packed(lambda a: _placed_mask(a, lambda f: f.access == RW)),
+        "};",
+        "",
+        f"localparam {word} {held} = {{",
+        *packed(lambda a: _placed_mask(a, lambda f: f.access == RW and f.held)),
+        "};",
+        "",
+        f"localparam {word} {reset} = {{",
+        *packed(lambda a: _bits(a, lambda f: f.access == RW)),
+        "};",
+        "",
+    ]
+
+    for field in FIELDS:
+        lines.append(f"// {field.name}")
+        for suffix, value in (
+            (ADDR, FIELD_ADDRESS[field.name]),
+            (SHIFT, field.offset),
+            (WIDTH, field.width),
+            (REGISTERS, field.registers),
+        ):
+            lines.append(f"localparam {_name(field.name, suffix)} = {value};")
+    return lines
+
+
+def as_verilog() -> str:
+    return NEWLINE.join(_verilog_lines()) + NEWLINE
+
+
+#: Where each rendering is written, and what fills it. A path rather than a bare
+#: name: the one the RTL includes belongs with the RTL, and the two a host reads
+#: belong somewhere a firmware repository can vendor without taking a layer.
+RENDERINGS = {
+    "firmware/sar_regs.h": as_c_header,
+    "firmware/sar_regs.json": as_json,
+    "hdl/rtl/sar_regs.vh": as_verilog,
+}
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
 
 
 def rendered() -> dict[str, str]:
-    return {name: render() for name, render in RENDERINGS.items()}
+    return {path: render() for path, render in RENDERINGS.items()}
 
 
 def main() -> None:
-    out = pathlib.Path(__file__).resolve().parent.parent / OUTPUT_DIR
-    out.mkdir(exist_ok=True)
-    for name, text in rendered().items():
-        (out / name).write_text(text, encoding=ENCODING)
-        print(f"wrote {name}")
+    for path, text in rendered().items():
+        out = REPO / path
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding=ENCODING)
+        print(f"wrote {path}")
 
 
 if __name__ == "__main__":

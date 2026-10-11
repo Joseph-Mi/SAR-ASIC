@@ -89,10 +89,16 @@ WAIVERS   := hdl/lint/waivers.vlt
 RTL_SOURCES := $(shell find $(RTL_DIR) -name '*.v' 2>/dev/null)
 RTL_SEARCH  := $(addprefix -y ,$(sort $(dir $(RTL_SOURCES))))
 
+# A generated header carries the register map's derived values, so the include
+# path has to reach the RTL tree. Only Verilator needs telling: yosys resolves
+# an include against the file that asked for it.
+RTL_INCLUDE := $(addprefix -I,$(sort $(dir $(RTL_SOURCES))))
+
 # -y lets Verilator resolve submodules by filename, so each file is linted
 # standalone as its own top and uninstantiated modules still get checked.
 # This relies on file name matching module name.
-VERILATOR_LINT := $(VERILATOR) --lint-only -Wall --timescale 1ns/1ps $(RTL_SEARCH) $(WAIVERS)
+VERILATOR_LINT := $(VERILATOR) --lint-only -Wall --timescale 1ns/1ps \
+  $(RTL_SEARCH) $(RTL_INCLUDE) $(WAIVERS)
 
 YOSYS_CHECK := read_verilog $(RTL_SOURCES); hierarchy -check -auto-top; proc; opt_clean; check -assert
 

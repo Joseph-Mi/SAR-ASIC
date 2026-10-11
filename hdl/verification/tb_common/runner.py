@@ -71,8 +71,9 @@ def run(
 ) -> None:
     """Build `top` with Verilator and run the cocotb tests in the calling module.
 
-    Defaults are conventions, not magic: `sources` defaults to `hdl/rtl/<top>.v`
-    and `test_module`/`test_dir` default to the file that called this.
+    Defaults are conventions, not magic: `sources` defaults to `hdl/rtl/<top>.v`,
+    `test_module`/`test_dir` default to the file that called this, and `includes`
+    to the RTL tree, which is where a generated header sits.
     """
     caller_path = Path(inspect.stack()[1].filename).resolve()
 
@@ -92,7 +93,7 @@ def run(
     runner.build(
         sources=build_sources,
         hdl_toplevel=top,
-        includes=[str(p) for p in (includes or [])],
+        includes=[str(p) for p in (includes or [RTL_DIR])],
         defines=defines or {},
         parameters=parameters or {},
         build_dir=str(build_dir),
