@@ -49,7 +49,7 @@ IDLE_CYCLES = 1
 START_OFFSET = 0.25
 
 #: The controller's wires that are the bench's rather than the block's.
-CLOCK, RESET, START = "clk", "rst_n", "start"
+CLOCK, RESET, START, EN = "clk", "rst_n", "start", "en"
 DONE, CODE, FLAG = "done", "code", "metastable"
 
 #: The block's sampling line and its top plate, as nodes of this deck. Named
@@ -143,6 +143,13 @@ def deck(loop: Loop) -> str:
         pulses += [f"{a:.12g} 0", f"{a + bench.EDGE:.12g} {s.vdd}"]
         pulses += [f"{a + t:.12g} {s.vdd}", f"{a + t + bench.EDGE:.12g} 0"]
     lines.append(f"V{START} {START} 0 PWL({' '.join(pulses)})")
+
+    # The conversion clock is this bench's own: the deck is clocked at the rate
+    # the settling law asks for, so the controller steps on every cycle of it
+    # and the divider that would produce that rate on the chip is not in the
+    # loop. Dividing here would only make the same conversions take longer to
+    # simulate.
+    lines.append(f"V{EN} {EN} 0 {s.vdd:.9g}")
 
     # Block inputs the controller does not drive are held at their reset level.
     driven = set(drives)

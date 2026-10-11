@@ -6,6 +6,10 @@ that reaches the right code by a different route still fails.
 
 Pins are read on the falling edge. Registered outputs settle on the rising one,
 so reading there races the update being checked.
+
+The enable is held high throughout, so a step is a cycle. What the enable itself
+does is one test of its own; the conversion clock that drives it on the chip is
+verified where it is built, against the same model.
 """
 
 import random
@@ -43,6 +47,10 @@ SOAK_CONVERSIONS = 200
 #: Fixed so a failing soak replays.
 SOAK_SEED = 7
 
+#: Cycles the enable is held low between steps. More than one, so an FSM that
+#: stalls for a cycle and then catches up is not mistaken for one that waits.
+STALLED_CYCLES = 3
+
 
 def pins(dut):
     return int(dut.sample_o.value), int(dut.dac_b_o.value), int(dut.cmp_clk_o.value)
@@ -56,6 +64,7 @@ def answer(dut, decision):
 
 async def start_clock(dut):
     cocotb.start_soon(Clock(dut.clk_i, CLK_PERIOD_NS, unit="ns").start())
+    dut.en_i.value = 1
     dut.start_i.value = 0
     answer(dut, 0)
     dut.rst_ni.value = 0
@@ -213,6 +222,38 @@ async def back_to_back_conversions_do_not_drift(dut):
         assert int(dut.metastable_o.value) == 0, f"run {i}: spurious metastable"
         await RisingEdge(dut.clk_i)
         await FallingEdge(dut.clk_i)
+
+
+@cocotb.test()
+async def the_search_stands_still_while_the_enable_is_low(dut):
+    """The interval between two steps is what the array settles in, so a step
+    taken on a cycle the enable is low is a bit decided before it had settled.
+    Every output has to hold across the wait too: they are what the array and
+    the comparator are driven by for the whole of it."""
+    await start_clock(dut)
+    steps = conversion_sequence(SHAPE_INPUT, ideal_units(N_BITS), VREF)
+
+    await begin(dut)
+    seen = []
+    for i, step in enumerate(steps):
+        if i:
+            await RisingEdge(dut.clk_i)
+            await FallingEdge(dut.clk_i)
+        held = pins(dut)
+        seen.append(held)
+        if step.phase == EVALUATE:
+            answer(dut, step.decision)
+
+        dut.en_i.value = 0
+        for _ in range(STALLED_CYCLES):
+            await RisingEdge(dut.clk_i)
+            await FallingEdge(dut.clk_i)
+            assert pins(dut) == held, f"step {i}: the search moved with the enable low"
+        dut.en_i.value = 1
+
+    assert seen == [(s.sample, s.dac_b, s.cmp_clk) for s in steps]
+    assert int(dut.code_o.value) == code_of(steps)
+    assert int(dut.metastable_o.value) == 0
 
 
 def test_sar_fsm():

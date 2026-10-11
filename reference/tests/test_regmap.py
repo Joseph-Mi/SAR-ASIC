@@ -25,6 +25,7 @@ import pytest
 import regmap
 from interface import N_BITS
 from registers import (
+    BY_NAME,
     COUNT,
     FIELDS,
     IDENTITY,
@@ -38,6 +39,7 @@ from registers import (
     fields_at,
     placement,
 )
+from tick import DIVISOR_FIELD
 
 REPO = next(p for p in pathlib.Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
 
@@ -288,6 +290,23 @@ def test_the_verilog_says_what_each_register_comes_up_as(address, generated):
     assert packed_word(generated[VERILOG], "RESET")[address] == want
 
 
+def test_every_rendering_says_what_a_stored_field_comes_up_as(generated):
+    """A module that resets a counter from the field that drives it takes the
+    value from here rather than keeping a copy, so the two cannot drift. A field
+    the converter reports is stored nowhere and has no reset to carry: offering
+    one would read as a value the host could expect back."""
+    header, verilog = generated[C_HEADER], generated[VERILOG]
+    for field in FIELDS:
+        name = f"{regmap.PREFIX}_{field.name.upper()}_RESET"
+        if field.access != RW:
+            assert name not in header, field.name
+            assert name not in verilog, field.name
+            continue
+        want = Registers()[field.name]
+        assert f"localparam {name} = {want};" in verilog, field.name
+        assert f"#define {name} {want:#x}" in header, field.name
+
+
 def test_the_verilog_carries_the_identity_the_map_derives(generated):
     want = f"{regmap.PREFIX}_{IDENTITY.upper()}_VALUE = {REGISTER_WIDTH}'h{IDENTITY_VALUE:02x};"
     assert want in generated[VERILOG]
@@ -358,7 +377,11 @@ def rtl_defaults(name: str) -> list[tuple[str, int]]:
 
 @pytest.mark.parametrize(
     ("name", "want"),
-    [("REGISTER_WIDTH", REGISTER_WIDTH), ("VIEW_WIDTH", bits_for(len(VIEWS)))],
+    [
+        ("REGISTER_WIDTH", REGISTER_WIDTH),
+        ("VIEW_WIDTH", bits_for(len(VIEWS))),
+        ("DIVISOR_WIDTH", BY_NAME[DIVISOR_FIELD].width),
+    ],
 )
 def test_the_rtl_defaults_to_the_width_the_map_declares(name, want):
     found = rtl_defaults(name)
