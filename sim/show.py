@@ -7,9 +7,11 @@ the top plate with the level the golden model expects at every trial, the
 trial word the controller drives, and every control line. Nothing is
 asserted: a disagreement is there to be seen.
 
-matplotlib is imported inside `draw`, as in `studies/plots.py`: CI's digital
-job does not install it, and a module-scope import fails test collection there
-before the ngspice skip can apply.
+Nothing here chooses how the figure looks, and nothing here imports
+matplotlib: the house style owns both, so this picture matches every other in
+the repository and this file stays importable where the drawing library is
+not installed -- which matters because test collection would otherwise fail
+before the ngspice skip could apply.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ import numpy as np
 import analog
 import bench
 import cosim
+import house
 import loop
 import ngspice
 from bench import Block, Supplies
@@ -39,15 +42,10 @@ OUT_DIR = REPO / "build" / "show"
 #: below mid-scale and one near the top, so both halves of the search show.
 DEFAULT_INPUTS = (0.3, 0.9)
 
-# How the figure looks. None of it carries a result. Series colours follow the
-# validated categorical order, in that order, and text stays in neutral ink.
-SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948")
-INK, INK_SOFT, RULE, SURFACE = "#0b0b0b", "#52514e", "#c9c8c3", "#fcfcfb"
-LINE, THIN = 1.5, 0.8
-FONT_SMALL, FONT_LABEL, FONT_TITLE = 8, 9, 11
-FIGSIZE = (12, 8)
+#: One panel of this figure, inches. Three stacked lanes of different heights
+#: share one time axis, so the canvas is wide and the rows uneven.
+PANEL = (12.0, 2.7)
 HEIGHTS = (3, 2, 3)
-DPI = 140
 NS = 1e-9
 
 #: A control line drawn in its lane fills this fraction of the lane's height,
@@ -129,10 +127,6 @@ def draw(
     """The figure. `offset` is the block's sampling offset, in volts: when
     given, each code is also compared with the model told of it, as a
     calibrated converter would be."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
     from matplotlib.ticker import MaxNLocator
 
     block = run.block
@@ -142,18 +136,12 @@ def draw(
     t = trace.time / NS
     starts = [run.start_at(i) for i in range(len(run.inputs) + 1)]
 
-    plt.rcParams.update({"font.size": FONT_LABEL, "axes.edgecolor": RULE, "text.color": INK})
-    fig, (top, word, ctrl) = plt.subplots(
-        3, 1, sharex=True, figsize=FIGSIZE, gridspec_kw={"height_ratios": HEIGHTS}
+    fig, (top, word, ctrl) = house.canvas(
+        3, 1, size=PANEL, sharex=True, gridspec_kw={"height_ratios": HEIGHTS}
     )
-    fig.patch.set_facecolor(SURFACE)
-    for ax in (top, word, ctrl):
-        ax.set_facecolor(SURFACE)
-        ax.tick_params(colors=INK_SOFT, labelsize=FONT_SMALL)
-        ax.grid(color=RULE, lw=THIN / 2, alpha=0.6)
 
-    top.plot(t, trace.wave["xdut.top"], color=SERIES[0], lw=LINE, label="top plate")
-    top.axhline(vcm, color=INK_SOFT, lw=THIN, ls="--", label="Vcm (decision level)")
+    top.plot(t, trace.wave["xdut.top"], color=house.SERIES[0], label="top plate")
+    top.axhline(vcm, color=house.BOUND, lw=house.BOUND_WIDTH, ls="--", label="Vcm (decision level)")
     strobes = trace.rising("cmp_clk", vdd / 2)
     first_model = True
     for s in strobes:
@@ -166,8 +154,8 @@ def draw(
             expected,
             (s - run.clock) / NS,
             s / NS,
-            color=SERIES[1],
-            lw=LINE,
+            color=house.SERIES[1],
+            lw=house.LINE,
             label="model, at this trial word" if first_model else None,
         )
         first_model = False
@@ -178,25 +166,25 @@ def draw(
             textcoords="offset points",
             xytext=(0, 6),
             ha="center",
-            fontsize=FONT_SMALL,
-            color=INK_SOFT,
+            fontsize=house.FONT_SMALL,
+            color=house.INK_SOFT,
         )
     top.margins(y=HEADROOM)
-    top.set_ylabel("volts", color=INK_SOFT)
-    top.legend(fontsize=FONT_SMALL, loc="upper right", frameon=False)
+    top.set_ylabel("volts")
+    top.legend(loc="upper right")
 
-    word.step(t, trace.wave["word"], where="post", color=SERIES[0], lw=LINE)
-    word.set_ylabel("trial word (dac_b)", color=INK_SOFT)
+    word.step(t, trace.wave["word"], where="post", color=house.SERIES[0])
+    word.set_ylabel("trial word (dac_b)")
     word.set_ylim(-0.5, 2**block.n_bits - 0.5)
     word.yaxis.set_major_locator(MaxNLocator(integer=True))
 
     names = lines(block)
     for lane, name in enumerate(reversed(names)):
-        colour = SERIES[(len(names) - 1 - lane) % len(SERIES)]
-        ctrl.plot(t, lane + LANE_FILL * trace.wave[name] / vdd, color=colour, lw=LINE)
+        colour = house.SERIES[(len(names) - 1 - lane) % len(house.SERIES)]
+        ctrl.plot(t, lane + LANE_FILL * trace.wave[name] / vdd, color=colour)
     ctrl.set_yticks([lane + LANE_FILL / 2 for lane in range(len(names))])
-    ctrl.set_yticklabels([n.removeprefix("xdut.") for n in reversed(names)], color=INK)
-    ctrl.set_xlabel("time  [ns]", color=INK_SOFT)
+    ctrl.set_yticklabels([n.removeprefix("xdut.") for n in reversed(names)], color=house.INK)
+    ctrl.set_xlabel("time  [ns]")
 
     shown = range(len(run.inputs)) if zoom is None else [zoom]
     for i in shown:
@@ -209,29 +197,24 @@ def draw(
             want = calibrated
         header += "" if got == want else "   <-- differs"
         for ax in (top, word, ctrl):
-            ax.axvline(starts[i] / NS, color=RULE, lw=THIN)
+            ax.axvline(starts[i] / NS, color=house.RULE, lw=house.THIN)
         top.text(
             starts[i] / NS,
             1.0,
             header,
             transform=top.get_xaxis_transform(),
             va="bottom",
-            fontsize=FONT_SMALL,
-            color=INK,
+            fontsize=house.FONT_SMALL,
+            color=house.INK,
             clip_on=False,
         )
     if zoom is not None:
         top.set_xlim(starts[zoom] / NS, starts[zoom + 1] / NS)
 
     kind = "designed block" if block.sampling is not None else "ideal switches"
-    fig.suptitle(
-        f"Closed loop, {block.n_bits} bits, {kind}, clock {run.clock / NS:.2f} ns",
-        fontsize=FONT_TITLE,
-        color=INK,
-    )
+    fig.suptitle(f"Closed loop, {block.n_bits} bits, {kind}, clock {run.clock / NS:.2f} ns")
     fig.tight_layout()
-    fig.savefig(out, dpi=DPI, facecolor=SURFACE)
-    plt.close(fig)
+    house.save(fig, out)
 
 
 def show(inputs, n_bits: int, designed: bool, clock=None, zoom=None, out=None):

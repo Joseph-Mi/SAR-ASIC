@@ -27,11 +27,14 @@ QUOTED = re.compile(r'"([^"]+)"')
 #: sit with it and follow its rule.
 LAYERS = {
     "tech": set(),
+    # How a figure looks depends on nothing, and everything that draws one
+    # needs it, so it sits at the bottom beside the process facts.
+    "figures": set(),
     "reference": {"tech"},
     "model": {"tech", "reference"},
-    "studies": {"tech", "reference", "model"},
-    "sim": {"tech", "reference", "model"},
-    "hdl/verification": {"tech", "reference", "model", "sim"},
+    "studies": {"tech", "figures", "reference", "model"},
+    "sim": {"tech", "figures", "reference", "model"},
+    "hdl/verification": {"tech", "figures", "reference", "model", "sim"},
 }
 
 

@@ -267,6 +267,7 @@ layer and commit it. Check the tool list first — `gdsfactory`, `gdspy`, `pygmi
 | Synthesis / P&R | LibreLane (yosys + OpenROAD) |
 | Digital sim | Verilator (fast), iverilog (fallback) |
 | Waveforms | GTKWave, surfer |
+| Figures | matplotlib through `figures/house.py` -- one dark house style, enforced by a test. `make figures` draws the lot |
 | Verification | cocotb; pyuvm if the testbench wants agents/scoreboards |
 | Lint | `verilator --lint-only -Wall`, `verible-verilog-lint`, `yosys check -assert` |
 | Format | `verible-verilog-format` |

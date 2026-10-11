@@ -17,12 +17,17 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "sim"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "tech"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "figures"))
 
 import numpy as np  # noqa: E402
 
+import house  # noqa: E402
 import ngspice  # noqa: E402
 import sky130  # noqa: E402
 from tools import netlist  # noqa: E402
+
+#: One panel of a two-panel row, inches.
+PANEL = (5.5, 4.2)
 
 HERE = pathlib.Path(__file__).parent
 WORKDIR = HERE / "simulation"
@@ -199,21 +204,16 @@ def cmd_pex(args: argparse.Namespace) -> None:
 def draw_mc(spread: list[tuple[str, list[float]]]) -> None:
     """The distribution, and how well a run of this length pins its own width.
 
-    matplotlib is imported here rather than at module scope so this file stays
-    importable where it is not installed.
+    The house style owns how it looks, and imports the drawing library, so
+    this file stays importable where that library is not installed.
     """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+    fig, (ax1, ax2) = house.canvas(1, 2, size=PANEL)
 
     for i, (label, draws) in enumerate(spread):
         mv = np.array(draws) * 1e3
         sigma = mv.std()
         ax1.hist(mv, bins=25, alpha=0.55, color=f"C{i}", label=f"{label}  sigma={sigma:.2f} mV")
-        ax1.axvline(mv.mean(), color=f"C{i}", lw=1.2, ls="--")
+        ax1.axvline(mv.mean(), color=f"C{i}", lw=house.BOUND_WIDTH, ls="--")
         run = np.array([mv[: n + 1].std() for n in range(len(mv))])
         n = np.arange(1, len(mv) + 1)
         ax2.plot(n, run, color=f"C{i}", label=label)
@@ -222,38 +222,30 @@ def draw_mc(spread: list[tuple[str, list[float]]]) -> None:
             sigma * (1 - 1 / np.sqrt(2 * n)),
             sigma * (1 + 1 / np.sqrt(2 * n)),
             color=f"C{i}",
-            alpha=0.15,
+            alpha=house.SHADE_ALPHA,
         )
 
     ax1.set_xlabel("trip point (mV)")
     ax1.set_ylabel("draws")
     ax1.set_title("Distribution of Vm under device mismatch")
-    ax1.legend(fontsize=8)
-    ax1.grid(alpha=0.3)
+    ax1.legend()
 
     ax2.set_xlabel("draws")
     ax2.set_ylabel("running sigma (mV)")
     ax2.set_title("How well a run of this length pins its own spread")
-    ax2.legend(fontsize=8)
-    ax2.grid(alpha=0.3)
+    ax2.legend()
 
     fig.tight_layout()
-    fig.savefig(MC_PLOT, dpi=130)
-    print(MC_PLOT)
+    print(house.save(fig, MC_PLOT))
 
 
 def draw(rows: list[dict], smallest: float) -> None:
     """Delay against load, and the waveform pair at the lightest load.
 
-    matplotlib is imported here rather than at module scope so this file stays
-    importable where it is not installed.
+    The house style owns how it looks, and imports the drawing library, so
+    this file stays importable where that library is not installed.
     """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+    fig, (ax1, ax2) = house.canvas(1, 2, size=PANEL)
 
     load = [r["load_ff"] for r in rows]
     for edge, style in (("fall", "-"), ("rise", "--")):
@@ -267,8 +259,7 @@ def draw(rows: list[dict], smallest: float) -> None:
     ax1.set_xlabel("load capacitance (fF)")
     ax1.set_ylabel("propagation delay (ps)")
     ax1.set_title("Delay vs load")
-    ax1.legend(fontsize=8)
-    ax1.grid(alpha=0.3)
+    ax1.legend()
 
     cols = np.loadtxt(WAVES)
     time, vin, vsch, vpex = cols[:, 0], cols[:, 1], cols[:, 3], cols[:, 5]
@@ -279,19 +270,17 @@ def draw(rows: list[dict], smallest: float) -> None:
     lo, hi = time[edge] - WINDOW, time[edge] + WINDOW
     keep = (time >= lo) & (time <= hi)
 
-    ax2.plot(time[keep] * 1e12, vin[keep], color="0.5", label="in")
+    ax2.plot(time[keep] * 1e12, vin[keep], color=house.INK_SOFT, label="in")
     ax2.plot(time[keep] * 1e12, vsch[keep], color="C0", label="out schematic")
     ax2.plot(time[keep] * 1e12, vpex[keep], color="C3", label="out extracted")
-    ax2.axhline(VDD / 2, color="0.7", lw=0.8, ls=":")
+    ax2.axhline(VDD / 2, color=house.BOUND, lw=house.THIN, ls=":")
     ax2.set_xlabel("time (ps)")
     ax2.set_ylabel("volts")
     ax2.set_title(f"One falling edge at {smallest:g} fF")
-    ax2.legend(fontsize=8)
-    ax2.grid(alpha=0.3)
+    ax2.legend()
 
     fig.tight_layout()
-    fig.savefig(PLOT, dpi=130)
-    print(PLOT)
+    print(house.save(fig, PLOT))
 
 
 def cmd_sweep(args: argparse.Namespace) -> None:

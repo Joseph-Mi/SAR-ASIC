@@ -82,6 +82,7 @@ REF_DIR   := reference
 MODEL_DIR := model
 STUDY_DIR := studies
 TECH_DIR  := tech
+FIG_DIR   := figures
 VERIF_DIR := hdl/verification
 SIM_DIR   := sim
 BUILD_DIR := build
@@ -290,10 +291,11 @@ lint-rtl:
 	@if [ -n "$(RTL_SOURCES)" ]; then $(VERIBLE_LINT) $(VERIBLE_LINT_FLAGS) $(RTL_SOURCES); fi
 	@if [ -n "$(RTL_SOURCES)" ]; then $(YOSYS) -qp "$(YOSYS_CHECK)"; fi
 
-## lint-py: ruff, and the layers every import must run down
+## lint-py: ruff, the layers every import must run down, and the one style
+## 	every figure comes out of
 lint-py:
 	$(RUFF) check .
-	@$(PYTHON) -m pytest tests -q $(PYTEST_ARGS)
+	@$(PYTHON) -m pytest tests $(FIG_DIR) -q $(PYTEST_ARGS)
 
 ## model: validate the golden model, the physics laws and the studies -- before any RTL
 model:
@@ -312,9 +314,16 @@ study:
 noise:
 	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/noise_study.py $(ARGS)
 
+## figures: draw every figure the model can produce, into build/
+figures: plots diagrams
+
+## diagrams: pictures of the conversion, the bounds and the physics
+diagrams:
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/diagrams.py
+
 ## plots: draw the committed sweep into build/studies/
 plots:
-	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/plots.py
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/plots.py
 
 ## verify-analog: ngspice harness -- tests needing ngspice skip without it
 verify-analog:
@@ -324,7 +333,7 @@ verify-analog:
 ## 	VIN="0.3 0.95" (volts)  BITS=4  DESIGNED=1 (transistor switches)  ZOOM=1
 ## 	-> build/show/loop.png, and loop.raw for any ngspice raw viewer
 show-loop:
-	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/show.py \
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/show.py \
 	  $(if $(VIN),--vin $(VIN)) $(if $(BITS),--bits $(BITS)) \
 	  $(if $(DESIGNED),--designed) $(if $(ZOOM),--zoom $(ZOOM))
 
@@ -372,4 +381,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop noise help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py clean
+.PHONY: show-loop noise help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean

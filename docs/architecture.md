@@ -21,6 +21,11 @@ broke imports silently.
 capacitor matching it gives. It knows nothing else in the repository. A second
 copy of a process number anywhere else is the drift this layer exists to stop.
 
+**`figures/`** -- how a picture looks: the palette, the type, the canvas and
+the one function that writes a file. It knows nothing else in the repository,
+and everything that draws reads it, which is why it sits at the bottom rather
+than beside the scripts that use it.
+
 **`reference/`** -- the golden model and the contract between the halves: what
 a conversion is, when each pin moves, which wires cross the boundary, and how
 long a board has to hold a pin for the chip to see it. Both the RTL and the

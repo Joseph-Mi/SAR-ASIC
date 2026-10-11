@@ -184,11 +184,13 @@ jobs:
       # container does. The tool locations are printed first so a missing one
       # is named before any test runs.
       #
-      # The proofs run here rather than in the other job because the solver
-      # ships in this image, and because a skip is a failure here -- a proof
-      # that quietly did not run is worth less than no proof at all. They are
-      # seconds; the ordering just puts the cheap check first.
-      - name: Analog, formal and closed-loop tests in the pinned image
+      # The proofs and the figures run here rather than in the other job
+      # because the solver and the drawing library ship in this image, and
+      # because a skip is a failure here -- a proof that quietly did not run
+      # is worth less than no proof at all, and a figure script is the one
+      # kind of code nobody runs between writing it and wanting it. Both are
+      # seconds; the ordering just puts the cheap checks first.
+      - name: Figures, proofs, analog and closed-loop tests in the pinned image
         run: |
           docker run --rm --user "$(id -u):$(id -g)" \
             -e HOME=/tmp -e SAR_REQUIRE_TOOLS=1 \
@@ -201,4 +203,4 @@ jobs:
               . ./pdk.env
               echo "PDK_ROOT=$PDK_ROOT PDK=$PDK"
               command -v ngspice verilator sby python3
-              make verify-formal verify-analog verify-integration PYTHON=python3'
+              make figures verify-formal verify-analog verify-integration PYTHON=python3'
