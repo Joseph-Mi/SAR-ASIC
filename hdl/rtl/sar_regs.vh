@@ -69,31 +69,37 @@ localparam SAR_RAW_DAC_ADDR = 1;
 localparam SAR_RAW_DAC_SHIFT = 0;
 localparam SAR_RAW_DAC_WIDTH = 1;
 localparam SAR_RAW_DAC_REGISTERS = 1;
+localparam SAR_RAW_DAC_RESET = 0;
 // force_en
 localparam SAR_FORCE_EN_ADDR = 1;
 localparam SAR_FORCE_EN_SHIFT = 1;
 localparam SAR_FORCE_EN_WIDTH = 1;
 localparam SAR_FORCE_EN_REGISTERS = 1;
+localparam SAR_FORCE_EN_RESET = 0;
 // force_hi
 localparam SAR_FORCE_HI_ADDR = 1;
 localparam SAR_FORCE_HI_SHIFT = 2;
 localparam SAR_FORCE_HI_WIDTH = 1;
 localparam SAR_FORCE_HI_REGISTERS = 1;
+localparam SAR_FORCE_HI_RESET = 0;
 // clk_div
 localparam SAR_CLK_DIV_ADDR = 2;
 localparam SAR_CLK_DIV_SHIFT = 0;
 localparam SAR_CLK_DIV_WIDTH = 8;
 localparam SAR_CLK_DIV_REGISTERS = 1;
+localparam SAR_CLK_DIV_RESET = 255;
 // dac
 localparam SAR_DAC_ADDR = 3;
 localparam SAR_DAC_SHIFT = 0;
 localparam SAR_DAC_WIDTH = 10;
 localparam SAR_DAC_REGISTERS = 2;
+localparam SAR_DAC_RESET = 0;
 // view
 localparam SAR_VIEW_ADDR = 5;
 localparam SAR_VIEW_SHIFT = 0;
 localparam SAR_VIEW_WIDTH = 2;
 localparam SAR_VIEW_REGISTERS = 1;
+localparam SAR_VIEW_RESET = 0;
 // ready
 localparam SAR_READY_ADDR = 6;
 localparam SAR_READY_SHIFT = 0;

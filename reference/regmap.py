@@ -62,6 +62,7 @@ BYTE_TYPE = "uint8_t"
 #: Names the two language renderings share, so one register's facts are found
 #: under the same spelling whichever file a reader has open.
 ADDR, SHIFT, WIDTH, REGISTERS, VALUE = "addr", "shift", "width", "registers", "value"
+RESET = "reset"
 
 #: The command `make` runs to rewrite these files. Named here because a
 #: generated file whose reader cannot tell how to regenerate it gets edited.
@@ -212,7 +213,10 @@ def _header_lines() -> list[str]:
             lines.append(f"#define {_name(field.name, 'MASK')} {field.mask:#x}{SUFFIX}")
             lines.append(f"#define {_name(field.name, 'WRITABLE')} {int(field.access == RW)}")
             lines.append(f"#define {_name(field.name, 'HELD')} {int(field.held)}")
-            if field.name not in REPORTED:
+            # Only a field the host writes has a reset to state. What the
+            # converter reports is stored nowhere, so out of reset it reads
+            # whatever the converter is saying, not a value from here.
+            if field.access == RW:
                 lines.append(f"#define {_name(field.name, 'RESET')} {field.reset:#x}{SUFFIX}")
         lines.append("")
 
@@ -320,12 +324,17 @@ def _verilog_lines() -> list[str]:
 
     for field in FIELDS:
         lines.append(f"// {field.name}")
-        for suffix, value in (
+        facts = [
             (ADDR, FIELD_ADDRESS[field.name]),
             (SHIFT, field.offset),
             (WIDTH, field.width),
             (REGISTERS, field.registers),
-        ):
+        ]
+        # A field the converter reports has no reset to state: nothing stores it,
+        # so what it reads out of reset is whatever the converter is saying.
+        if field.access == RW:
+            facts.append((RESET, field.reset))
+        for suffix, value in facts:
             lines.append(f"localparam {_name(field.name, suffix)} = {value};")
     return lines
 

@@ -13,12 +13,23 @@
 // code holds the previous result until the last trial replaces it, and the
 // next start clears the flag, so a reader that samples either at another time
 // gets the wrong conversion's answer.
+//
+// en_i is the conversion clock. The search takes one step per cycle it is high
+// and stands still on every other, so each phase lasts the whole interval
+// between two of them and the array gets that long to settle. Tie it high to
+// step every cycle. It gates the state, not the clock: one clock domain, and
+// nothing between the halves to synchronise.
+//
+// start_i is read only on a step, so a request has to outlive the wait for one.
+// Whatever turns the start pin into a request owns that; here, a pulse that
+// falls between two steps was never made.
 
 module sar_fsm #(
     parameter integer N_BITS = 10
 ) (
     input  wire              clk_i,
     input  wire              rst_ni,
+    input  wire              en_i,
     input  wire              start_i,
     input  wire              cmp_out_i,
     input  wire              cmp_out_n_i,
@@ -78,7 +89,7 @@ module sar_fsm #(
       ready_o      <= 1'b1;
       done_o       <= 1'b0;
       metastable_o <= 1'b0;
-    end else begin
+    end else if (en_i) begin
       state     <= next_state;
       sample_o  <= (next_state == ST_SAMPLE);
       cmp_clk_o <= (next_state == ST_EVAL);

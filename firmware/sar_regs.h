@@ -141,7 +141,6 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_READY_MASK 0x1u
 #define SAR_READY_WRITABLE 0
 #define SAR_READY_HELD 0
-#define SAR_READY_RESET 0x0u
 /* done: 1 bit, ro */
 #define SAR_DONE_ADDR 0x06u
 #define SAR_DONE_REGISTERS 1u
@@ -150,7 +149,6 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_DONE_MASK 0x1u
 #define SAR_DONE_WRITABLE 0
 #define SAR_DONE_HELD 0
-#define SAR_DONE_RESET 0x0u
 /* metastable: 1 bit, ro */
 #define SAR_METASTABLE_ADDR 0x06u
 #define SAR_METASTABLE_REGISTERS 1u
@@ -159,7 +157,6 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_METASTABLE_MASK 0x1u
 #define SAR_METASTABLE_WRITABLE 0
 #define SAR_METASTABLE_HELD 0
-#define SAR_METASTABLE_RESET 0x0u
 /* cmp_out: 1 bit, ro */
 #define SAR_CMP_OUT_ADDR 0x06u
 #define SAR_CMP_OUT_REGISTERS 1u
@@ -168,7 +165,6 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_CMP_OUT_MASK 0x1u
 #define SAR_CMP_OUT_WRITABLE 0
 #define SAR_CMP_OUT_HELD 0
-#define SAR_CMP_OUT_RESET 0x0u
 
 /* search @ 0x07 */
 #define SAR_ADDR_SEARCH 0x07u
@@ -180,6 +176,5 @@ static inline uint8_t sar_field_byte(uint32_t value, unsigned index)
 #define SAR_BIT_INDEX_MASK 0xfu
 #define SAR_BIT_INDEX_WRITABLE 0
 #define SAR_BIT_INDEX_HELD 0
-#define SAR_BIT_INDEX_RESET 0x0u
 
 #endif /* SAR_REGS_H */
