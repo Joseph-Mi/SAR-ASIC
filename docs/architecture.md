@@ -27,8 +27,11 @@ and everything that draws reads it, which is why it sits at the bottom rather
 than beside the scripts that use it.
 
 **`reference/`** -- the golden model and the contract between the halves: what
-a conversion is, when each pin moves, which wires cross the boundary, and how
-long a board has to hold a pin for the chip to see it. Both the RTL and the
+a conversion is, when each pin moves, which wires cross the boundary, how long
+a board has to hold a pin for the chip to see it, and what the converter asks
+of its comparator -- the margin, the time and the noise, which are the
+converter's half of a comparator specification and can be written before one
+exists. Both the RTL and the
 analog simulation are judged against it, which is why it sits outside `hdl/`:
 it is not the digital half's, it is the chip's.
 
