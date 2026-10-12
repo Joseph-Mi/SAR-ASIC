@@ -267,6 +267,7 @@ layer and commit it. Check the tool list first — `gdsfactory`, `gdspy`, `pygmi
 | Synthesis / P&R | LibreLane (yosys + OpenROAD) |
 | Digital sim | Verilator (fast), iverilog (fallback) |
 | Waveforms | GTKWave, surfer |
+| Figures | matplotlib through `figures/house.py` -- one dark house style, enforced by a test. `make figures` draws the lot |
 | Verification | cocotb; pyuvm if the testbench wants agents/scoreboards |
 | Lint | `verilator --lint-only -Wall`, `verible-verilog-lint`, `yosys check -assert` |
 | Format | `verible-verilog-format` |
@@ -296,6 +297,11 @@ Two things that are easy to get wrong:
   CI. Fails on inferred latches and undriven wires. Runs in seconds.
 - Python Monte Carlo model runs in CI as a regression, so changing the unit cap
   size shows up as a diff in DNL/INL numbers rather than a vibe.
+- `make coverage` answers the question a passing suite cannot: how much of the
+  design the suite reached. Verilator's line, toggle, branch and expression
+  coverage merged over every bench, and `pytest --cov` over the model. A
+  passing suite that never drove a path is the failure mode this exists to
+  surface, and it found one the first time it ran.
 - CI's `analog` job runs `make verify-analog verify-integration` inside the
   pinned image with `SAR_REQUIRE_TOOLS=1` (root `conftest.py`: a skip fails).
   The `digital` job still builds its tools on ubuntu-latest. Consider
@@ -307,7 +313,7 @@ Simulation shows it does the right thing for the inputs tried. The rest:
 
 | Question | Tool | What it says |
 |---|---|---|
-| Right for *every* input? | SymbiYosys (`sby`) formal — check it is in the image | proves properties, e.g. "DONE is always reached within the protocol's cycle bound"; the hostile-comparator tests only sample this |
+| Right for *every* input? | SymbiYosys (`sby`), `make verify-formal` | proves what the benches only sample: DONE within the protocol's step bound, `dac_b` never all-ground while a sample is held (DD-08's digital side), the strobe precharging between trials, the flag up for one step, the metastability flag both ways, and the phases being mutually exclusive — over every comparator answer, request and stall. Mutation-checked: four known defects are introduced and each must fail a proof |
 | What hardware was built? | `yosys stat` / `show` | cell and flop counts, the actual gates |
 | Limiting path | OpenSTA (inside LibreLane) | critical path = slowest flop-to-flop chain; its slack sets the max clock |
 | Current-limited nets | STA max-slew / max-cap checks | a small gate on a big load charges slowly (I = C dV/dt) |
@@ -460,14 +466,18 @@ Step 4d (`sim/analog.py`, `model/injection.py:beyond_a_line`,
 `sim/tests/test_sampling_phases.py`, the designed-block tests in
 `test_sar_loop.py`):
 - Input switches are transmission gates (`MosSwitches.w_unit_p`, 1 um per
-  unit). Honest status of *why*: with generic models at nominal supply the
-  NMOS alone is nearly as good -- first-trial error at 0.999 V, 0.1 V before:
-  TG +0.015 / NMOS +0.058 LSB at the law's clock, -0.418 / -0.356 settled;
-  settled bend 0.005 vs 0.023 LSB. An NMOS with a 1.8 V gate passing <= 1 V
-  keeps >= 0.8 V Vgs. The TG's case rests on the slow corner at low supply
-  (Vt up, body effect, 1.62 V gate), not yet measured -- run the sky130
-  ss/-40/0.9*VDD full-scale comparison before calling the TG necessary. A
-  loop test asserting "NMOS alone fails" flipped between ngspice 42 and 46
+  unit), and the sky130 slow-cold comparison that was outstanding now says
+  why. Measured per unit switch at ss / -40 C / 0.9*VDD: at half the
+  reference the PMOS contributes nothing at all (the two are equal to a part
+  in a thousand -- it has less than a threshold across it), and at the whole
+  reference the NMOS alone reads 2.8 Gohm against the gate's 140 kohm. In
+  settling that is 26 us against 1.3 ns, or about 1800 sampling phases
+  against a tenth of one. The NMOS does not become slow at the top of the
+  range, it stops conducting; the gate carries that end on its own, and it is
+  necessary. At nominal supply the margin is narrower (10x at full scale, and
+  nothing below three quarters), which is why measuring at tt alone said the
+  opposite. `sim/tests/test_probe.py` holds both ends.
+  A loop test asserting "NMOS alone fails" flipped between ngspice 42 and 46
   (one code, at the budget edge) and was removed.
   CAUTION -- an earlier measurement with *ideal* conversion switches showed a
   ~0.96 LSB kink for NMOS alone; that was mostly the ideal switch snapping
@@ -725,45 +735,49 @@ comparator's swing further (no threshold moves -- see M3 Step 1). Decided with M
 
 ---
 
-**Where sky130 keeps capacitor matching.** It is not in a datasheet. Each
-capacitor's subcircuit carries a mismatch term proportional to `1/sqrt(area)`,
-under `libs.ref/sky130_fd_pr/spice/` — *not* the `libs.tech/ngspice/` files,
-which only `.include` those, so grepping there finds nothing and looks like
-proof that no matching data exists. `mc_mm_switch` also defaults to 0, so a
-Monte Carlo run without setting it shows exactly zero spread and invites the
-same wrong conclusion. Both traps cost real time once.
+**Where sky130 keeps its capacitor numbers.** Not in a datasheet: inside the
+device subcircuits, as a mismatch term proportional to `1/sqrt(area)` and a
+density multiplying the plate.
 
-The coefficient itself is not repeated here: the model names it, and a second
-copy in this file is a second thing to keep true. `docs/model.md` has the grep
-that reads it out of the PDK, and `sandbox/cap-matching/` measures it in
-ngspice to confirm the expression behaves the way it reads.
+**The PDK ships them twice and the two disagree.** `libs.tech/combined/
+continuous/` is what a simulation reads — the PDK's own xschem setup selects
+it — and `libs.ref/sky130_fd_pr/spice/` plus `libs.tech/ngspice/r+c/` are the
+superseded micro-binned originals. They differ by about six times on matching,
+and on the MiM they are not even the same equation: the originals add a fringe
+term on a plate biased inward, the continuous models use area alone on a plate
+biased outward by more than a tenth of a micrometre. A grep that finds a
+plausible number in the wrong tree is the expensive mistake here, because
+nothing about the number looks wrong.
+
+`mc_mm_switch` also defaults to 0, so a Monte Carlo run without setting it
+shows exactly zero spread and invites a different wrong conclusion. Both traps
+cost real time once.
+
+No number is repeated here. `tech/sky130.py` declares the continuous tree's
+parameters, `mim_unit()` evaluates the device's own expression, and a test
+reads them back out of the PDK and checks the expression against the capacitor
+ngspice instantiates. `sandbox/cap-matching/` measures the mismatch spread the
+same way.
 
 ```
 make shell first, then:
 
-  # 1. Read the coefficient straight out of the 
-  PDK
-  grep -n czero \
-    /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
-  /sky130_fd_pr__cap_mim_m3_1.model.spice
+  C=$PDK_ROOT/$PDK/libs.tech/combined/continuous
 
-  # See the whole device while you're there
-  grep -v '^\*' \
-    /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
-  /sky130_fd_pr__cap_mim_m3_1.model.spice
+  # The MiM as a simulation builds it: area times a biased plate, no fringe
+  sed -n '/subckt .*cap_mim_m3_1/,/^.ends/p' $C/models_capacitors.spice
 
-  # The VPP equivalent, same shape
-  grep -n 'ctot_a =' \
-    /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
-  /sky130_fd_pr__cap_vpp_04p4x04p6_m1m2_noshield.m
-  odel.spice
+  # Its density and plate bias, per capacitance corner
+  grep -H 'sw_cap_mim_' $C/parameters_cap_{nom,low,high}.spice
 
-  # Densities, per corner (camimc, farads per 
-  um^2)
-  grep -rn camimc
-  /foss/pdks/sky130A/libs.tech/ngspice/r+c/
+  # The matching coefficient, as a ratio: times 100 for percent-micrometres
+  grep -n sw_mm_cmim $C/models_global.spice
 
-  Then measure it yourself — takes about a minute:
+  # What a section actually pulls in -- the capacitance corner rides with the
+  # device corner, so tt is the only typical one and ff_hh / ss_ll the extremes
+  grep -A8 '^.lib ss_ll$' $PDK_ROOT/$PDK/libs.tech/combined/sky130.lib.spice
+
+  Then measure it yourself -- takes about a minute:
 
   cd /foss/designs/SAR-ASIC/sandbox/cap-matching
   ngspice -b mim_mc.spice 2>/dev/null | grep -oE
@@ -772,8 +786,8 @@ make shell first, then:
   python3 -c "
   import statistics as st
   v = [float(x) for x in open('/tmp/caps.txt')]
-  print(f'n={len(v)}  mean={st.mean(v)*1e15:.3f} 
-  fF  sigma/C={100*st.pstdev(v)/st.mean(v):.3f} 
+  print(f'n={len(v)}  mean={st.mean(v)*1e15:.3f}
+  fF  sigma/C={100*st.pstdev(v)/st.mean(v):.3f}
   %')
   "
 ```
@@ -805,14 +819,6 @@ make shell first, then:
 
 Delete each one when it is fixed.
 
-- **Noise study overstates comparator cost.** `effective_bits` adds the
-  comparator's code error to quantisation noise in power, assuming the two are
-  independent. They are not: noise flips a code only near a threshold, where
-  the quantisation error was already largest (correlation measured ~ -0.5).
-  Measured against the true Vin, 0.25 LSB of noise costs ~0.4 bit, not the
-  ~0.9 the baseline implies. Below gross-error onset the answer is the dithered
-  quantiser, sqrt(q^2 + sigma_n^2). Fix = model + test, regenerate
-  `noise_baseline.txt`. M5's preamp decision reads this table — fix it first.
 - **Sampling error with the designed block is offset + gain.** Settled
   first-trial error, TG input switches: -0.90 LSB at 0.05 V to -0.45 at
   0.95 V, straight to 0.005 LSB (endpoint fit). Offset -0.68 LSB at
@@ -821,21 +827,27 @@ Delete each one when it is fixed.
   corners (largest ff, smallest ss cold): it moves with the corner, so a
   one-time factory calibration is not enough -- M4's DFT modes (forced
   input) let firmware measure it in the field.
-- **Full scale puts the comparator's input near ground (M5).** At the first
-  trial the top plate sits at Vcm - Vin + Vref/2, ~0 V at vin ~ Vref, and
-  the reference sag at the first trial drags it lower for a few ns. No code
+- **Full scale puts the comparator's input near ground, on the easy trials
+  (M5).** At the first trial the top plate sits at Vcm - Vin + Vref/2, ~0 V
+  at vin ~ Vref, and the reference sag drags it lower for a few ns. No code
   is lost to the top switch's junction: the sky130 acceptance converts both
-  sides of the top code at every corner, ff/125 C included. What remains is
-  the comparator: DD-08 notes an NMOS-input StrongARM cannot resolve near
-  0 V, and the behavioural one here hides that. M5 must either resolve at
-  ~0 V input common mode (PMOS input pair) or the design moves Vcm above
-  Vref/2 -- `vcm` is a pin, so that is a bench setting, not a respin.
+  sides of the top code at every corner, ff/125 C included.
+
+  What is left is narrower than it first looks. A decision is taken where the
+  top plate reaches the comparator's own switching point, which is Vcm, so
+  the poor bias and the hard question never coincide: the first trials sit
+  near a rail but ask for half a volt, and the trials that ask for half an
+  LSB sit at Vcm, where the biasing is comfortable. Precision is not at risk
+  near ground -- *firing at all* is. So the question for M5 is functional and
+  answerable on the comparator alone, in a transient with one input held near
+  0 V: does the latch separate, or does it sit stuck and raise the flag? It
+  is not a converter-loop question and does not need the loop to answer.
+  If it does sit stuck, the fixes are unchanged -- a PMOS input pair, or Vcm
+  moved above Vref/2, which is a bench setting rather than a respin.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
 - **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
   DRC pitch may not fit the analog strip once power-stripe margins come off.
   Check capm/met3 spacing rules before layout; the digital budget has slack.
-- **Coefficient recipe below points at `libs.ref`**; `docs/model.md` says read
-  the continuous models (the originals differ ~6x). Trust model.md.
 - **Values still restated in docs:** `docs/floorplan.md` numbers vs a future
   LibreLane config.
 

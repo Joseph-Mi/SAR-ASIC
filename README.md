@@ -1,7 +1,7 @@
 # SAR-ASIC
 
 Successive-approximation-register ADC: RTL, verification, system models, and
-physical design in one repo.
+physical design monorepo.
 
 ## Layout
 

@@ -21,14 +21,25 @@ broke imports silently.
 capacitor matching it gives. It knows nothing else in the repository. A second
 copy of a process number anywhere else is the drift this layer exists to stop.
 
+**`figures/`** -- how a picture looks: the palette, the type, the canvas and
+the one function that writes a file. It knows nothing else in the repository,
+and everything that draws reads it, which is why it sits at the bottom rather
+than beside the scripts that use it.
+
 **`reference/`** -- the golden model and the contract between the halves: what
-a conversion is, when each pin moves, and which wires cross the boundary. Both
-the RTL and the analog simulation are judged against it, which is why it sits
-outside `hdl/`: it is not the digital half's, it is the chip's.
+a conversion is, when each pin moves, which wires cross the boundary, how long
+a board has to hold a pin for the chip to see it, and what the converter asks
+of its comparator -- the margin, the time and the noise, which are the
+converter's half of a comparator specification and can be written before one
+exists. Both the RTL and the
+analog simulation are judged against it, which is why it sits outside `hdl/`:
+it is not the digital half's, it is the chip's.
 
 **`model/`** -- the physics the tests hold the circuit to: settling, charge
-injection, the common-mode source, mismatch, and the static and dynamic
-metrics of an array. Laws and measures, each a function of its inputs.
+injection, junction capacitance, the common-mode source, mismatch, what a
+moving input costs, what a conversion costs the reference, and the static and
+spectral metrics of an array. Laws and measures, each a function of its
+inputs.
 
 **`studies/`** -- the questions asked of the model: the yield and noise sweeps,
 their committed baselines, and the plots. A study is run, not imported;
@@ -40,7 +51,9 @@ tests make of it. It imports the model for its expectations and the reference
 for its interface.
 
 **`hdl/verification/`** -- the RTL under test: cocotb benches for the digital
-half, and the closed loop that runs the RTL against the analog block.
+half, the closed loop that runs the RTL against the analog block, and the
+formal properties, which are the only place SystemVerilog is used and which
+are bound to the design from outside it.
 
 `hdl/rtl/` is Verilog and imports nothing. `sandbox/` holds disposable
 experiments that may use any layer and that no layer may use.

@@ -4,9 +4,10 @@ Reads the committed artifact rather than re-running the study, so a plot always
 shows exactly the numbers under review. Regenerating the artifact and then
 looking at a picture of something else is the failure mode this avoids.
 
-matplotlib is imported inside the drawing function. CI installs only the pinned
-Python dependencies and matplotlib is not among them, so importing it at module
-scope would make this file un-importable there for no benefit.
+Nothing here chooses how a figure looks, and nothing here imports matplotlib:
+the house style owns both, so these figures match every other one in the
+repository, a restyle is one edit somewhere else, and this file stays
+importable where the drawing library is not installed.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import pathlib
 
 import numpy as np
 
+import house
 import sky130
 from mismatch import (
     PERCENT,
@@ -27,13 +29,10 @@ from yield_study import BASELINE
 
 OUT_DIR = pathlib.Path("build/studies")
 
-# How the figures look. None of it carries a result.
-FONT_SMALL, FONT_LABEL, FONT_TITLE = 8, 9, 11
-LINE_THIN, LINE_RULE = 0.6, 0.8
-GRID_ALPHA, SHADE_ALPHA = 0.3, 0.12
-DPI = 140
-YIELD_FIGSIZE = (11, 8)
-NOISE_FIGSIZE = (14, 4.4)
+#: Panel aspect, per panel. The yield figure is a square grid; the noise
+#: figure is a row, so its panels are narrower to keep the canvas readable.
+YIELD_PANEL = (5.6, 4.2)
+NOISE_PANEL = (4.7, 4.2)
 
 # The x range is widened this far around the buildable limit so the limit
 # line never sits on the frame.
@@ -80,11 +79,6 @@ def read_table(path: pathlib.Path = BASELINE) -> tuple[dict, list[dict]]:
 
 
 def plot(path: pathlib.Path = BASELINE, out_dir: pathlib.Path = OUT_DIR):
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
     header, rows = read_table(path)
     trials = int(header["trials"])
     floor = 1.0 / trials
@@ -96,7 +90,7 @@ def plot(path: pathlib.Path = BASELINE, out_dir: pathlib.Path = OUT_DIR):
     min_area = min(sky130.CAP_MIN_AREA_MIM, sky130.CAP_MIN_AREA_VPP)
     buildable = sigma_from_area(min_area, sky130.CAP_A_C) * PERCENT
 
-    fig, axes = plt.subplots(2, 2, figsize=YIELD_FIGSIZE)
+    fig, axes = house.canvas(2, 2, size=YIELD_PANEL)
     for ax, (column, label, log) in zip(axes.flat, PANELS, strict=True):
         for n_bits in resolutions:
             picked = [r for r in rows if r["n_bits"] == n_bits]
@@ -125,26 +119,27 @@ def plot(path: pathlib.Path = BASELINE, out_dir: pathlib.Path = OUT_DIR):
                 ax.plot(
                     x,
                     [r["analytic"] for r in picked],
-                    "k--",
-                    lw=LINE_RULE,
+                    "--",
+                    color=house.MODEL,
+                    lw=house.BOUND_WIDTH,
                     label="sqrt(2^N-1)*sigma" if n_bits == resolutions[0] else None,
                 )
         if log:
-            ax.axhline(floor, color="grey", lw=LINE_THIN, ls=":")
+            ax.axhline(floor, color=house.INK_SOFT, lw=house.THIN, ls=":")
             ax.annotate(
                 f"none seen in {trials} trials",
                 (NOTE_X, floor * NOTE_LIFT),
                 xycoords=("axes fraction", "data"),
-                fontsize=FONT_SMALL,
-                color="grey",
+                fontsize=house.FONT_SMALL,
+                color=house.INK_SOFT,
             )
 
         lo0, hi0 = ax.get_xlim()
         ax.set_xlim(
             left=min(lo0, buildable * LIMIT_MARGIN[0]), right=max(hi0, buildable * LIMIT_MARGIN[1])
         )
-        ax.axvspan(buildable, ax.get_xlim()[1], color="grey", alpha=SHADE_ALPHA, lw=0)
-        ax.axvline(buildable, color="grey", lw=LINE_RULE, ls="--")
+        ax.axvspan(buildable, ax.get_xlim()[1], color=house.BAD, alpha=house.SHADE_ALPHA, lw=0)
+        house.bound(ax, buildable, "process floor", axis="x", color=house.BAD)
 
         # Matching is the axis the physics depends on; area is one way to buy
         # it. Shown as a second scale rather than as the variable, so a revised
@@ -167,12 +162,11 @@ def plot(path: pathlib.Path = BASELINE, out_dir: pathlib.Path = OUT_DIR):
             if lo <= at <= hi and all(abs(at - s) > (hi - lo) * TICK_GAP for _, s in keep):
                 keep.append((a, at))
         top.set_xticks([a for a, _ in keep])
-        top.set_xticklabels([f"{a:g}" for a, _ in keep], fontsize=FONT_SMALL)
-        top.set_xlabel("unit capacitor area  [um^2]", fontsize=FONT_LABEL)
+        top.set_xticklabels([f"{a:g}" for a, _ in keep], fontsize=house.FONT_SMALL)
+        top.set_xlabel("unit capacitor area  [um^2]")
         ax.set_xlabel("unit capacitor matching  sigma_u/C_u  [%]")
         ax.set_ylabel(label)
-        ax.grid(alpha=GRID_ALPHA)
-        ax.legend(fontsize=FONT_SMALL)
+        ax.legend()
 
     fig.suptitle(
         f"Binary-weighted SAR: mismatch vs linearity, yield and resolution "
@@ -181,25 +175,16 @@ def plot(path: pathlib.Path = BASELINE, out_dir: pathlib.Path = OUT_DIR):
         f"area alone, so the flavour changes the capacitance in it, not the axis.\n"
         f"shaded: needs a unit smaller than the process will draw "
         f"({min_area} um^2), so the array is limited by geometry, not matching.",
-        fontsize=FONT_TITLE,
     )
     fig.tight_layout()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / "yield.png"
-    fig.savefig(target, dpi=DPI)
-    return target
+    return house.save(fig, out_dir / "yield.png")
 
 
 def plot_noise(path: pathlib.Path = NOISE_BASELINE, out_dir: pathlib.Path = OUT_DIR):
     """What the comparator has to be, for each resolution worth considering."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
     header, rows = read_table(path)
     resolutions = sorted({r["n_bits"] for r in rows})
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=NOISE_FIGSIZE)
+    fig, (ax1, ax2, ax3) = house.canvas(1, 3, size=NOISE_PANEL)
 
     for n_bits in resolutions:
         picked = [r for r in rows if r["n_bits"] == n_bits]
@@ -226,8 +211,8 @@ def plot_noise(path: pathlib.Path = NOISE_BASELINE, out_dir: pathlib.Path = OUT_
     ax1.set_ylabel("bits lost")
     ax1.set_title("Cost is the same at every resolution")
 
-    ax2.axvline(GROSS_ERROR_ONSET_LSB, color="grey", lw=LINE_RULE, ls="--")
-    ax2.axhline(1.0 / float(header["conversions"]), color="grey", lw=LINE_THIN, ls=":")
+    house.bound(ax2, GROSS_ERROR_ONSET_LSB, "gross-error onset", axis="x", color=house.WARN)
+    ax2.axhline(1.0 / float(header["conversions"]), color=house.INK_SOFT, lw=house.THIN, ls=":")
     ax2.set_xlabel("comparator noise  [LSB rms]")
     ax2.set_ylabel("P(missed by more than one code)")
     ax2.set_title("Where a wrong early bit starts costing 2^k")
@@ -239,21 +224,25 @@ def plot_noise(path: pathlib.Path = NOISE_BASELINE, out_dir: pathlib.Path = OUT_
     ax3.set_title("What that costs in volts")
 
     for ax in (ax1, ax2, ax3):
-        ax.grid(alpha=GRID_ALPHA)
-        ax.legend(fontsize=FONT_SMALL)
+        ax.legend()
 
     fig.suptitle(
         f"Comparator noise against resolution ({header['conversions']} conversions per point)\n"
         f"degradation tracks the LSB, so resolution is bought in comparator volts",
-        fontsize=FONT_TITLE,
     )
     fig.tight_layout()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / "noise.png"
-    fig.savefig(target, dpi=DPI)
-    return target
+    return house.save(fig, out_dir / "noise.png")
+
+
+#: Every figure this module draws. Named once so the script and the test that
+#: renders them cannot disagree about what "every figure" means.
+FIGURES = (plot, plot_noise)
+
+
+def draw_all(out_dir: pathlib.Path = OUT_DIR) -> list[pathlib.Path]:
+    return [figure(out_dir=out_dir) for figure in FIGURES]
 
 
 if __name__ == "__main__":
-    print(plot())
-    print(plot_noise())
+    for drawn in draw_all():
+        print(drawn)

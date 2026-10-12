@@ -342,11 +342,11 @@ DEFAULT_UNIT = Ideal(1e-15)
 #: larger unit settles proportionally slower, and still far inside an edge.
 IDEAL_RON_UNIT = IDEAL_UNIT_TAU / DEFAULT_UNIT.farads
 
-#: An ideal unit of about sky130's smallest MiM: its minimum area at a typical
-#: density. Where transistors touch the array its size counts -- a switch's
-#: charge and resistance act against the array's capacitance -- and a unit too
-#: light for its switches exaggerates every effect.
-MIM_SIZED = Ideal(8e-15)
+#: An ideal unit the size of sky130's smallest MiM, fringe included. Where
+#: transistors touch the array its size counts -- a switch's charge and
+#: resistance act against the array's capacitance -- and a unit too light for
+#: its switches exaggerates every effect.
+MIM_SIZED = Ideal(sky130.mim_unit())
 
 
 def terminals(n_bits: int = N_BITS) -> list[str]:

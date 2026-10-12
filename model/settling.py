@@ -15,10 +15,16 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 
-def residual(t: float, tau: float, step: float) -> float:
-    """What is left of a `step` after settling for `t` with time constant `tau`."""
-    return step * math.exp(-t / tau)
+
+def residual(t, tau: float, step: float):
+    """What is left of a `step` after settling for `t` with time constant `tau`.
+
+    Takes an array of times as readily as one, so a curve of the law and a
+    single margin come from the same expression.
+    """
+    return step * np.exp(-np.asarray(t, dtype=float) / tau)
 
 
 def settle_time(tau: float, step: float, tolerance: float) -> float:

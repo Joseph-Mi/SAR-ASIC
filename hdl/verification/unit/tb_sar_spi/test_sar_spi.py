@@ -15,7 +15,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
+from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge, Timer
 
 from registers import (
     ADDRESS,
@@ -29,6 +29,7 @@ from registers import (
 )
 from spi import Slave, command
 from tb_common import rtl, run
+from timing import MIN_LEVEL_CYCLES, frame_cycles
 
 DUT = "sar_spi"
 
@@ -38,6 +39,12 @@ RESET_CYCLES = 2
 #: System clocks per phase of the wire's clock. The slave samples the wire, so a
 #: phase has to last long enough to be seen; this is comfortably over that.
 SCK_PHASE_CYCLES = 4
+
+#: Phases between the wire and the clock to run the fastest legal frame at, as
+#: fractions of a clock period. The timing bound is a claim about every such
+#: phase, so one alignment does not test it -- and a bench whose wire is always
+#: on the clock grid is the alignment least likely to find a problem.
+ALIGNMENTS = (0.0, 0.25, 0.5, 0.75)
 
 FULL = (1 << REGISTER_WIDTH) - 1
 
@@ -229,4 +236,77 @@ def test_sar_spi():
         sources=rtl(DUT, "sync2"),
         parameters={"REGISTER_WIDTH": REGISTER_WIDTH},
         test_dir=Path(__file__).parent,
+    )
+
+
+async def drifting_phase(dut, level: int, phase_cycles: int) -> None:
+    """One phase of the wire's clock, timed in its own right.
+
+    Waiting on clock cycles snaps the wire back onto the clock's grid after
+    every phase, which is the one alignment a sampled interface is certain to
+    survive. Waiting on time keeps whatever offset the frame started with.
+    """
+    dut.sck_i.value = level
+    await Timer(phase_cycles * CLK_PERIOD_NS, unit="ns")
+
+
+async def drifting_frame(dut, data, phase_cycles: int, alignment: float) -> list[int]:
+    """A frame whose wire runs offset from the clock by a fraction of a period."""
+    if alignment:
+        await Timer(alignment * CLK_PERIOD_NS, unit="ns")
+    dut.cs_ni.value = 0
+    await drifting_phase(dut, 0, MIN_LEVEL_CYCLES)
+    out = []
+    for byte in data:
+        got = 0
+        for i in range(REGISTER_WIDTH - 1, -1, -1):
+            dut.mosi_i.value = (byte >> i) & 1
+            await drifting_phase(dut, 0, phase_cycles)
+            got = (got << 1) | int(dut.miso_o.value)
+            await drifting_phase(dut, 1, phase_cycles)
+        dut.sck_i.value = 0
+        out.append(got)
+    await drifting_phase(dut, 0, MIN_LEVEL_CYCLES)
+    dut.cs_ni.value = 1
+    await ClockCycles(dut.clk_i, SCK_PHASE_CYCLES)
+    return out
+
+
+@cocotb.test()
+async def the_fastest_frame_the_contract_allows_works_at_every_alignment(dut):
+    """The timing contract, confirmed against the hardware.
+
+    The contract says a phase of the wire's clock has to span this many system
+    clocks, and the rest of this bench runs comfortably above it -- so without
+    this test the bound is a number nothing is held to. Each alignment is a
+    different phase between the wire and the clock, and the frame has to land
+    under all of them.
+    """
+    registers = await start(dut)
+    slave = Slave()
+    for alignment in ALIGNMENTS:
+        want = 0x5A ^ int(alignment * 4)
+        data = [command(ADDRESS["clk_div"], write=True), want]
+        got = await drifting_frame(dut, data, MIN_LEVEL_CYCLES, alignment)
+        slave.select()
+        expected = [slave.transfer(byte) for byte in data]
+        slave.deselect()
+        assert got == expected, f"alignment {alignment}: returned {got}, model says {expected}"
+        assert registers["clk_div"] == want, f"alignment {alignment}: write did not land"
+        assert state(registers) == state(slave.registers), f"alignment {alignment}: diverged"
+
+
+@cocotb.test()
+async def a_frame_takes_the_cycles_the_contract_says_it_takes(dut):
+    """So a host can be told how long a configuration takes, and so the bound
+    and the bench cannot disagree about what the fastest frame is."""
+    registers = await start(dut)
+    data = [command(ADDRESS["clk_div"], write=True), 0x3C]
+    budget = frame_cycles(len(data) - 1, REGISTER_WIDTH)
+    started = cocotb.utils.get_sim_time(unit="ns")
+    await drifting_frame(dut, data, MIN_LEVEL_CYCLES, 0.0)
+    spent = (cocotb.utils.get_sim_time(unit="ns") - started) / CLK_PERIOD_NS
+    assert registers["clk_div"] == 0x3C
+    assert spent <= budget + SCK_PHASE_CYCLES, (
+        f"frame took {spent} cycles, contract allows {budget}"
     )

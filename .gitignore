@@ -1,6 +1,9 @@
 # ---- Verilator + cocotb output -------------------------------------------
 build/
 sim_build/
+# Verilator writes coverage next to whatever it was run from unless told
+# otherwise, and a bench is run from its own source directory.
+coverage.dat
 obj_dir/
 results.xml
 *.vcd

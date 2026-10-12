@@ -1,0 +1,27 @@
+# Two tasks because the two kinds of claim need different assumptions. The
+# bound is counted in enabled steps, so proving it needs the search stepping;
+# that the search stands still when it is not stepping is proved without that
+# assumption, by induction, so it holds for a stall of any length.
+
+[tasks]
+stepping
+stalling
+
+[options]
+stepping: mode bmc
+stepping: depth 40
+stalling: mode prove
+stalling: depth 12
+
+[engines]
+smtbmc yices
+
+[script]
+stepping: read -define STEPPING
+read -sv sar_fsm_props.sv
+read -formal sar_fsm.v
+prep -top sar_fsm_props
+
+[files]
+sar_fsm_props.sv
+../../rtl/sar_fsm.v

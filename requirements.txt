@@ -9,3 +9,10 @@ pytest==8.4.2
 # Ours, not TT's.
 numpy==2.5.2
 ruff==0.16.4
+
+# Coverage, so "the suite passed" and "the suite reached the code" stop being
+# the same claim. The plugin and the library are pinned separately because the
+# Verilog side is measured by Verilator and merged alongside this one, and a
+# report is only comparable between runs if both halves are fixed.
+pytest-cov==7.1.0
+coverage==7.16.2

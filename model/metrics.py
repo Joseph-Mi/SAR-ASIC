@@ -32,6 +32,20 @@ def transition_voltages(unit_caps, vref: float = 1.0) -> np.ndarray:
     return vref * (weights @ bits.T) / caps.sum(axis=-1, keepdims=True)
 
 
+def midcode_inputs(n_bits: int, count: int, vref: float = 1.0):
+    """`count` inputs spread over the range, each in the middle of a code.
+
+    A sweep built by dividing the range evenly lands on code boundaries
+    whenever the count divides the code count, and a boundary is a tie: which
+    way it falls is decided by the last bit of the arithmetic rather than by
+    the converter. Half a code off every boundary, nothing is a tie.
+    """
+    if count <= 0 or count > 2**n_bits:
+        raise ValueError(f"{count} inputs do not fit {2**n_bits} codes")
+    step = 2**n_bits // count
+    return np.array([(k * step + 0.5) / 2**n_bits * vref for k in range(count)])
+
+
 def lsb_ideal(n_bits: int, vref: float = 1.0) -> float:
     return vref / 2**n_bits
 

@@ -11,6 +11,7 @@ from protocol import (
     code_of,
     conversion_sequence,
     trace_of,
+    trial_words,
 )
 from sar import ideal_units, n_bits_of, sar_convert
 
@@ -127,3 +128,29 @@ def test_comparator_imperfections_reach_the_sequence(units):
     clean = conversion_sequence(VIN, units, VREF)
     offset = conversion_sequence(VIN, units, VREF, cmp_offset=OFFSET)
     assert code_of(offset) != code_of(clean)
+
+
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+def test_the_trial_words_are_what_the_array_is_actually_given(n_bits):
+    """Anything that evaluates a quantity at a conversion's operating points
+    reads this list, so it has to be the sequence's own words and not a second
+    reconstruction of them."""
+    units = ideal_units(n_bits)
+    for vin in np.linspace(0.0, VREF, SWEEP_POINTS):
+        steps = conversion_sequence(vin, units, VREF)
+        words = trial_words(vin, units, VREF)
+        assert words == [step.dac_b for step in steps if step.phase == SETTLE]
+        assert len(words) == n_bits
+        # The word the array is given while sampling is the first trial's, so
+        # it does not change between the sample and the first decision.
+        assert steps[0].dac_b == words[0]
+
+
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+def test_every_trial_word_has_a_branch_on_the_reference(n_bits):
+    """All-ground while a sample is held is the state the architecture's
+    sampling contract forbids, and the trial words are what the array sees
+    for the whole of that time."""
+    units = ideal_units(n_bits)
+    for vin in np.linspace(0.0, VREF, SWEEP_POINTS):
+        assert all(word != 0 for word in trial_words(vin, units, VREF))

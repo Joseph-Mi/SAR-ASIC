@@ -183,6 +183,10 @@ class Analog:
     def __init__(self, dut):
         self.dut = dut
         self.vin = MID * VREF
+        # A latch that never resolved drives both outputs the same way. Nothing
+        # else here can produce that, and the digital half is supposed to
+        # notice it, so it is a setting rather than a second analog model.
+        self.unresolved = False
 
     @property
     def sampled(self) -> float:
@@ -201,7 +205,7 @@ class Analog:
             top = top_plate_voltage(self.sampled, int(self.dut.dac_b_o.value), UNITS, VREF)
             answer = int(top <= VCM_FRACTION * VREF)
             self.dut.cmp_out_i.value = answer
-            self.dut.cmp_out_n_i.value = 1 - answer
+            self.dut.cmp_out_n_i.value = answer if self.unresolved else 1 - answer
 
 
 async def sck(dut, board: Board, level) -> None:
@@ -510,4 +514,32 @@ def test_sar_top():
             "VIEW_SEARCH": VIEW_SEARCH,
         },
         test_dir=Path(__file__).parent,
+    )
+
+
+@cocotb.test()
+async def an_unresolved_latch_is_reported_over_the_wire(dut):
+    """The metastability flag, from the comparator's pins to a host's read.
+
+    Both latch outputs cross, so their being equal costs nothing to detect and
+    says the latch never resolved -- which is the one failure a code cannot
+    show, because the code it produces looks like any other. The path from the
+    pins to a readable bit runs through the FSM and the register file, and a
+    conversion that is merely correct exercises none of it.
+    """
+    board, analog = await start(dut)
+    analog.unresolved = True
+    await press(dut, board)
+    await converted(dut, FAST)
+    status = await read_register(dut, board, ADDRESS["status"])
+    assert status >> BY_NAME["metastable"].offset & 1, (
+        f"status {status:#04x} does not report the latch failing to resolve"
+    )
+
+    analog.unresolved = False
+    await press(dut, board)
+    await converted(dut, FAST)
+    status = await read_register(dut, board, ADDRESS["status"])
+    assert not (status >> BY_NAME["metastable"].offset & 1), (
+        "the flag outlived the conversion it belonged to"
     )

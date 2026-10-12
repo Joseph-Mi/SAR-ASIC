@@ -18,12 +18,17 @@ time, and the volts column is what a comparator design is actually held to.
 What each point reports:
 
   rms_err        error between the noisy code and the code the same array
-                 would have produced undisturbed, in LSB
+                 would have produced undisturbed, in LSB. A diagnostic: it
+                 says how often the comparator moved a code, not what that
+                 cost.
   p_wrong        fraction of conversions that came back a different code
   p_gross        fraction that missed by more than one code -- an early bit
                  decided wrongly, not a boundary flickering
   max_err        worst single conversion seen
-  enob_rms       resolution the error leaves, against a perfect quantiser.
+  rms_total      error between the code and the input it came from, in LSB,
+                 quantisation included. What a user of the converter sees,
+                 and the only one of these a resolution can be read off.
+  enob_rms       resolution that error leaves, against a perfect quantiser.
                  Named apart from the mismatch study's enob, which is measured
                  by transform on the array's own transfer curve: these isolate
                  different causes and adding them is not meaningful.
@@ -50,6 +55,11 @@ BASELINE = pathlib.Path(__file__).with_name("noise_baseline.txt")
 #: the comparator contributes nothing.
 QUANTISATION_RMS_LSB = 1.0 / np.sqrt(12.0)
 
+#: Where in its band a code is taken to stand, as a fraction of one. A code
+#: covers a band, and reading the error from the band's edge would give every
+#: conversion half an LSB of bias that is not an error.
+MIDTREAD = 0.5
+
 #: Comparator noise, in LSB, below which every mistake is a neighbouring code.
 #: Above it an early bit starts deciding wrongly, and no later trial revisits
 #: it, so the error costs a power of two rather than one.
@@ -75,6 +85,7 @@ class NoiseStudy:
             "p_wrong",
             "p_gross",
             "max_err",
+            "rms_total",
             "enob_rms",
         )
     )
@@ -84,14 +95,24 @@ def rng_for(study: NoiseStudy, n_bits: int, noise_lsb: float) -> np.random.Gener
     return study_points.rng_for(study.seed, n_bits, noise_lsb)
 
 
-def effective_bits(n_bits: int, rms_err_lsb: float) -> float:
-    """Resolution left once the comparator's errors join the quantiser's own.
+def effective_bits(n_bits: int, rms_total_lsb: float) -> float:
+    """Resolution left, from the whole error measured against the input.
 
-    The two are independent, so they add in power. A comparator contributing
-    nothing returns the nominal resolution exactly.
+    Takes the total error rather than the comparator's share of it, because
+    the two shares are not independent and cannot be added in power. Noise
+    moves a code only near a threshold, and a threshold is exactly where the
+    quantisation error was already largest -- so summing them as if they were
+    independent counts the same volts twice, and charges the comparator for
+    error the quantiser was going to make anyway.
+
+    Measured against the true input the correlation takes care of itself.
+    Below the onset of gross errors the result is the dithered quantiser,
+    sqrt(q^2 + sigma^2), which costs about a third of a bit less at a
+    quarter-LSB comparator than the independent sum claims.
     """
-    total = np.sqrt(QUANTISATION_RMS_LSB**2 + rms_err_lsb**2)
-    return n_bits - np.log2(total / QUANTISATION_RMS_LSB)
+    if rms_total_lsb <= 0.0:
+        raise ValueError("a converter whose error is zero has no resolution to report")
+    return n_bits - np.log2(rms_total_lsb / QUANTISATION_RMS_LSB)
 
 
 def run_point(study: NoiseStudy, n_bits: int, noise_lsb: float) -> dict:
@@ -101,13 +122,16 @@ def run_point(study: NoiseStudy, n_bits: int, noise_lsb: float) -> dict:
     noise_v = noise_lsb * lsb
 
     errors = np.empty(study.conversions)
+    against_input = np.empty(study.conversions)
     for i in range(study.conversions):
         vin = rng.uniform(0.0, VREF)
         clean, _ = sar_convert(vin, units, VREF)
         noisy, _ = sar_convert(vin, units, VREF, cmp_noise_rms=noise_v, rng=rng)
         errors[i] = noisy - clean
+        against_input[i] = vin / lsb - (noisy + MIDTREAD)
 
     rms = float(np.sqrt(np.mean(errors**2)))
+    total = float(np.sqrt(np.mean(against_input**2)))
     return {
         "n_bits": n_bits,
         "noise_lsb": noise_lsb,
@@ -116,7 +140,8 @@ def run_point(study: NoiseStudy, n_bits: int, noise_lsb: float) -> dict:
         "p_wrong": float(np.mean(errors != 0)),
         "p_gross": float(np.mean(np.abs(errors) > 1)),
         "max_err": float(np.max(np.abs(errors))),
-        "enob_rms": effective_bits(n_bits, rms),
+        "rms_total": total,
+        "enob_rms": effective_bits(n_bits, total),
     }
 
 
@@ -152,6 +177,13 @@ def main() -> None:
     args = parser.parse_args()
 
     study = NoiseStudy(conversions=args.conversions, seed=args.seed)
+    if study != NoiseStudy() and args.out == BASELINE:
+        parser.error(
+            f"refusing to write {BASELINE.name} from a non-default study -- the "
+            "committed baseline is what the regression test compares against. "
+            "Pass --out to write an exploratory run somewhere else."
+        )
+
     table = format_table(study, sweep(study))
     args.out.write_text(table)
     print(table, end="")

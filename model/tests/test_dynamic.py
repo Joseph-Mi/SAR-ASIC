@@ -3,18 +3,11 @@
 import numpy as np
 import pytest
 
-from dynamic import (
-    AMPLITUDE_FRACTION,
-    CYCLES,
-    codes_from_curve,
-    coherent_sine,
-    enob,
-    enob_of,
-    sndr_db,
-)
+from dynamic import codes_from_curve, enob_of
 from metrics import has_missing_codes
 from mismatch import random_units
 from sar import ideal_units, sar_convert
+from spectrum import AMPLITUDE_FRACTION, CYCLES, coherent_sine, enob, sndr_db
 
 RESOLUTIONS = (4, 8, 10)
 VREF = 1.0

@@ -110,7 +110,51 @@ imported or generated into the other. Retyping the same number in Python and in
 Verilog creates two values that will silently diverge. If you catch yourself
 copying a number between `reference/` and `hdl/rtl/`, that is the bug.
 
-## 5. Comments
+## 5. Figures
+
+Every figure in the repository comes out of one style. A script says what to
+draw; it never says how it looks.
+
+```python
+import house
+
+fig, (left, right) = house.canvas(1, 2)
+left.plot(x, y)  # colours come from the cycle
+house.bound(right, limit, "limit")  # a limit is drawn as a limit
+house.save(fig, out_dir / "thing.png")
+```
+
+What that buys: one edit restyles every picture at once, two figures of the
+same quantity cannot end up in different palettes, and a reader learns the
+colours once. The surface is dark because these are read on a screen beside a
+terminal and an editor that are also dark.
+
+**The rule is mechanical, and checked.** A test fails when any file other than
+the style module writes a figure, sets a drawing default, chooses a backend,
+or writes a colour literal. There is no exemption for a quick one-off: a
+one-off is exactly what the second palette always turns out to have been.
+
+- **Only the style module imports the drawing library.** A figure script that
+  imports it at module scope stops being importable wherever it is not
+  installed, which is most of CI, and takes the whole test file with it.
+- **A script chooses its panels, not its look.** How many, and their aspect.
+  Everything else -- type, weight, colour, grid, resolution, save options --
+  belongs to the style.
+- **A limit is drawn as a limit.** Dashed, thinner than the data, labelled on
+  the axis it constrains. A bound that looks like a series is read as one.
+- **Colour carries meaning or it carries an index, never both.** `GOOD`,
+  `BAD`, `BOUND` and `MODEL` mean what they say in every figure; everything
+  else takes the next colour in the cycle and means nothing in particular.
+- **A figure is not a result.** Nothing is asserted in one. Every curve is a
+  function the tests already hold the design to, drawn so it can be looked at
+  -- so a figure that disagrees with a test is a bug in the figure.
+
+A new figure goes in the module whose question it answers, is added to that
+module's set so it renders with the others, and gets a test that it renders at
+all. A figure script is the one kind of code nobody runs between writing it
+and wanting it.
+
+## 6. Comments
 
 Be ruthless. Most comments people write should not exist.
 

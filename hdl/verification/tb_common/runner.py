@@ -27,6 +27,21 @@ BUILD_DIR = REPO_ROOT / "build" / "sim"
 #: Waveforms cost runtime; off by default, on with `WAVES=1`.
 DEFAULT_WAVES = os.getenv("WAVES", "0") not in ("0", "", "false", "False")
 
+#: Verilator's line and toggle coverage; off by default, on with
+#: `RTL_COVERAGE=1`. It instruments every line and every bit of every signal,
+#: which costs build and run time, and it answers the one question a passing
+#: suite cannot: how much of the design the suite reached.
+#:
+#: Named for the language it measures rather than just "coverage" because
+#: cocotb claims that name for coverage of the Python in the benches.
+DEFAULT_COVERAGE = os.getenv("RTL_COVERAGE", "0") not in ("0", "", "false", "False")
+
+#: Where a run leaves its coverage, as the simulation's own option spells it.
+#: The default is the working directory, which is the bench's source
+#: directory -- so it has to be pointed at the build tree instead.
+COVERAGE_PLUSARG = "+verilator+coverage+file+{path}"
+COVERAGE_FILE = "coverage.dat"
+
 #: Applies to every build; matches the timescale `make lint-rtl` uses.
 TIMESCALE = ("1ns", "1ps")
 
@@ -67,6 +82,7 @@ def run(
     test_args: list[str] | None = None,
     plusargs: list[str] | None = None,
     waves: bool | None = None,
+    coverage: bool | None = None,
     seed: int | None = None,
 ) -> None:
     """Build `top` with Verilator and run the cocotb tests in the calling module.
@@ -78,6 +94,7 @@ def run(
     caller_path = Path(inspect.stack()[1].filename).resolve()
 
     waves = DEFAULT_WAVES if waves is None else waves
+    coverage = DEFAULT_COVERAGE if coverage is None else coverage
     sources = sources if sources is not None else rtl(top)
     test_module = test_module or caller_path.stem
     test_dir = test_dir or caller_path.parent
@@ -97,7 +114,11 @@ def run(
         defines=defines or {},
         parameters=parameters or {},
         build_dir=str(build_dir),
-        build_args=["-Wall", *(build_args or [])],
+        build_args=[
+            "-Wall",
+            *(["--coverage"] if coverage else []),
+            *(build_args or []),
+        ],
         timescale=TIMESCALE,
         waves=waves,
         always=True,
@@ -111,7 +132,10 @@ def run(
         testcase=testcase,
         build_dir=str(build_dir),
         test_args=list(test_args or []),
-        plusargs=list(plusargs or []),
+        plusargs=[
+            *([COVERAGE_PLUSARG.format(path=build_dir / COVERAGE_FILE)] if coverage else []),
+            *(plusargs or []),
+        ],
         results_xml=str(build_dir / "results.xml"),
         timescale=TIMESCALE,
         seed=seed,
