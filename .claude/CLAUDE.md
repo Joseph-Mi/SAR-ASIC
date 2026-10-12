@@ -731,45 +731,49 @@ comparator's swing further (no threshold moves -- see M3 Step 1). Decided with M
 
 ---
 
-**Where sky130 keeps capacitor matching.** It is not in a datasheet. Each
-capacitor's subcircuit carries a mismatch term proportional to `1/sqrt(area)`,
-under `libs.ref/sky130_fd_pr/spice/` — *not* the `libs.tech/ngspice/` files,
-which only `.include` those, so grepping there finds nothing and looks like
-proof that no matching data exists. `mc_mm_switch` also defaults to 0, so a
-Monte Carlo run without setting it shows exactly zero spread and invites the
-same wrong conclusion. Both traps cost real time once.
+**Where sky130 keeps its capacitor numbers.** Not in a datasheet: inside the
+device subcircuits, as a mismatch term proportional to `1/sqrt(area)` and a
+density multiplying the plate.
 
-The coefficient itself is not repeated here: the model names it, and a second
-copy in this file is a second thing to keep true. `docs/model.md` has the grep
-that reads it out of the PDK, and `sandbox/cap-matching/` measures it in
-ngspice to confirm the expression behaves the way it reads.
+**The PDK ships them twice and the two disagree.** `libs.tech/combined/
+continuous/` is what a simulation reads — the PDK's own xschem setup selects
+it — and `libs.ref/sky130_fd_pr/spice/` plus `libs.tech/ngspice/r+c/` are the
+superseded micro-binned originals. They differ by about six times on matching,
+and on the MiM they are not even the same equation: the originals add a fringe
+term on a plate biased inward, the continuous models use area alone on a plate
+biased outward by more than a tenth of a micrometre. A grep that finds a
+plausible number in the wrong tree is the expensive mistake here, because
+nothing about the number looks wrong.
+
+`mc_mm_switch` also defaults to 0, so a Monte Carlo run without setting it
+shows exactly zero spread and invites a different wrong conclusion. Both traps
+cost real time once.
+
+No number is repeated here. `tech/sky130.py` declares the continuous tree's
+parameters, `mim_unit()` evaluates the device's own expression, and a test
+reads them back out of the PDK and checks the expression against the capacitor
+ngspice instantiates. `sandbox/cap-matching/` measures the mismatch spread the
+same way.
 
 ```
 make shell first, then:
 
-  # 1. Read the coefficient straight out of the 
-  PDK
-  grep -n czero \
-    /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
-  /sky130_fd_pr__cap_mim_m3_1.model.spice
+  C=$PDK_ROOT/$PDK/libs.tech/combined/continuous
 
-  # See the whole device while you're there
-  grep -v '^\*' \
-    /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
-  /sky130_fd_pr__cap_mim_m3_1.model.spice
+  # The MiM as a simulation builds it: area times a biased plate, no fringe
+  sed -n '/subckt .*cap_mim_m3_1/,/^.ends/p' $C/models_capacitors.spice
 
-  # The VPP equivalent, same shape
-  grep -n 'ctot_a =' \
-    /foss/pdks/sky130A/libs.ref/sky130_fd_pr/spice
-  /sky130_fd_pr__cap_vpp_04p4x04p6_m1m2_noshield.m
-  odel.spice
+  # Its density and plate bias, per capacitance corner
+  grep -H 'sw_cap_mim_' $C/parameters_cap_{nom,low,high}.spice
 
-  # Densities, per corner (camimc, farads per 
-  um^2)
-  grep -rn camimc
-  /foss/pdks/sky130A/libs.tech/ngspice/r+c/
+  # The matching coefficient, as a ratio: times 100 for percent-micrometres
+  grep -n sw_mm_cmim $C/models_global.spice
 
-  Then measure it yourself — takes about a minute:
+  # What a section actually pulls in -- the capacitance corner rides with the
+  # device corner, so tt is the only typical one and ff_hh / ss_ll the extremes
+  grep -A8 '^.lib ss_ll$' $PDK_ROOT/$PDK/libs.tech/combined/sky130.lib.spice
+
+  Then measure it yourself -- takes about a minute:
 
   cd /foss/designs/SAR-ASIC/sandbox/cap-matching
   ngspice -b mim_mc.spice 2>/dev/null | grep -oE
@@ -778,8 +782,8 @@ make shell first, then:
   python3 -c "
   import statistics as st
   v = [float(x) for x in open('/tmp/caps.txt')]
-  print(f'n={len(v)}  mean={st.mean(v)*1e15:.3f} 
-  fF  sigma/C={100*st.pstdev(v)/st.mean(v):.3f} 
+  print(f'n={len(v)}  mean={st.mean(v)*1e15:.3f}
+  fF  sigma/C={100*st.pstdev(v)/st.mean(v):.3f}
   %')
   "
 ```
@@ -840,8 +844,6 @@ Delete each one when it is fixed.
 - **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
   DRC pitch may not fit the analog strip once power-stripe margins come off.
   Check capm/met3 spacing rules before layout; the digital budget has slack.
-- **Coefficient recipe below points at `libs.ref`**; `docs/model.md` says read
-  the continuous models (the originals differ ~6x). Trust model.md.
 - **Values still restated in docs:** `docs/floorplan.md` numbers vs a future
   LibreLane config.
 

@@ -8,6 +8,8 @@ from metrics import (
     dnl,
     has_missing_codes,
     inl,
+    lsb_ideal,
+    midcode_inputs,
     msb_dnl,
     sigma_dnl_msb_analytic,
     transition_voltages,
@@ -107,3 +109,30 @@ def test_fast_curve_matches_the_conversion_loop():
     fast = transition_voltages(u)
     slow = np.array([dac_voltage(c, weights, total_cap, VREF) for c in range(2**N_BITS)])
     assert np.allclose(fast, slow, rtol=0, atol=FLOAT_EXACT)
+
+
+def test_a_midcode_sweep_lands_on_no_threshold():
+    """The point of it. A sweep that divides the range evenly sits on a code
+    boundary whenever the count divides the code count, and a boundary is a
+    tie -- decided by the last bit of the arithmetic rather than by the
+    converter, so a result taken there is not reproducible."""
+    n_bits = 10
+    units = ideal_units(n_bits)
+    edges = transition_voltages(units, VREF)
+    for count in (8, 16, 64, 2**n_bits):
+        inputs = midcode_inputs(n_bits, count, VREF)
+        assert len(inputs) == count
+        assert np.all(np.diff(inputs) > 0)
+        assert np.min(np.abs(inputs[:, None] - edges[None, :])) > lsb_ideal(n_bits, VREF) / 4
+
+
+def test_a_midcode_sweep_covers_the_range():
+    inputs = midcode_inputs(8, 16, VREF)
+    assert inputs[0] < VREF / 16
+    assert inputs[-1] > VREF * 15 / 16
+
+
+@pytest.mark.parametrize("count", (0, -1, 2**4 + 1))
+def test_a_sweep_that_does_not_fit_the_codes_is_refused(count):
+    with pytest.raises(ValueError):
+        midcode_inputs(4, count)

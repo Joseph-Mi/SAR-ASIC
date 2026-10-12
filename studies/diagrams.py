@@ -21,10 +21,11 @@ import pathlib
 import numpy as np
 
 import house
+import sky130
 from dynamic import codes_from_curve
 from interface import N_BITS
 from junction import ABRUPT, LINEARLY_GRADED, Junction, input_at_decision, swing_gain
-from metrics import inl, lsb_ideal
+from metrics import inl, lsb_ideal, midcode_inputs
 from power import average_reference_current, rate_a_pin_can_carry, reference_charge
 from protocol import DONE, EVALUATE, SAMPLE, SETTLE, conversion_sequence
 from sampling import coherent_cycles, level_dependent, sampled, sweep
@@ -38,9 +39,12 @@ OUT_DIR = pathlib.Path("build/figures")
 
 VREF = 1.0
 
-#: A unit capacitor of the order the process draws, farads. Every figure in
-#: absolute units scales with it; the relationships do not.
-C_UNIT = 8e-15
+#: The smallest unit the process draws, farads, at each corner its capacitance
+#: models carry. Every figure in absolute units scales with it -- and it spans
+#: a factor of 1.6 across those corners, which is why the figures that carry
+#: absolute units draw a band rather than a line.
+C_UNIT = {corner: sky130.mim_unit(corner) for corner in sky130.CAP_CORNERS}
+TYPICAL = "typical"
 
 #: Resolution the waveform diagram is drawn at. Small enough that every step
 #: of a conversion is a readable tick on the axis.
@@ -100,9 +104,14 @@ OVERHEAD_PHASES = 2
 #: Level durations the pin-timing panel draws, in system clocks.
 LEVEL_CYCLES = range(0, 7)
 
+#: How many codes the charge figure samples, and how many the rate bound is
+#: taken over. Enough to see the shape and to find the worst case.
+CHARGE_POINTS = 64
+RATE_POINTS = 32
 
-def _units(n_bits: int = N_BITS):
-    return ideal_units(n_bits, C_UNIT)
+
+def _units(n_bits: int = N_BITS, corner: str = TYPICAL):
+    return ideal_units(n_bits, C_UNIT[corner])
 
 
 def conversion(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
@@ -259,8 +268,6 @@ def bounds(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     sampling rule, and the conversion rate against what the reference pin can
     carry. Each panel shades the side of the bound that does not work.
     """
-    units = _units()
-    total = float(units.sum())
     lsb = lsb_ideal(N_BITS, VREF)
     tolerance = TOLERANCE_LSB * lsb
 
@@ -268,16 +275,30 @@ def bounds(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
 
     # Two paths charge through the pin: sampling charges the whole array
     # through three resistances in series, the reference charges a quarter of
-    # it at the first trial.
+    # it at the first trial. Both scale with the array, so both carry the
+    # band the unit capacitor's corners put on it.
+    loop_r = sampling_loop_resistance(R_PIN, R_PIN, R_PIN)
     paths = (
-        ("sampling loop", sampling_loop_resistance(R_PIN, R_PIN, R_PIN) * total, VREF),
-        ("reference, first trial", R_PIN * c_seen_by_reference(total / 2, total), VREF / 2),
+        ("sampling loop", lambda c: loop_r * c, VREF),
+        ("reference, first trial", lambda c: R_PIN * c_seen_by_reference(c / 2, c), VREF / 2),
     )
-    slowest = max(settle_time(tau, step, tolerance) for _, tau, step in paths)
+    arrays = {corner: float(_units(corner=corner).sum()) for corner in sky130.CAP_CORNERS}
+    slowest = max(settle_time(tau(arrays["high"]), step, tolerance) for _, tau, step in paths)
     t = np.linspace(0, slowest * 1.3, 400)
-    for name, tau, step in paths:
+    for (name, tau, step), colour in zip(paths, house.SERIES, strict=False):
+        settle.fill_between(
+            t * 1e9,
+            residual(t, tau(arrays["low"]), step) / lsb,
+            residual(t, tau(arrays["high"]), step) / lsb,
+            color=colour,
+            alpha=house.SHADE_ALPHA,
+            lw=0,
+        )
         settle.semilogy(
-            t * 1e9, residual(t, tau, step) / lsb, label=f"{name}, tau {tau * 1e9:.1f} ns"
+            t * 1e9,
+            residual(t, tau(arrays[TYPICAL]), step) / lsb,
+            color=colour,
+            label=f"{name}, tau {tau(arrays[TYPICAL]) * 1e9:.1f} ns",
         )
     settle.set_ylim(TOLERANCE_LSB / 1e3, 2 ** (N_BITS + 1))
     settle.axhspan(TOLERANCE_LSB, 2 ** (N_BITS + 1), color=house.BAD, alpha=house.SHADE_ALPHA, lw=0)
@@ -287,6 +308,7 @@ def bounds(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     settle.set_ylabel("remaining error  [LSB]")
     settle.set_title("Settling sets the phase")
     settle.legend(loc="upper right")
+    house.note(settle, "shaded: the capacitance corners", (0.03, 0.12))
 
     cycles = np.array(LEVEL_CYCLES)
     pins.step(
@@ -303,8 +325,15 @@ def bounds(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
         (0.40, 0.32),
     )
 
-    worst = max(reference_charge(vin, units, VREF) for vin in np.linspace(0, VREF, 32))
-    phase = settle_time(sampling_loop_resistance(R_PIN, R_PIN, R_PIN) * total, VREF, tolerance)
+    # Both bounds at the corner that makes them tightest: the largest array
+    # settles slowest and draws the most charge, so that is the one a design
+    # has to work at.
+    worst_units = _units(corner="high")
+    worst = max(
+        reference_charge(float(vin), worst_units, VREF)
+        for vin in midcode_inputs(N_BITS, RATE_POINTS, VREF)
+    )
+    phase = settle_time(loop_r * arrays["high"], VREF, tolerance)
     settling_limited = 1.0 / ((N_BITS + OVERHEAD_PHASES) * phase)
     pin_limited = rate_a_pin_can_carry(worst, I_PIN)
     # Drawn from a floor rather than as bars: a bar starts at zero, and zero
@@ -331,6 +360,7 @@ def bounds(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     rate.set_yticklabels(["settling", "reference pin current"])
     rate.set_xlabel("conversions per second the bound allows")
     rate.set_title("Which bound actually binds")
+    house.note(rate, "both at the slowest capacitance corner", (0.03, 0.12))
     house.note(
         rate,
         f"the pin allows {pin_limited / settling_limited:.0f}x the rate settling does",
@@ -433,14 +463,27 @@ def charge(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     hands its charge to ground, and a low code is a conversion whose trials
     mostly fail, so the cheapest conversions are at the top of the range.
     """
-    units = _units()
-
     fig, (per_code, current) = house.canvas(1, 2, size=SQUARE_PANEL)
 
-    inputs = np.linspace(0, VREF, 2**6, endpoint=False) + VREF / 2 ** (6 + 1)
-    charges = np.array([reference_charge(float(v), units, VREF) for v in inputs])
+    inputs = midcode_inputs(N_BITS, CHARGE_POINTS, VREF)
+    by_corner = {
+        corner: np.array([reference_charge(float(v), _units(corner=corner), VREF) for v in inputs])
+        for corner in sky130.CAP_CORNERS
+    }
+    units = _units()
+    charges = by_corner[TYPICAL]
     codes = [sar_convert(float(v), units, VREF)[0] for v in inputs]
-    per_code.plot(codes, charges * 1e12, color=house.SERIES[0])
+    per_code.fill_between(
+        codes,
+        by_corner["low"] * 1e12,
+        by_corner["high"] * 1e12,
+        color=house.SERIES[0],
+        alpha=house.SHADE_ALPHA,
+        lw=0,
+        label="across the capacitance corners",
+    )
+    per_code.plot(codes, charges * 1e12, color=house.SERIES[0], label="typical")
+    per_code.legend(loc="lower left")
     per_code.set_xlabel("output code")
     per_code.set_ylabel("charge off the reference  [pC per conversion]")
     per_code.set_title("The cost of a conversion depends on its answer")
@@ -451,6 +494,14 @@ def charge(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     )
 
     rates = np.logspace(3, 8, 200)
+    current.fill_between(
+        rates,
+        average_reference_current(by_corner["low"].max(), rates) * 1e3,
+        average_reference_current(by_corner["high"].max(), rates) * 1e3,
+        color=house.SERIES[0],
+        alpha=house.SHADE_ALPHA,
+        lw=0,
+    )
     current.loglog(
         rates, average_reference_current(charges.max(), rates) * 1e3, color=house.SERIES[0]
     )
@@ -467,7 +518,11 @@ def charge(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     current.set_ylabel("mean reference current  [mA]")
     current.set_title("The pin is budgeted for sag, not for average current")
 
-    fig.suptitle(f"Charge off the reference at {N_BITS} bits, unit capacitor {C_UNIT * 1e15:g} fF")
+    fig.suptitle(
+        f"Charge off the reference at {N_BITS} bits. The unit is sky130's smallest MiM: "
+        f"{C_UNIT[TYPICAL] * 1e15:.2f} fF typical, "
+        f"{C_UNIT['low'] * 1e15:.2f} to {C_UNIT['high'] * 1e15:.2f} fF across its corners"
+    )
     fig.tight_layout()
     return house.save(fig, out_dir / "charge.png")
 

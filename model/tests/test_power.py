@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from metrics import midcode_inputs
 from power import (
     average_reference_current,
     enob_from_sndr,
@@ -24,6 +25,7 @@ from power import (
 from protocol import trial_words
 from sar import VCM_FRACTION, branch_weights, ideal_units, top_plate_voltage
 from settling import sampling_loop_resistance, settle_time
+from sky130 import mim_unit
 from spectrum import DB_PER_BIT, SINE_HEADROOM_DB
 from tinytapeout import I_PIN, R_PIN
 
@@ -31,16 +33,11 @@ VREF = 1.0
 BITS = 8
 WIDE_BITS = 10
 
-#: A unit capacitor of the order the process draws, farads. Every absolute
-#: figure here scales with it, so it is named once and the conclusions are
-#: stated as ratios wherever they can be.
-C_UNIT = 8e-15
-
-
-#: Inputs spanning the range, at mid-code so no result sits on a threshold.
-def midcodes(n_bits: int, count: int) -> list[float]:
-    step = 2**n_bits // count
-    return [(k * step + 0.5) / 2**n_bits * VREF for k in range(count)]
+#: The smallest unit the process draws, farads. Every absolute figure here
+#: scales with it, so the conclusions are stated as ratios wherever they can
+#: be -- and where they cannot, they are stated against the process's own
+#: number rather than a round one.
+C_UNIT = mim_unit()
 
 
 #: Phases a conversion takes beyond its bit trials: the sample, and the cycle
@@ -71,7 +68,7 @@ def test_the_top_plate_keeps_its_charge_through_the_conversion():
     terminating = float(units.sum() - weights.sum())
     reference = VCM_FRACTION * VREF
     tolerance = CONSERVED_LSB * C_UNIT * VREF
-    for vin in midcodes(BITS, 16):
+    for vin in midcode_inputs(BITS, 16, VREF):
         held = []
         for state in [None, *trial_words(vin, units, VREF)]:
             v_top = reference if state is None else top_plate_voltage(vin, state, units, VREF)
@@ -95,7 +92,7 @@ def test_a_conversion_draws_charge_of_the_order_the_array_holds():
     meaningfully less."""
     units = ideal_units(BITS, C_UNIT)
     total = float(units.sum())
-    for vin in midcodes(BITS, 16):
+    for vin in midcode_inputs(BITS, 16, VREF):
         charge = reference_charge(vin, units, VREF)
         assert 0.0 < charge < total * VREF, vin
 
@@ -109,7 +106,7 @@ def test_the_cost_of_a_conversion_falls_as_the_input_rises():
     input, so what is left to vary is how many later trials are undone.
     """
     units = ideal_units(BITS, C_UNIT)
-    charges = [reference_charge(vin, units, VREF) for vin in midcodes(BITS, 64)]
+    charges = [reference_charge(vin, units, VREF) for vin in midcode_inputs(BITS, 64, VREF)]
     assert np.all(np.diff(charges) <= 0.0)
     assert charges[0] > charges[-1]
 
@@ -123,7 +120,7 @@ def test_the_first_trial_costs_the_same_whatever_the_input():
     first = 1 << (BITS - 1)
     reference = VCM_FRACTION * VREF
     costs = []
-    for vin in midcodes(BITS, 16):
+    for vin in midcode_inputs(BITS, 16, VREF):
         v_new = top_plate_voltage(vin, first, units, VREF)
         costs.append(weights[BITS - 1] * ((VREF - v_new) - (vin - reference)))
     assert np.ptp(costs) < CONSERVED_LSB * C_UNIT * VREF
@@ -131,7 +128,7 @@ def test_the_first_trial_costs_the_same_whatever_the_input():
 
 def test_energy_is_the_reference_pushing_that_charge_through_itself():
     units = ideal_units(BITS, C_UNIT)
-    for vin in midcodes(BITS, 8):
+    for vin in midcode_inputs(BITS, 8, VREF):
         assert reference_energy(vin, units, VREF) == VREF * reference_charge(vin, units, VREF)
 
 
@@ -163,7 +160,7 @@ def test_the_pin_current_limit_is_not_what_bounds_the_converter():
     """
     units = ideal_units(WIDE_BITS, C_UNIT)
     total = float(units.sum())
-    worst = max(reference_charge(vin, units, VREF) for vin in midcodes(WIDE_BITS, 16))
+    worst = max(reference_charge(vin, units, VREF) for vin in midcode_inputs(WIDE_BITS, 16, VREF))
 
     tau = sampling_loop_resistance(R_PIN, R_PIN, R_PIN) * total
     lsb = VREF / 2**WIDE_BITS

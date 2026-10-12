@@ -325,9 +325,20 @@ Three things make it easy to miss, all of which cost me time:
   `sandbox/cap-matching/` measures the spread in ngspice so the number in
   `mismatch.py` is checked rather than assumed.
 
-Densities are a separate matter and differ a great deal between the two
-flavours -- `grep -rn camimc $PDK_ROOT/$PDK/libs.tech/ngspice/r+c/` for MiM's,
-per corner.
+**The same rule governs the density, and the same trap.** The superseded tree
+models a MiM as an area term plus a fringe term on a plate biased *inward*
+from the drawn shape; the continuous tree models it as area alone on a plate
+biased *outward* by more than a tenth of a micrometre. They disagree about the
+smallest unit the process draws by about a part in twenty, and only the second
+is what a simulation builds. `tech/sky130.py` declares the continuous tree's
+parameters and `mim_unit()` evaluates the device's own expression from them;
+a test reads both back out of the PDK and checks the expression against the
+capacitor ngspice actually instantiates, at two sizes and three corners.
+
+Nothing else may name a unit capacitance. The smallest MiM is not a round
+number, it is not its drawn area times a density, and it spans half as much
+again from one capacitance corner to the other -- so every absolute figure the
+project quotes carries that band.
 
 The consequence is worth stating plainly, because it is not the obvious one.
 Matching depends on area alone and both flavours share a coefficient, so
