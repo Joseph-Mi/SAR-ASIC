@@ -2,7 +2,7 @@
 # nothing to build or install. Dependencies live in requirements.txt.
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "figures", "reference", "model", "studies", "sim", "hdl/verification"]
+testpaths = ["tests", "tech", "figures", "reference", "model", "studies", "sim", "hdl/verification"]
 pythonpath = ["tech", "figures", "reference", "model", "studies", "sim", "hdl/verification"]
 python_files = ["test_*.py"]
 addopts = "-ra"

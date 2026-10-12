@@ -163,11 +163,15 @@ def test_a_comparator_that_is_not_exact_needs_a_seed():
 @pytest.mark.parametrize(
     "call",
     [
-        lambda: resolution(0.0, 1e-9, 1.8),
-        lambda: resolution(1e-12, -1.0, 1.8),
-        lambda: decision_time(0.0, 1e-12, 1.8),
+        lambda: resolution(0.0, 1e-9, SWING),
+        lambda: resolution(FAST_TAU, -1.0, SWING),
+        lambda: resolution(FAST_TAU, DESIGN_STROBE, 0.0),
+        lambda: decision_time(1e-3, 0.0, SWING),
+        lambda: decision_time(1e-3, FAST_TAU, 0.0),
+        lambda: decision_time(0.0, FAST_TAU, SWING),
         lambda: worst_margin(0),
         lambda: swing_division(0.0, 1e-15),
+        lambda: swing_division(1e-12, -1e-15),
     ],
 )
 def test_a_quantity_that_is_not_one_is_refused(call):

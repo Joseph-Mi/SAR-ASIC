@@ -297,9 +297,10 @@ lint-py:
 	$(RUFF) check .
 	@$(PYTHON) -m pytest tests $(FIG_DIR) -q $(PYTEST_ARGS)
 
-## model: validate the golden model, the physics laws and the studies -- before any RTL
+## model: validate the process facts, the golden model, the physics laws
+## 	and the studies -- before any RTL
 model:
-	@$(PYTHON) -m pytest $(REF_DIR) $(MODEL_DIR) $(STUDY_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(TECH_DIR) $(REF_DIR) $(MODEL_DIR) $(STUDY_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## regmap: regenerate the firmware register map -- commit the diff
 regmap:
@@ -360,7 +361,7 @@ coverage-rtl:
 
 ## coverage-py: which lines of the model and the contract the suite reaches
 coverage-py:
-	@$(PYTHON) -m pytest $(REF_DIR) $(MODEL_DIR) $(STUDY_DIR) \
+	@$(PYTHON) -m pytest $(TECH_DIR) $(REF_DIR) $(MODEL_DIR) $(STUDY_DIR) \
 	  --cov=$(TECH_DIR) --cov=$(REF_DIR) --cov=$(MODEL_DIR) --cov=$(STUDY_DIR) \
 	  --cov-report=term-missing:skip-covered \
 	  --cov-report=html:$(COVERAGE_DIR)/python $(PYTEST_ARGS); $(ALLOW_EMPTY)
