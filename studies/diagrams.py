@@ -22,11 +22,18 @@ import numpy as np
 
 import house
 import sky130
+from comparator import decision_time, margins, noise_for_margin, worst_margin
 from dynamic import codes_from_curve
 from interface import N_BITS
 from junction import Junction, input_at_decision, swing_gain
 from metrics import lsb_ideal, midcode_inputs
-from power import average_reference_current, rate_a_pin_can_carry, reference_charge
+from power import (
+    Budget,
+    average_reference_current,
+    rate_a_pin_can_carry,
+    reference_charge,
+    switching_energy,
+)
 from protocol import DONE, EVALUATE, SAMPLE, SETTLE, conversion_sequence
 from sampling import coherent_cycles, level_dependent, sampled, step_coefficient, sweep
 from sar import VCM_FRACTION, ideal_units, sar_convert, top_plate_voltage
@@ -102,6 +109,32 @@ BOARD_DECOUPLING_FARADS = 1e-6
 
 #: Comparator offset the junction figure shows the amplification of, volts.
 SHOWN_OFFSET = 2e-3
+
+#: Standard deviations a decision is held to. A converter runs many
+#: conversions, so the bottom bit has to be right nearly always rather than
+#: merely usually.
+SIGMAS = 4.0
+
+#: Regeneration time constants to bracket a latch with, seconds, and the
+#: separation that counts as decided.
+TAUS = (20e-12, 100e-12, 500e-12)
+LATCH_SWING = 1.8
+
+#: The two terms of a power budget nothing in the project can compute yet: a
+#: latch that does not exist, and a netlist that has not been synthesised.
+#: Drawn as assumptions, and labelled as assumptions, because a budget that
+#: invented them would be a budget that always balances.
+LATCH_FARADS = 10e-15
+LATCH_NODES = 4
+DIGITAL_JOULES = 1e-12
+VDD = 1.8
+
+#: Comparator noise to draw the cost of, in LSB.
+NOISE_SPAN = (0.01, 2.0)
+
+#: The noise worth designing to, in LSB, and what the figure marks it as
+#: costing.
+TARGET_NOISE = 0.25
 
 #: Settling tolerance the bounds figure holds a path to, in LSB.
 TOLERANCE_LSB = 0.5
@@ -508,7 +541,7 @@ def charge(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     hands its charge to ground, and a low code is a conversion whose trials
     mostly fail, so the cheapest conversions are at the top of the range.
     """
-    fig, (per_code, current) = house.canvas(1, 2, size=SQUARE_PANEL)
+    fig, (per_code, current, split) = house.canvas(1, 3, size=ROW_PANEL)
 
     inputs = midcode_inputs(N_BITS, CHARGE_POINTS, VREF)
     by_corner = {
@@ -563,6 +596,39 @@ def charge(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     current.set_ylabel("mean reference current  [mA]")
     current.set_title("The pin is budgeted for sag, not for average current")
 
+    worst_budget = Budget(
+        reference=by_corner["high"].max() * VREF,
+        comparator=N_BITS * switching_energy(LATCH_FARADS, VDD, LATCH_NODES),
+        digital=DIGITAL_JOULES,
+    )
+    shares = worst_budget.shares
+    names = list(shares)
+    split.bar(
+        names,
+        [worst_budget.__getattribute__(n) * 1e12 for n in names],
+        color=[house.SERIES[0], house.SERIES[1], house.SERIES[2]],
+        width=0.55,
+    )
+    for i, name in enumerate(names):
+        split.annotate(
+            f"{shares[name] * 100:.0f}%",
+            (i, getattr(worst_budget, name) * 1e12),
+            textcoords="offset points",
+            xytext=(0, 4),
+            ha="center",
+            fontsize=house.FONT_SMALL,
+            color=house.INK,
+        )
+    split.set_ylabel("energy per conversion  [pJ]")
+    split.set_title("Where a conversion's energy goes")
+    house.note(
+        split,
+        "only the first is computed.\nThe other two are assumptions:\n"
+        "one needs a comparator that does\nnot exist, the other a netlist\n"
+        "that has not been synthesised",
+        (0.33, 0.95),
+    )
+
     fig.suptitle(
         f"Charge off the reference at {N_BITS} bits. The unit is sky130's smallest MiM: "
         f"{C_UNIT[TYPICAL] * 1e15:.2f} fF typical, "
@@ -572,8 +638,93 @@ def charge(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     return house.save(fig, out_dir / "charge.png")
 
 
+def comparator(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
+    """What the converter asks of its comparator, on the three axes it has.
+
+    The half of a comparator specification that belongs to the converter, and
+    that can therefore be written before any comparator exists: how small a
+    difference it is asked to resolve, how much noise that difference will
+    carry, and how long it has to resolve it in.
+    """
+    units = _units()
+    total = float(units.sum())
+    lsb = lsb_ideal(N_BITS, VREF)
+    floor = worst_margin(N_BITS, VREF)
+
+    fig, (asked, cost, timing) = house.canvas(1, 3, size=ROW_PANEL)
+
+    trials = range(1, N_BITS + 1)
+    for vin in (0.0137, 0.3137, 0.9137):
+        asked.semilogy(
+            trials, np.array(margins(vin, units, VREF)) * 1e6, "o-", label=f"vin {vin:g} V"
+        )
+    house.bound(asked, floor * 1e6, "half an LSB", color=house.WARN)
+    asked.set_xlabel("bit trial")
+    asked.set_ylabel("difference the comparator must resolve  [uV]")
+    asked.set_title("The search halves its own question")
+    asked.legend(loc="upper right")
+    house.note(
+        asked,
+        "the last trial sets the specification;\nevery trial before it is easier",
+        (0.03, 0.2),
+    )
+
+    # Below the onset of gross errors a noisy comparator in front of a
+    # quantiser is a dithered quantiser, which the noise study measures.
+    noise = np.logspace(np.log10(NOISE_SPAN[0]), np.log10(NOISE_SPAN[1]), 200)
+    quantiser = 1 / np.sqrt(12)
+    lost = np.log2(np.sqrt(quantiser**2 + noise**2) / quantiser)
+    cost.semilogx(noise, lost, color=house.SERIES[0])
+    target = np.log2(np.sqrt(quantiser**2 + TARGET_NOISE**2) / quantiser)
+    house.bound(cost, TARGET_NOISE, f"{TARGET_NOISE:g} LSB", axis="x", color=house.GOOD)
+    house.bound(cost, target, f"{target:.2f} bit", color=house.GOOD)
+    cost.set_xlabel("comparator noise  [LSB rms]")
+    cost.set_ylabel("resolution lost  [bits]")
+    cost.set_title("What noise costs")
+    house.note(
+        cost,
+        f"{TARGET_NOISE:g} LSB is {TARGET_NOISE * lsb * 1e6:.0f} uV at the input;\n"
+        f"a margin of {floor * 1e6:.0f} uV carries "
+        f"{noise_for_margin(floor, SIGMAS) * 1e6:.0f} uV at {SIGMAS:g} sigma",
+        (0.03, 0.95),
+    )
+
+    smallest = floor * 1e-2
+    differences = np.logspace(np.log10(smallest), np.log10(VREF), 200)
+    for tau in TAUS:
+        timing.loglog(
+            differences * 1e6,
+            [decision_time(float(d), tau, LATCH_SWING) * 1e9 for d in differences],
+            label=f"tau {tau * 1e12:g} ps",
+        )
+    phase = settle_time(
+        sampling_loop_resistance(R_PIN, R_PIN, R_PIN) * total,
+        VREF,
+        TOLERANCE_LSB * lsb,
+    )
+    house.bound(timing, phase * 1e9, "the strobe this design gives", color=house.GOOD)
+    house.bound(timing, floor * 1e6, "half an LSB", axis="x", color=house.WARN)
+    timing.set_xlabel("difference to resolve  [uV]")
+    timing.set_ylabel("time the latch needs  [ns]")
+    timing.set_title("And how long it has to do it in")
+    timing.legend(loc="upper right")
+    house.note(
+        timing,
+        "logarithmic: a hundredfold harder decision\ncosts a few more time constants",
+        (0.03, 0.12),
+    )
+
+    fig.suptitle(
+        "What the converter asks of its comparator. Settling sets the clock, so the latch is "
+        "given hundreds of\ntime constants and speed is not the constraint -- noise is, and "
+        "offset is calibrated rather than budgeted"
+    )
+    fig.tight_layout()
+    return house.save(fig, out_dir / "comparator.png")
+
+
 #: Every figure this module draws, by the name of its file.
-FIGURES = (conversion, frequency, bounds, junction, charge)
+FIGURES = (conversion, frequency, bounds, junction, charge, comparator)
 
 
 def draw_all(out_dir: pathlib.Path = OUT_DIR) -> list[pathlib.Path]:

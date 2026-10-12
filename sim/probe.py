@@ -49,22 +49,35 @@ def on_resistance(
     passing: float,
     supply: float,
     temp: float = 27.0,
+    width_p: float = 0.0,
 ) -> float:
-    """An NMOS switch's resistance while it passes `passing`, ohms.
+    """A pass switch's resistance while it passes `passing`, ohms.
 
-    Its gate is at the supply and its body at ground, so the voltage it passes
-    sets both the gate drive left over and the body effect against it. That is
-    why the bias matters: the same switch passing a different level is a
-    different resistance, and at the slow corner the difference is orders.
+    An NMOS alone, or a transmission gate when `width_p` is given: the PMOS
+    sits across it with its gate at ground and its well at the supply, so the
+    two conduct over opposite halves of the range.
+
+    The gate is at the supply and the body at ground, so the voltage being
+    passed sets both the gate drive left over and the body effect against it.
+    That is why the bias matters: the same switch passing a different level is
+    a different resistance, and at the slow corner the difference is orders.
     """
     lines = [
-        "* switch on-resistance at the level it passes",
+        "* pass switch resistance at the level it passes",
         *devices.header(),
         *devices.models(),
-        devices.nmos("sw", "d", "g", "s", "0", width, length),
+        devices.nmos("swn", "d", "g", "s", "0", width, length),
         f"Vg g 0 {supply:g}",
         f"Vs s 0 {passing:g}",
         f"Vd d 0 {passing + TRIODE_STEP:g}",
+    ]
+    if width_p > 0.0:
+        lines += [
+            devices.pmos("swp", "d", "gp", "s", "vdd", width_p, length),
+            "Vgp gp 0 0",
+            f"Vdd vdd 0 {supply:g}",
+        ]
+    lines += [
         f".temp {temp:g}",
         ".control",
         "set nomodcheck",

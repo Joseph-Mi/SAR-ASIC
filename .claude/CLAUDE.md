@@ -466,14 +466,18 @@ Step 4d (`sim/analog.py`, `model/injection.py:beyond_a_line`,
 `sim/tests/test_sampling_phases.py`, the designed-block tests in
 `test_sar_loop.py`):
 - Input switches are transmission gates (`MosSwitches.w_unit_p`, 1 um per
-  unit). Honest status of *why*: with generic models at nominal supply the
-  NMOS alone is nearly as good -- first-trial error at 0.999 V, 0.1 V before:
-  TG +0.015 / NMOS +0.058 LSB at the law's clock, -0.418 / -0.356 settled;
-  settled bend 0.005 vs 0.023 LSB. An NMOS with a 1.8 V gate passing <= 1 V
-  keeps >= 0.8 V Vgs. The TG's case rests on the slow corner at low supply
-  (Vt up, body effect, 1.62 V gate), not yet measured -- run the sky130
-  ss/-40/0.9*VDD full-scale comparison before calling the TG necessary. A
-  loop test asserting "NMOS alone fails" flipped between ngspice 42 and 46
+  unit), and the sky130 slow-cold comparison that was outstanding now says
+  why. Measured per unit switch at ss / -40 C / 0.9*VDD: at half the
+  reference the PMOS contributes nothing at all (the two are equal to a part
+  in a thousand -- it has less than a threshold across it), and at the whole
+  reference the NMOS alone reads 2.8 Gohm against the gate's 140 kohm. In
+  settling that is 26 us against 1.3 ns, or about 1800 sampling phases
+  against a tenth of one. The NMOS does not become slow at the top of the
+  range, it stops conducting; the gate carries that end on its own, and it is
+  necessary. At nominal supply the margin is narrower (10x at full scale, and
+  nothing below three quarters), which is why measuring at tt alone said the
+  opposite. `sim/tests/test_probe.py` holds both ends.
+  A loop test asserting "NMOS alone fails" flipped between ngspice 42 and 46
   (one code, at the budget edge) and was removed.
   CAUTION -- an earlier measurement with *ideal* conversion switches showed a
   ~0.96 LSB kink for NMOS alone; that was mostly the ideal switch snapping
@@ -815,14 +819,6 @@ make shell first, then:
 
 Delete each one when it is fixed.
 
-- **Noise study overstates comparator cost.** `effective_bits` adds the
-  comparator's code error to quantisation noise in power, assuming the two are
-  independent. They are not: noise flips a code only near a threshold, where
-  the quantisation error was already largest (correlation measured ~ -0.5).
-  Measured against the true Vin, 0.25 LSB of noise costs ~0.4 bit, not the
-  ~0.9 the baseline implies. Below gross-error onset the answer is the dithered
-  quantiser, sqrt(q^2 + sigma_n^2). Fix = model + test, regenerate
-  `noise_baseline.txt`. M5's preamp decision reads this table — fix it first.
 - **Sampling error with the designed block is offset + gain.** Settled
   first-trial error, TG input switches: -0.90 LSB at 0.05 V to -0.45 at
   0.95 V, straight to 0.005 LSB (endpoint fit). Offset -0.68 LSB at

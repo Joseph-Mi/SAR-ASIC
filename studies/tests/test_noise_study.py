@@ -42,6 +42,18 @@ NEIGHBOUR = 1.0
 #: uniform distribution's variance, a twelfth.
 UNIFORM_RMS = 1 / np.sqrt(12)
 
+#: Slack for counting noise, derived rather than chosen: the rms of n samples
+#: has a relative spread of 1/sqrt(2n), and three of those is a bound a run
+#: crosses once in a few hundred. Both forms loosen on their own when a run is
+#: shortened, so a faster study does not start failing.
+SIGMAS = 3.0
+DITHER_AGREEMENT = SIGMAS / np.sqrt(2 * CONVERSIONS)
+SAMPLING_BITS = DITHER_AGREEMENT / np.log(2)
+
+#: A comparator worth designing to, in LSB, and what it may cost.
+QUIET_COMPARATOR = 0.25
+HALF_A_BIT = 0.5
+
 
 @pytest.fixture(scope="module")
 def study() -> NoiseStudy:
@@ -67,7 +79,9 @@ def test_a_silent_comparator_costs_nothing(study):
         point = run_point(study, n_bits, 0.0)
         assert point["rms_err"] == 0.0
         assert point["p_wrong"] == 0.0
-        assert point["enob_rms"] == pytest.approx(n_bits)
+        # Not exact: the resolution is read off a finite run's own quantisation
+        # error, which lands near the uniform rms rather than on it.
+        assert point["enob_rms"] == pytest.approx(n_bits, abs=SAMPLING_BITS)
 
 
 def test_error_grows_with_noise(study):
@@ -105,8 +119,43 @@ def test_gross_errors_only_appear_once_noise_is_large(study):
         assert quiet["max_err"] <= NEIGHBOUR
 
 
-def test_effective_bits_is_exact_when_the_comparator_is_silent(study):
+def test_the_dithered_quantiser_is_what_a_quiet_comparator_costs(study):
+    """The result the independent sum got wrong. Below the onset of gross
+    errors a noisy comparator in front of a quantiser is a dithered
+    quantiser, and its total error is the two in quadrature *at the input* --
+    not the quantiser's error added to the code displacement, which counts
+    the volts near a threshold twice.
+
+    The onset itself is excluded: there the search starts losing early bits,
+    which no quantiser model describes, and the measured error falls below
+    the dithered one because a binary search corrects some of its own noise
+    on the trials that follow."""
+    for n_bits in study.resolutions:
+        for noise in study.noises_lsb:
+            if noise == 0.0 or noise >= GROSS_ERROR_ONSET_LSB:
+                continue
+            point = run_point(study, n_bits, noise)
+            dithered = np.sqrt(QUANTISATION_RMS_LSB**2 + noise**2)
+            assert point["rms_total"] == pytest.approx(dithered, rel=DITHER_AGREEMENT)
+
+
+def test_a_quarter_lsb_comparator_costs_under_half_a_bit(study):
+    """The number M5 designs against, and the one the independent sum
+    overstated by about a factor of two."""
+    for n_bits in study.resolutions:
+        point = run_point(study, n_bits, QUIET_COMPARATOR)
+        assert n_bits - point["enob_rms"] < HALF_A_BIT
+
+
+def test_effective_bits_is_exact_when_only_the_quantiser_contributes(study):
     """The definition, independent of any sweep."""
     for n_bits in study.resolutions:
-        assert effective_bits(n_bits, 0.0) == pytest.approx(n_bits)
+        assert effective_bits(n_bits, QUANTISATION_RMS_LSB) == pytest.approx(n_bits)
     assert QUANTISATION_RMS_LSB == pytest.approx(UNIFORM_RMS)
+
+
+def test_a_converter_with_no_error_at_all_is_refused():
+    """Infinite resolution is not a number, and returning one would make a
+    broken measurement look like a perfect converter."""
+    with pytest.raises(ValueError):
+        effective_bits(10, 0.0)

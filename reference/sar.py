@@ -117,6 +117,7 @@ def sar_convert(
     vref: float = 1.0,
     cmp_offset: float = 0.0,
     cmp_noise_rms: float = 0.0,
+    cmp_resolution: float = 0.0,
     rng: np.random.Generator | None = None,
 ) -> tuple[int, list[int]]:
     """Run one successive-approximation conversion.
@@ -131,8 +132,13 @@ def sar_convert(
         cmp_noise_rms: comparator noise, volts RMS, redrawn at *every* bit
             trial. A binary-weighted SAR has no redundancy, so a wrong decision
             on bit k is never corrected and costs 2**k LSB.
-        rng: numpy Generator, required when cmp_noise_rms > 0 so studies are
-            reproducible from a seed.
+        cmp_resolution: the smallest difference the latch separates in the
+            time it is given, volts. Inside that window it has not resolved by
+            the moment it is read, so the answer is whichever way it happened
+            to fall -- which is the state the two latch outputs being equal
+            reports, and the state a converter has no defence against.
+        rng: numpy Generator, required when cmp_noise_rms > 0 or
+            cmp_resolution > 0, so studies are reproducible from a seed.
 
     Returns:
         (code, bit_trace) where bit_trace holds the N decisions MSB-first.
@@ -144,8 +150,8 @@ def sar_convert(
     weights = branch_weights(caps)
     total_cap = caps.sum()
 
-    if cmp_noise_rms > 0.0 and rng is None:
-        raise ValueError("cmp_noise_rms > 0 requires an rng, for reproducibility")
+    if (cmp_noise_rms > 0.0 or cmp_resolution > 0.0) and rng is None:
+        raise ValueError("a comparator that is not exact requires an rng, for reproducibility")
 
     code = 0
     bit_trace = []
@@ -154,11 +160,17 @@ def sar_convert(
         v_cmp = vin + cmp_offset
         if cmp_noise_rms > 0.0:
             v_cmp += rng.normal(0.0, cmp_noise_rms)
-        # A real comparator's output at exact equality is undefined, so the
-        # model has to pick a side and the FSM has to pick the same one.
-        # Resolving ties upward is what puts mid-scale at 2**(N-1) rather
-        # than one code below it.
-        bit = int(v_cmp >= dac_voltage(trial, weights, total_cap, vref))
+        margin = v_cmp - dac_voltage(trial, weights, total_cap, vref)
+        if cmp_resolution > 0.0 and abs(margin) < cmp_resolution:
+            # Unresolved: the outputs have not separated by the time they are
+            # read, so the bit is whichever way the latch happened to fall.
+            bit = int(rng.integers(2))
+        else:
+            # A real comparator's output at exact equality is undefined, so
+            # the model has to pick a side and the FSM has to pick the same
+            # one. Resolving ties upward is what puts mid-scale at 2**(N-1)
+            # rather than one code below it.
+            bit = int(margin >= 0.0)
         if bit:
             code = trial
         bit_trace.append(bit)

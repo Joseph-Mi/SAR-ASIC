@@ -23,6 +23,8 @@ whole of it either way.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from protocol import trial_words
@@ -110,6 +112,74 @@ def rate_a_pin_can_carry(charge: float, i_pin: float) -> float:
     if charge <= 0.0:
         raise ValueError("a conversion that draws no charge has no rate limit")
     return i_pin / charge
+
+
+def switching_energy(capacitance: float, supply: float, nodes: int = 1) -> float:
+    """Energy a node of this capacitance costs per cycle of full swing, joules.
+
+    C*V^2, not half of it. Charging a node through a resistance dissipates as
+    much as it stores, and discharging it dissipates what was stored, so a
+    node taken up and back down once has cost the supply the whole of C*V^2
+    whatever the resistance was.
+    """
+    if capacitance < 0.0 or supply < 0.0 or nodes < 0:
+        raise ValueError("a switching node has no negative capacitance, supply or count")
+    return nodes * capacitance * supply**2
+
+
+@dataclass(frozen=True)
+class Budget:
+    """Energy one conversion costs, by where it goes.
+
+    Three terms, and the honesty is in which of them are known. The reference
+    is computed from the array and the search. The other two are arguments,
+    because one needs a comparator that does not exist yet and the other needs
+    a synthesised netlist -- and a budget that invented them would be a budget
+    that always balances.
+    """
+
+    reference: float
+    comparator: float = 0.0
+    digital: float = 0.0
+
+    def __post_init__(self) -> None:
+        if min(self.reference, self.comparator, self.digital) < 0.0:
+            raise ValueError("a term of an energy budget cannot be negative")
+
+    @property
+    def total(self) -> float:
+        return self.reference + self.comparator + self.digital
+
+    @property
+    def shares(self) -> dict[str, float]:
+        """Each term as a fraction of the whole, so the largest is obvious."""
+        if self.total == 0.0:
+            raise ValueError("a budget of nothing has no shares")
+        return {
+            name: getattr(self, name) / self.total
+            for name in ("reference", "comparator", "digital")
+        }
+
+    def power(self, sample_rate: float) -> float:
+        """Average power at a conversion rate, watts."""
+        if sample_rate < 0.0:
+            raise ValueError(f"{sample_rate} conversions per second is not a rate")
+        return self.total * sample_rate
+
+
+def rate_a_supply_can_carry(budget: Budget, supply: float, current_limit: float) -> float:
+    """Conversions per second the supply's current allowance permits.
+
+    The third bound on the rate, beside settling and the reference pin's own
+    current. A platform states what it will deliver before its network droops;
+    exceeding it is not a slow converter but a wrong one, because everything
+    on the die shares that droop.
+    """
+    if supply <= 0.0 or current_limit <= 0.0:
+        raise ValueError("a supply bound needs a voltage and a current")
+    if budget.total <= 0.0:
+        raise ValueError("a conversion that costs nothing has no rate limit")
+    return supply * current_limit / budget.total
 
 
 def walden_fom(power: float, enob: float, sample_rate: float) -> float:

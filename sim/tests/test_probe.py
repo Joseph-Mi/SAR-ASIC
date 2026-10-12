@@ -23,7 +23,10 @@ import analog
 import probe
 import sky130
 from devices import Sky130, pdk_library
+from interface import N_BITS
+from metrics import lsb_ideal
 from sar import VCM_FRACTION
+from settling import sampling_loop_resistance, settle_time
 from tinytapeout import R_PIN
 
 pytestmark = [
@@ -64,6 +67,16 @@ RECOVERY = 1e-3
 #: where a scaling assumption would break if it were going to.
 SCALED_WIDTHS = (2.0, 4.0, 8.0, 16.0)
 SCALING_ERROR = 0.03
+
+#: Where an input switch is asked to pass nothing it cannot, and where it is
+#: asked to pass the whole reference. The bottom half is the NMOS's work and
+#: the top half the PMOS's, so the two ends answer different questions.
+EASY_LEVEL, HARD_LEVEL = 0.5, 1.0
+
+#: Fraction of a sampling phase a branch may spend settling. Each branch's
+#: switch is scaled with its own capacitance, so every branch shares one time
+#: constant and this is the whole of the budget it gets.
+BRANCH_BUDGET = 0.5
 
 #: Corners the switch has to work at, as (name, corner, supply, temperature).
 #: The supply moves with the corner because a gate drive is what a supply
@@ -169,3 +182,75 @@ def test_the_switch_is_slowest_hot_and_not_cold(tmp_path):
     assert resistance["ff cold"] == min(resistance.values())
     assert resistance["ss cold"] < resistance["ss hot"]
     assert all(math.isfinite(r) and r > 0 for r in resistance.values())
+
+
+def sampling_phase() -> float:
+    """How long the design gives a sample, seconds.
+
+    From the settling law and the array, so it moves with the unit capacitor
+    rather than being a number written beside it.
+    """
+    array = 2**N_BITS * sky130.mim_unit()
+    tau = sampling_loop_resistance(R_PIN, R_PIN, R_PIN) * array
+    return settle_time(tau, VREF, lsb_ideal(N_BITS, VREF) / 2)
+
+
+def branch_settling(resistance: float) -> float:
+    """What a per-unit switch of this resistance costs a branch, seconds.
+
+    Every branch's switch is its unit width times its unit count, so every
+    branch sees the same time constant: one unit switch against one unit
+    capacitor.
+    """
+    tau = resistance * sky130.mim_unit()
+    return settle_time(tau, VREF, lsb_ideal(N_BITS, VREF) / 2)
+
+
+def test_the_gate_across_the_input_switch_does_nothing_in_the_bottom_half(tmp_path):
+    """Which is the point of a transmission gate, not a defect in it. A PMOS
+    whose gate is at ground and whose source is at half the reference has less
+    than a threshold across it, so the NMOS is carrying the whole switch --
+    and measuring there would say the gate is not needed."""
+    switches = analog.MosSwitches()
+    nmos, gate = (
+        probe.on_resistance(
+            tmp_path,
+            Sky130("ss"),
+            switches.w_unit,
+            switches.length,
+            EASY_LEVEL,
+            0.9 * VDD,
+            -40.0,
+            width_p=width_p,
+        )
+        for width_p in (0.0, switches.w_unit_p)
+    )
+    assert gate == pytest.approx(nmos, rel=1e-3)
+
+
+def test_an_nmos_alone_cannot_pass_the_top_of_the_range_at_the_slow_corner(tmp_path):
+    """The measurement the transmission gate was waiting on.
+
+    An NMOS passing the whole reference keeps barely a threshold of gate drive
+    at the slow corner on a low supply, and the body effect takes the rest. It
+    does not become slow: it stops conducting, by three orders. The gate
+    across it is carrying the top of the range on its own.
+    """
+    switches = analog.MosSwitches()
+    nmos, gate = (
+        probe.on_resistance(
+            tmp_path,
+            Sky130("ss"),
+            switches.w_unit,
+            switches.length,
+            HARD_LEVEL,
+            0.9 * VDD,
+            -40.0,
+            width_p=width_p,
+        )
+        for width_p in (0.0, switches.w_unit_p)
+    )
+    assert nmos > 1e3 * gate
+    budget = BRANCH_BUDGET * sampling_phase()
+    assert branch_settling(nmos) > budget
+    assert branch_settling(gate) < budget

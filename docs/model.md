@@ -162,6 +162,13 @@ you add a fourth route to the same number, add the cross-check with it.
 
 Named here because an unnamed assumption is indistinguishable from an oversight.
 
+- **A noisy comparator is not an independent error source.** Its cost was
+  once computed by adding its code displacement to quantisation noise in
+  power. The two are not independent: noise moves a code only near a
+  threshold, which is where the quantisation error was already largest, so
+  the sum counted the same volts twice and charged the comparator about
+  double. The error is now measured against the true input, where the
+  correlation takes care of itself.
 - **Comparator noise and sampling noise are separate terms.** `cmp_noise_rms`
   covers the comparator, redrawn at every trial, where it can cost an early
   bit and with it a power of two. What the switch traps on the array is drawn
@@ -292,6 +299,42 @@ average current.
 `walden_fom` and `schreier_fom` are the figures converters are compared by.
 Both need a power number the design does not have yet, which is why they take
 one rather than compute it.
+
+---
+
+## What the converter asks of its comparator
+
+Half a comparator specification belongs to the converter, not to the
+comparator, and can be written before one exists. `comparator.py` writes it.
+
+**The margin.** A binary search halves its own question, so the hardest
+decision is the last one, and it is half an LSB -- 488 uV here. Every
+comparator figure is a fraction of that, which is what makes it the number a
+specification starts from. The array divides it before the comparator sees
+it, so the specification is written at the comparator's terminals and
+converted once, through `swing_division`, rather than carried divided through
+every expression.
+
+**The noise.** This is the binding constraint. Below the onset of gross errors
+a noisy comparator in front of a quantiser is a dithered quantiser, so the
+cost is `sqrt(q^2 + sigma^2)` -- a quarter-LSB comparator gives up four tenths of a bit.
+Read the other way, a 488 uV margin carries 122 uV rms at four sigma.
+
+**The time.** Not a constraint. Regeneration is exponential, so the time a
+latch needs grows only as the logarithm of how small the difference is: a few
+time constants, nanoseconds at worst. Settling sets the conversion clock at
+two orders above that, which means the strobe is hundreds of time constants
+long and `resolution` -- the difference a latch could fail to separate --
+underflows a double. Metastability here is a thing to detect, not a thing to
+budget for, and the flag the interface carries is cheap insurance rather than
+a live hazard.
+
+**The offset.** Not a budget item either. A bare latch's offset is several
+LSB, far outside any margin, but a constant offset shifts every threshold
+equally and so moves no code relative to its neighbours. It is calibrated, in
+the field rather than at the factory because it moves with the corner, and
+`margin_after` takes the residue calibration leaves rather than the raw
+figure.
 
 ---
 

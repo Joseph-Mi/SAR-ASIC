@@ -12,14 +12,17 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from metrics import midcode_inputs
+from metrics import lsb_ideal, midcode_inputs
 from power import (
+    Budget,
     average_reference_current,
     enob_from_sndr,
     rate_a_pin_can_carry,
+    rate_a_supply_can_carry,
     reference_charge,
     reference_energy,
     schreier_fom,
+    switching_energy,
     walden_fom,
 )
 from protocol import trial_words
@@ -27,7 +30,7 @@ from sar import VCM_FRACTION, branch_weights, ideal_units, top_plate_voltage
 from settling import sampling_loop_resistance, settle_time
 from sky130 import mim_unit
 from spectrum import DB_PER_BIT, SINE_HEADROOM_DB
-from tinytapeout import I_PIN, R_PIN
+from tinytapeout import I_PDN_DROP, I_PIN, R_PIN
 
 VREF = 1.0
 BITS = 8
@@ -47,6 +50,9 @@ OVERHEAD_PHASES = 2
 #: How far above the settling-limited rate the pin's current limit has to sit
 #: before the pin is not worth budgeting against.
 PIN_HEADROOM = 100.0
+
+#: Settling tolerance a path is held to, in LSB.
+TOLERANCE_LSB = 0.5
 
 #: Charge conservation on a floating node, as a fraction of one LSB of charge.
 #: Arithmetic noise only -- the invariant is exact.
@@ -194,3 +200,99 @@ def test_the_figures_of_merit_move_the_way_they_are_defined_to():
     quiet = schreier_fom(60.0, BANDWIDTH, POWER)
     assert schreier_fom(66.0, BANDWIDTH, POWER) > quiet
     assert schreier_fom(60.0, BANDWIDTH, 2 * POWER) < quiet
+
+
+#: An illustrative comparator load and a digital term, for the budget's
+#: arithmetic. Neither is a design value: one needs a comparator that does not
+#: exist and the other a synthesised netlist.
+LATCH_FARADS = 10e-15
+LATCH_NODES = 4
+DIGITAL_JOULES = 1e-12
+
+#: The supply the digital half runs from, volts.
+VDD = 1.8
+
+
+def budget_for(vin: float = 0.0) -> Budget:
+    units = ideal_units(WIDE_BITS, C_UNIT)
+    return Budget(
+        reference=reference_charge(vin, units, VREF) * VREF,
+        comparator=WIDE_BITS * switching_energy(LATCH_FARADS, VDD, LATCH_NODES),
+        digital=DIGITAL_JOULES,
+    )
+
+
+def test_a_switching_node_costs_the_whole_of_c_v_squared():
+    """Not half. Charging through a resistance dissipates as much as it
+    stores, and discharging dissipates what was stored, so one up-and-down
+    costs the supply all of it whatever the resistance was."""
+    assert switching_energy(LATCH_FARADS, VDD) == pytest.approx(LATCH_FARADS * VDD**2)
+    assert switching_energy(LATCH_FARADS, VDD, LATCH_NODES) == pytest.approx(
+        LATCH_NODES * LATCH_FARADS * VDD**2
+    )
+    assert switching_energy(LATCH_FARADS, 2 * VDD) == pytest.approx(
+        4 * switching_energy(LATCH_FARADS, VDD)
+    )
+
+
+def test_a_budget_is_its_terms_and_says_which_one_dominates():
+    """The point of splitting it: a total alone does not say where to look."""
+    budget = budget_for()
+    assert budget.total == pytest.approx(budget.reference + budget.comparator + budget.digital)
+    assert sum(budget.shares.values()) == pytest.approx(1.0)
+    assert max(budget.shares, key=budget.shares.get) == "reference"
+
+
+def test_the_array_is_where_this_converter_spends():
+    """And the result that makes the reference pin the one to design around:
+    charging a picofarad array off a volt costs more than everything else a
+    conversion does put together. Not by orders, though -- a latch switching a
+    few nodes once per trial is a sixth of it, which is enough that a
+    comparator sized without thought could change the answer."""
+    budget = budget_for()
+    assert budget.reference > budget.comparator + budget.digital
+
+
+def test_power_is_energy_at_a_rate():
+    budget = budget_for()
+    assert budget.power(SAMPLE_RATE) == pytest.approx(budget.total * SAMPLE_RATE)
+    assert budget.power(0.0) == 0.0
+
+
+def test_the_supply_allowance_is_a_third_bound_on_the_rate():
+    """Beside settling and the reference pin's own current. Exceeding it is
+    not a slow converter but a wrong one, because everything on the die shares
+    the droop it causes."""
+    budget = budget_for()
+    rate = rate_a_supply_can_carry(budget, VDD, I_PDN_DROP)
+    assert rate > 0.0
+    assert budget.power(rate) == pytest.approx(VDD * I_PDN_DROP)
+
+
+def test_the_supply_is_not_what_binds_this_converter_either():
+    """Like the reference pin's current limit: the platform's allowance sits
+    far above the rate settling permits."""
+    units = ideal_units(WIDE_BITS, C_UNIT)
+    total = float(units.sum())
+    tau = sampling_loop_resistance(R_PIN, R_PIN, R_PIN) * total
+    phase = settle_time(tau, VREF, TOLERANCE_LSB * lsb_ideal(WIDE_BITS, VREF))
+    settling_limited = 1.0 / ((WIDE_BITS + OVERHEAD_PHASES) * phase)
+    worst = max(budget_for(vin).total for vin in midcode_inputs(WIDE_BITS, 16, VREF))
+    assert rate_a_supply_can_carry(Budget(reference=worst), VDD, I_PDN_DROP) > (
+        PIN_HEADROOM * settling_limited
+    )
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: switching_energy(-1e-15, VDD),
+        lambda: Budget(reference=-1.0),
+        lambda: Budget(reference=0.0).shares,
+        lambda: Budget(reference=1e-12).power(-1.0),
+        lambda: rate_a_supply_can_carry(Budget(reference=0.0), VDD, I_PDN_DROP),
+    ],
+)
+def test_a_budget_that_is_not_one_is_refused(call):
+    with pytest.raises(ValueError):
+        call()
