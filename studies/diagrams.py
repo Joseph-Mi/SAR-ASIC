@@ -27,6 +27,8 @@ from dynamic import codes_from_curve
 from interface import N_BITS
 from junction import Junction, input_at_decision, swing_gain
 from metrics import lsb_ideal, midcode_inputs
+from mismatch import sigma_from_area
+from noise import sampled_noise_lsb
 from power import (
     Budget,
     average_reference_current,
@@ -128,6 +130,17 @@ LATCH_FARADS = 10e-15
 LATCH_NODES = 4
 DIGITAL_JOULES = 1e-12
 VDD = 1.8
+
+#: Resolutions the limits figure asks the question at. Wide enough that every
+#: term crosses something, and stopping where the array alone is already
+#: unbuildable.
+RESOLUTIONS = (8, 10, 12, 14, 16)
+
+#: The comparator this project is specifying, volts rms, held fixed while the
+#: resolution moves. It is the number the margin at the target resolution
+#: carries at four sigma -- so the figure asks what a comparator good enough
+#: for ten bits is good for.
+FIXED_COMPARATOR = 122e-6
 
 #: Comparator noise to draw the cost of, in LSB.
 NOISE_SPAN = (0.01, 2.0)
@@ -723,8 +736,75 @@ def comparator(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     return house.save(fig, out_dir / "comparator.png")
 
 
+def limits(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
+    """What stops this converter going finer, and where.
+
+    Three error terms against resolution, each in the LSB it has to hide
+    under. Two of them barely move: the array traps the same volts whatever
+    the resolution is, and the process's own matching floor grows only as the
+    root of the code count. The comparator's volts are fixed too, but the LSB
+    halves with every bit, so its cost doubles -- and it is the term that
+    crosses.
+    """
+    lsb = np.array([VREF / 2**n for n in RESOLUTIONS])
+    arrays = np.array([2**n * C_UNIT[TYPICAL] for n in RESOLUTIONS])
+    matching = sigma_from_area(sky130.CAP_MIN_AREA_MIM, sky130.CAP_A_C)
+
+    terms = {
+        "comparator, held at one design": FIXED_COMPARATOR / lsb,
+        "mismatch, at the process floor": np.sqrt(2 ** np.array(RESOLUTIONS) - 1) * matching,
+        "kT/C on the array": np.array(
+            [sampled_noise_lsb(a, n, VREF) for a, n in zip(arrays, RESOLUTIONS, strict=True)]
+        ),
+    }
+
+    fig, (cost, size) = house.canvas(1, 2, size=SQUARE_PANEL)
+
+    for (label, values), colour in zip(terms.items(), house.SERIES, strict=False):
+        cost.semilogy(RESOLUTIONS, values, "o-", color=colour, label=label)
+    house.bound(cost, 0.5, "half an LSB", color=house.WARN)
+    cost.axhspan(
+        0.5,
+        max(np.max(v) for v in terms.values()) * 2,
+        color=house.BAD,
+        alpha=house.SHADE_ALPHA,
+        lw=0,
+    )
+    cost.set_xlabel("resolution  [bits]")
+    cost.set_ylabel("error, in the LSB it must hide under")
+    cost.set_xticks(list(RESOLUTIONS))
+    cost.set_title("The comparator is what crosses")
+    cost.legend(loc="upper left")
+    house.note(
+        cost,
+        f"the comparator is held at {FIXED_COMPARATOR * 1e6:.0f} uV rms --\n"
+        "its volts do not change, the LSB halves",
+        (0.42, 0.24),
+    )
+
+    size.semilogy(RESOLUTIONS, arrays * 1e12, "o-", color=house.SERIES[3])
+    size.set_xlabel("resolution  [bits]")
+    size.set_ylabel("array, at the smallest unit the process draws  [pF]")
+    size.set_xticks(list(RESOLUTIONS))
+    size.set_title("And what it would cost to try anyway")
+    house.note(
+        size,
+        "four times the area and four times the settling\nfor every two bits, "
+        "at the smallest unit\nsky130 will draw -- there is no cheaper array",
+        (0.03, 0.95),
+    )
+
+    fig.suptitle(
+        "What limits resolution here. Not the sampling noise, which never reaches a fifth of an "
+        "LSB, and not\nthe process's matching floor, which is still under one at sixteen bits -- "
+        "the comparator, at about twelve"
+    )
+    fig.tight_layout()
+    return house.save(fig, out_dir / "limits.png")
+
+
 #: Every figure this module draws, by the name of its file.
-FIGURES = (conversion, frequency, bounds, junction, charge, comparator)
+FIGURES = (conversion, frequency, bounds, junction, charge, comparator, limits)
 
 
 def draw_all(out_dir: pathlib.Path = OUT_DIR) -> list[pathlib.Path]:
