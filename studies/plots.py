@@ -234,6 +234,15 @@ def plot_noise(path: pathlib.Path = NOISE_BASELINE, out_dir: pathlib.Path = OUT_
     return house.save(fig, out_dir / "noise.png")
 
 
+#: Every figure this module draws. Named once so the script and the test that
+#: renders them cannot disagree about what "every figure" means.
+FIGURES = (plot, plot_noise)
+
+
+def draw_all(out_dir: pathlib.Path = OUT_DIR) -> list[pathlib.Path]:
+    return [figure(out_dir=out_dir) for figure in FIGURES]
+
+
 if __name__ == "__main__":
-    print(plot())
-    print(plot_noise())
+    for drawn in draw_all():
+        print(drawn)
