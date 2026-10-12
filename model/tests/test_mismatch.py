@@ -8,7 +8,6 @@ import sky130
 from mismatch import (
     PERCENT,
     area_for_sigma,
-    cap_for_area,
     gradient,
     place,
     random_units,
@@ -129,10 +128,6 @@ def test_pelgrom_is_a_square_root_law():
 def test_area_and_sigma_invert_each_other():
     for area in AREAS:
         assert np.isclose(area_for_sigma(sigma_from_area(area, A_C_OTHER), A_C_OTHER), area)
-
-
-def test_capacitance_follows_area_at_fixed_density():
-    assert np.isclose(cap_for_area(QUADRUPLE, DENSITY), QUADRUPLE * DENSITY)
 
 
 def test_the_coefficient_is_read_as_percent_not_fraction():

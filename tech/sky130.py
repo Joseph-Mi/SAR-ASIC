@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+
 MOSFET = r"sky130_fd_pr__[np]fet_01v8"
 NFET = "sky130_fd_pr__nfet_01v8"
 PFET = "sky130_fd_pr__pfet_01v8"
@@ -50,6 +52,49 @@ CAP_MIN_AREA_MIM = 4.00
 CAP_MIN_AREA_VPP = 3.24
 
 DIFF_EXT = 0.29
+
+#: What a source or drain diffusion presents when its device is off, at zero
+#: bias, in farads per micrometre of width and at the minimum channel length.
+#: Together with the two below it is a depletion law.
+#:
+#: Measured, not read: the PDK's model cards state junction parameters the
+#: compact model does not use directly, and a name that looks like the right
+#: one carries a value that is not. What a node sees is what the simulator
+#: builds, so that is what this is fitted to -- the device as the netlister
+#: writes it, fingers and all, because a width written out whole is a
+#: different device and answers a different question.
+#: Resistance of the NMOS that holds the top plate at the common mode, ohms,
+#: by corner. Measured, like the diffusion above, and for the same reason.
+#:
+#: It is quoted for one width and one level because both decide it: the level
+#: a switch passes is the gate drive it does not get and the body effect it
+#: does, so the same switch passing the supply's midpoint instead of this
+#: design's common mode is several times worse. A resistance without its bias
+#: beside it is not a number.
+TOP_SWITCH_WIDTH = 8.0
+TOP_SWITCH_PASSES = 0.5
+TOP_SWITCH_OHMS = {"typical": 181.0, "worst": 344.0}
+
+DIFFUSION_ZERO_BIAS = 9.1234e-16
+DIFFUSION_POTENTIAL = 0.625
+DIFFUSION_GRADING = 0.2906
+
+
+def diffusion_capacitance(width: float, reverse_bias: float = 0.0) -> float:
+    """What an off device's source or drain presents at this reverse bias.
+
+    The quantity that matters where a diffusion sits on a node whose charge is
+    the answer: it is not a fixed capacitance, and it is largest where the
+    node comes closest to the body. Takes an array of biases as readily as
+    one, so a curve of it and a single number come from one expression.
+    """
+    if width <= 0.0:
+        raise ValueError(f"{width} um is not a width")
+    bias = np.asarray(reverse_bias, dtype=float)
+    if np.any(bias < 0.0):
+        raise ValueError("a forward-biased diffusion conducts; it does not store")
+    depletion = (1.0 + bias / DIFFUSION_POTENTIAL) ** -DIFFUSION_GRADING
+    return DIFFUSION_ZERO_BIAS * width * depletion
 
 
 def mim_capacitance(width: float, length: float, corner: str = "typical") -> float:

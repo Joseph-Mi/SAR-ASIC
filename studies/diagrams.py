@@ -24,11 +24,11 @@ import house
 import sky130
 from dynamic import codes_from_curve
 from interface import N_BITS
-from junction import ABRUPT, LINEARLY_GRADED, Junction, input_at_decision, swing_gain
-from metrics import inl, lsb_ideal, midcode_inputs
+from junction import Junction, input_at_decision, swing_gain
+from metrics import lsb_ideal, midcode_inputs
 from power import average_reference_current, rate_a_pin_can_carry, reference_charge
 from protocol import DONE, EVALUATE, SAMPLE, SETTLE, conversion_sequence
-from sampling import coherent_cycles, level_dependent, sampled, sweep
+from sampling import coherent_cycles, level_dependent, sampled, step_coefficient, sweep
 from sar import VCM_FRACTION, ideal_units, sar_convert, top_plate_voltage
 from settling import c_seen_by_reference, residual, sampling_loop_resistance, settle_time
 from spectrum import RECORD, coherent_sine, harmonic_bins, power_spectrum
@@ -88,8 +88,17 @@ MEMORY, MEMORY_SLOPE = 0.02, 1.0
 #: the memory raises the amplitude the converter sees.
 BACKED_OFF = 0.45
 
-#: Junction sizes drawn against the array, as fractions of it.
-JUNCTION_FRACTIONS = (0.05, 0.2, 0.5)
+#: Multiples of the real diffusion to draw beside it. The real one costs
+#: nothing measurable, so the figure has to show what would: these say how far
+#: the parasitic would have to be wrong before any of it mattered.
+JUNCTION_MULTIPLES = (1, 10, 100)
+
+#: The board the common mode is driven from, as DD-10 recommends it: a divider
+#: this stiff, and this much ceramic at the pin. Both are board parts, not
+#: chip ones, so they are the one place a figure here takes a number that
+#: nothing in the process decides.
+BOARD_DIVIDER_OHMS = 820.0
+BOARD_DECOUPLING_FARADS = 1e-6
 
 #: Comparator offset the junction figure shows the amplification of, volts.
 SHOWN_OFFSET = 2e-3
@@ -204,6 +213,23 @@ def frequency(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     flat = MEMORY
     curved = level_dependent(MEMORY, MEMORY_SLOPE, VREF)
 
+    # What the recommended board actually leaves behind, from the settling law
+    # rather than from a guess. The conversion occupies the rest of its own
+    # period, so the recovery it sees is the period less the sample.
+    total = float(units.sum())
+    phase = settle_time(
+        sampling_loop_resistance(R_PIN, R_PIN, R_PIN) * total,
+        VREF,
+        TOLERANCE_LSB * lsb_ideal(N_BITS, VREF),
+    )
+    board = step_coefficient(
+        total,
+        BOARD_DECOUPLING_FARADS,
+        BOARD_DIVIDER_OHMS,
+        phase,
+        (N_BITS + OVERHEAD_PHASES - 1) * phase,
+    )
+
     fig, (spec, figures) = house.canvas(1, 2, size=SQUARE_PANEL)
 
     cycles = coherent_cycles(0.35, RECORD)
@@ -255,7 +281,9 @@ def frequency(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
 
     fig.suptitle(
         "Sampling memory is linear until something in the recovery path is not:\n"
-        "dashed curves carry a coefficient that varies across the input range, solid ones do not"
+        "dashed curves carry a coefficient that varies across the input range, solid ones do not.\n"
+        f"Drawn at {MEMORY:g}; the board DD-10 recommends -- {BOARD_DIVIDER_OHMS:g} ohm divider, "
+        f"{BOARD_DECOUPLING_FARADS * 1e6:g} uF at the pin -- leaves {board:.0e}"
     )
     fig.tight_layout()
     return house.save(fig, out_dir / "frequency.png")
@@ -308,7 +336,14 @@ def bounds(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     settle.set_ylabel("remaining error  [LSB]")
     settle.set_title("Settling sets the phase")
     settle.legend(loc="upper right")
-    house.note(settle, "shaded: the capacitance corners", (0.03, 0.12))
+    house.note(
+        settle,
+        "shaded: the capacitance corners.\n"
+        f"every resistance taken at the pin's {R_PIN:g} ohm bound, which\n"
+        f"overstates the on-chip switch ({sky130.TOP_SWITCH_OHMS['typical']:g} ohm typical, "
+        f"{sky130.TOP_SWITCH_OHMS['worst']:g} worst)",
+        (0.03, 0.18),
+    )
 
     cycles = np.array(LEVEL_CYCLES)
     pins.step(
@@ -373,68 +408,78 @@ def bounds(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
 
 
 def junction(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
-    """A voltage-dependent parasitic on the top plate: what it is, and what it
-    does not do.
+    """The parasitic the top plate really carries, and what it costs.
 
-    The right-hand panel is the result. Thresholds do not move, so a figure of
-    threshold shift against code is a flat line -- and with a comparator
-    offset it is a flat line somewhere else, which is an offset and not a
-    nonlinearity.
+    The left panel is measured: it is the diffusion of the switch that holds
+    the plate at the common mode, as the simulator builds that switch. The
+    other two are what it costs, and the answer is nothing -- so they are
+    drawn against multiples of it, to say how far wrong the parasitic would
+    have to be before any of it reached a code.
     """
     units = _units()
     total = float(units.sum())
     lsb = lsb_ideal(N_BITS, VREF)
+    real = sky130.diffusion_capacitance(sky130.TOP_SWITCH_WIDTH)
 
     fig, (law, swing, shift) = house.canvas(1, 3, size=ROW_PANEL)
 
     bias = np.linspace(0.0, VREF, 200)
-    for name, grading in (("abrupt", ABRUPT), ("linearly graded", LINEARLY_GRADED)):
-        probe = Junction(c_zero=1.0, grading=grading)
-        law.plot(bias, probe.capacitance(bias), label=name)
-    law.axhline(1.0, color=house.BOUND, lw=house.BOUND_WIDTH, ls="--")
-    law.set_xlabel("reverse bias across the junction  [V]")
-    law.set_ylabel("capacitance, relative to zero bias")
-    law.set_title("The parasitic is not a constant")
-    law.legend()
+    law.plot(bias, sky130.diffusion_capacitance(sky130.TOP_SWITCH_WIDTH, bias) * 1e15)
+    law.set_xlabel("top plate above the body  [V]")
+    law.set_ylabel("diffusion on the top plate  [fF]")
+    law.set_title(f"The parasitic, for the {sky130.TOP_SWITCH_WIDTH:g} um top switch")
+    house.note(
+        law,
+        f"{real * 1e15:.2f} fF against an array of {total * 1e12:.2f} pF:\n"
+        f"{real / total * 100:.3f}% of the node it sits on",
+        (0.03, 0.2),
+    )
 
-    for vin, style in ((LOW_INPUT, "-"), (HIGH_INPUT, "--")):
-        for fraction, colour in zip(JUNCTION_FRACTIONS, house.SERIES, strict=False):
-            probe = Junction(c_zero=fraction * total)
-            gains = [
-                swing_gain(top_plate_voltage(vin, word, units, VREF), total, probe)
-                for word in _trials(vin, units)
-            ]
+    for multiple, colour in zip(JUNCTION_MULTIPLES, house.SERIES, strict=False):
+        probe = Junction(
+            c_zero=multiple * real,
+            phi_b=sky130.DIFFUSION_POTENTIAL,
+            grading=sky130.DIFFUSION_GRADING,
+        )
+        for vin, style in ((LOW_INPUT, "-"), (HIGH_INPUT, "--")):
             swing.plot(
-                range(1, len(gains) + 1),
-                gains,
+                range(1, N_BITS + 1),
+                [
+                    swing_gain(top_plate_voltage(vin, word, units, VREF), total, probe)
+                    for word in _trials(vin, units)
+                ],
                 style,
                 color=colour,
-                label=f"C_j0 = {fraction:g} C_total" if vin == LOW_INPUT else None,
+                label=f"{multiple}x the real one" if vin == LOW_INPUT else None,
             )
+    house.bound(swing, 1.0, "no parasitic at all")
     swing.set_xlabel("bit trial")
     swing.set_ylabel("fraction of the swing the comparator sees")
     swing.set_title("What it does cost")
-    swing.legend(loc="center right")
-    house.note(swing, f"solid: vin = {LOW_INPUT:g} V\ndashed: vin = {HIGH_INPUT:g} V", (0.03, 0.62))
+    swing.legend(loc="lower left")
+    house.note(swing, f"solid: vin = {LOW_INPUT:g} V\ndashed: vin = {HIGH_INPUT:g} V", (0.03, 0.4))
 
     codes = np.arange(2**N_BITS)
-    big = Junction(c_zero=max(JUNCTION_FRACTIONS) * total)
+    exaggerated = Junction(
+        c_zero=max(JUNCTION_MULTIPLES) * real,
+        phi_b=sky130.DIFFUSION_POTENTIAL,
+        grading=sky130.DIFFUSION_GRADING,
+    )
     for label, offset, colour in (
         ("no comparator offset", 0.0, house.SERIES[2]),
         (f"comparator offset {SHOWN_OFFSET * 1e3:g} mV", SHOWN_OFFSET, house.SERIES[1]),
     ):
         moved = np.array(
             [
-                input_at_decision(int(c), units, big, vref=VREF, node_offset=offset)
+                input_at_decision(int(c), units, exaggerated, vref=VREF, node_offset=offset)
                 - input_at_decision(int(c), units, Junction(c_zero=0.0), vref=VREF)
                 for c in codes
             ]
         )
         shift.plot(codes, moved / lsb, color=colour, label=label)
-    shift.plot(codes, inl(units, VREF), color=house.MODEL, ls=":", label="INL of the ideal array")
     shift.set_xlabel("code")
     shift.set_ylabel("threshold shift  [LSB]")
-    shift.set_title("What it does not cost")
+    shift.set_title(f"What it does not cost, at {max(JUNCTION_MULTIPLES)}x")
     shift.legend(loc="center left")
     house.note(
         shift,
@@ -443,9 +488,9 @@ def junction(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     )
 
     fig.suptitle(
-        "A nonlinear parasitic on the floating node moves no threshold, because every "
-        "decision is taken\nat the same node voltage -- so it holds the charge it was "
-        "sampled with, whatever its law"
+        "A nonlinear parasitic on the floating node moves no threshold, because every decision "
+        "is taken at the\nsame node voltage -- and the one this design actually has is a part in "
+        "a thousand of the array"
     )
     fig.tight_layout()
     return house.save(fig, out_dir / "junction.png")

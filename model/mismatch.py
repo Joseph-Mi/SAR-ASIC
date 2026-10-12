@@ -94,13 +94,3 @@ def area_for_sigma(sigma_rel: float, a_c: float) -> float:
     silicon.
     """
     return (a_c / PERCENT / sigma_rel) ** 2
-
-
-def cap_for_area(area, density: float) -> float:
-    """Unit capacitance in fF from area in um^2, given a density in fF/um^2.
-
-    Separate from the Pelgrom step because density and matching are two
-    independent properties of a capacitor flavour. Comparing MiM against VPP
-    means changing both, and conflating them hides which one won.
-    """
-    return area * density

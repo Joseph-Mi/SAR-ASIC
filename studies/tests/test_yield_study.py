@@ -4,7 +4,11 @@ changed number a reviewable diff instead of something nobody notices."""
 import numpy as np
 import pytest
 
-from metrics import sigma_dnl_msb_analytic
+import sky130
+from dynamic import enob_of
+from interface import N_BITS
+from metrics import has_missing_codes, sigma_dnl_msb_analytic
+from mismatch import random_units, sigma_from_area
 from yield_study import BASELINE, Study, format_table, rng_for, sweep
 
 #: Failures a point needs before its rate is worth comparing against another's.
@@ -19,6 +23,16 @@ MATCHING_FACTOR = 2 ** ((HIGH_BITS - LOW_BITS) / 2)
 #: A point's coordinates, a neighbour's, and how many draws to compare.
 POINT_SIGMA, NEIGHBOUR_SIGMA = 0.01, 0.015
 DRAWS = 4
+
+#: Arrays drawn at the process's own matching floor, and how many of those
+#: are converted end to end. Enough that a lost code would be seen, and few
+#: enough to stay inside a second.
+FLOOR_ARRAYS = 200
+FLOOR_ENOB_ARRAYS = 40
+
+#: Bits the floor is allowed to cost at the target resolution. A tenth of a
+#: bit is below what any other term in the budget contributes.
+FLOOR_MARGIN_BITS = 0.1
 
 #: Digits a sweep coordinate is compared at, so float spellings of one value
 #: meet.
@@ -109,3 +123,21 @@ def test_the_analytic_ratio_is_what_drives_that(study):
             sigma_dnl_msb_analytic(LOW_BITS, MATCHING_FACTOR * sigma),
             rtol=FORMULA,
         )
+
+
+def test_the_smallest_unit_the_process_draws_already_carries_the_resolution():
+    """The design-closure question the sweep exists to answer, asked of the
+    process rather than of an abstract matching figure.
+
+    Matching improves with area and the process will not draw below a minimum,
+    so the smallest unit is the worst matching an array can be built to have.
+    If that is already good enough at the target resolution, then matching is
+    not what limits this converter and area is being spent on something else.
+    """
+    sigma = sigma_from_area(sky130.CAP_MIN_AREA_MIM, sky130.CAP_A_C)
+    rng = rng_for(Study(), N_BITS, sigma)
+    units = random_units(N_BITS, sigma, rng, FLOOR_ARRAYS)
+    missing = has_missing_codes(units)
+    assert not missing.any(), "the process floor loses codes at the target resolution"
+    bits = np.array([enob_of(u) for u in units[:FLOOR_ENOB_ARRAYS]])
+    assert bits.min() > N_BITS - FLOOR_MARGIN_BITS

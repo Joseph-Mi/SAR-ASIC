@@ -162,10 +162,11 @@ you add a fourth route to the same number, add the cross-check with it.
 
 Named here because an unnamed assumption is indistinguishable from an oversight.
 
-- **kT/C sampling noise.** `cmp_noise_rms` covers the comparator only. Nothing
-  models the noise trapped on the array at the instant of sampling. Its budget
-  shrinks with the square of the LSB, so whether it binds depends on
-  `N_BITS`, and the model does not compute it: an assumption, not a result.
+- **Comparator noise and sampling noise are separate terms.** `cmp_noise_rms`
+  covers the comparator, redrawn at every trial, where it can cost an early
+  bit and with it a power of two. What the switch traps on the array is drawn
+  once per conversion and held, so it behaves as an offset that changes
+  between conversions. They are not interchangeable and are not added.
 - **The switching scheme.** `dac_voltage` encodes conventional binary-weighted
   switching, and `power.py` says what that costs the reference. Monotonic,
   Vcm-based and split-capacitor schemes have different equations and cost
@@ -182,8 +183,11 @@ Named here because an unnamed assumption is indistinguishable from an oversight.
 
 A switch drain on the floating node is a reverse-biased junction, so the
 parasitic it adds falls as the node moves away from its body. `junction.py`
-carries the depletion law (`PHI_B`, `ABRUPT`, `LINEARLY_GRADED`) and solves
-charge conservation with it.
+carries the depletion law in general -- any built-in potential, any grading --
+and solves charge conservation with it; `DIFFUSION_POTENTIAL` and
+`DIFFUSION_GRADING` in `tech/sky130.py` are the values this process gives,
+fitted to the device rather than assumed from silicon's textbook ones, which
+are both wrong here.
 
 **It moves no threshold, however nonlinear it is, and adds no INL.** The
 argument is one line once the right quantity is named: a decision is taken
@@ -199,6 +203,15 @@ two *fixed* voltages.
 With a comparator offset those two voltages differ, the term survives, and it
 is the same number for every threshold -- so an offset is amplified by
 `1 + C_j/C_total` and stays an offset. Still not a nonlinearity.
+
+**And in this design it is 7.3 fF against an array of 9.5 pF** -- a part in a
+thousand of the node it sits on. That number is measured, not assumed: the
+diffusion of the switch that holds the top plate at the common mode, read off
+the device the simulator builds and fitted to a depletion law that follows it
+to half a percent over the whole range the plate visits. So the costs below
+are real but immeasurable here, and the figure that draws them draws ten and a
+hundred times the real parasitic beside it to say how far wrong it would have
+to be before any of it reached a code.
 
 What it does cost, each with a figure in the module:
 
@@ -279,6 +292,36 @@ average current.
 `walden_fom` and `schreier_fom` are the figures converters are compared by.
 Both need a power number the design does not have yet, which is why they take
 one rather than compute it.
+
+---
+
+## Where each number comes from
+
+A model is only as good as its worst-sourced constant, and the four kinds do
+not fail the same way.
+
+| Kind | How it fails | What keeps it honest |
+|---|---|---|
+| **Read from the PDK** -- capacitance density, plate bias, matching coefficient | the PDK ships it twice and a grep finds the orphan | a test reads it back out of the tree the simulator includes |
+| **Measured from a device** -- the diffusion on the top plate, the top switch's resistance | measured at the wrong bias, or from a device written out by hand without the fingers the models need | a test re-measures through the same netlister the benches use |
+| **Chosen by the design** -- resolution, reference, common mode, switch widths | drifts between the module that chose it and the one that uses it | one declaration, and a test where a copy is unavoidable |
+| **Assumed** -- board decoupling, comparator offset and noise | nothing catches it, because nothing knows | named as an assumption at the point of use, and swept rather than fixed |
+
+The traps are not exotic. Three of them bit during this work: the matching
+coefficient lives in a tree most paths do not lead to; a MiM written from the
+superseded models is a sixth too small because it misses a plate bias of a
+tenth of a micrometre; and a switch measured passing the supply's midpoint
+reads six times the resistance of the same switch passing this design's common
+mode, because the gate drive left over and the body effect against it both
+follow from the level.
+
+**Neither the process floor nor sampling noise is what limits this
+converter.** The smallest unit the process will draw matches to 0.235%, and an
+array built from it loses no codes and gives up under a tenth of a bit at the
+target resolution -- and still carries twelve. The same array traps 21 uV when
+it samples, which is a fiftieth of an LSB here, though it is a third of one at
+fourteen bits. Area is spent on settling and on charge off the reference, not
+on matching and not on noise.
 
 ---
 
