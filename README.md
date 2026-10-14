@@ -67,6 +67,10 @@ Why the converter is single-ended with conventional switching, what each analog
 pin is for, and how the single-ended top plate is protected, is in
 [docs/topology.md](docs/topology.md).
 
+Which description of a circuit is the authored one, which are produced from it,
+and the three points where that moves, is in
+[docs/authority.md](docs/authority.md).
+
 The analog side of the workflow — reaching the noVNC desktop, xschem, ngspice,
 and the disposable experiments under `sandbox/` — is in
 [docs/sandbox.md](docs/sandbox.md). None of it is a make target.
