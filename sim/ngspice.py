@@ -23,6 +23,15 @@ BATCH = 32
 
 LIBRARY = re.compile(r"^\.lib\s+(\S*sky130\.lib\.spice)\s+\w+\s*$", re.M)
 
+#: Solver relative tolerance. The default, a part in a thousand, is looser
+#: than anything this design asks a simulator: a node left floating has to
+#: conserve its charge far more tightly than the answer it is compared
+#: against, and a decision taken near a point where the circuit is balanced
+#: resolves at whatever asymmetry the solver carries. A decade tighter covers
+#: both at no cost in run time. Tighter again stalls on hard edges without
+#: buying anything a test can see.
+RELTOL = 1e-4
+
 
 class DeckError(RuntimeError):
     """A deck that produced nothing a caller can use."""

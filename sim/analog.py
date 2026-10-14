@@ -382,6 +382,7 @@ def subckt(
     ron_unit: float = IDEAL_RON_UNIT,
     ron_top: float = IDEAL_RON,
     sampling: Gapped | NonOverlap | None = None,
+    precharge_high: bool = True,
 ) -> str:
     """The analog block, as one `.subckt`.
 
@@ -399,6 +400,12 @@ def subckt(
     says how their two phases are made: by ideal delays (`Gapped`), or by the
     phase generator (`NonOverlap`). Left as None, every switch is ideal and
     opens on `sample` alone.
+
+    `precharge_high` is which rail both outputs rest on between strobes. A
+    latch whose input pair is one flavour rests them at one rail and the other
+    flavour rests them at the other, so it is a consequence of a transistor
+    choice rather than a free one, and the controller is held to deciding
+    nothing by it.
     """
     unit = DEFAULT_UNIT if unit is None else unit
     ports = terminals(n_bits)
@@ -492,9 +499,11 @@ def subckt(
     if c_par:
         lines.append(f"Cpar top vss {c_par:.6e}")
 
-    # The comparator: precharged, both outputs high, while the strobe is low;
-    # while it is high, cmp_out is high when the top plate sat below Vcm at the
-    # strobe's rising edge -- the guess was still low, keep the bit. The
+    # The comparator: both outputs on the precharge rail while the strobe is
+    # low, carrying no decision and reading as metastable, which is what both
+    # of them resting on one rail means; while it is high, cmp_out is high when
+    # the top plate sat below Vcm at the strobe's rising edge -- the guess was
+    # still low, keep the bit. The
     # decision is taken on that edge and held, as a latch takes it: a
     # comparator that kept looking would give the array the evaluate phase to
     # settle in too, and hide exactly the settling a real one exposes. A top
@@ -502,13 +511,14 @@ def subckt(
     # is promised here.
     strobe = high("cmp_clk")
     keep = "u(v(held,vss))"
+    idle = f"(1-{strobe})" if precharge_high else "0"
     lines += [
         "Ediff diff vss vcm top 1",
         f"Bc_trk c_trk vss V = {low('cmp_clk')}",
         "S_trk diff held c_trk vss sw_ideal",
         f"Chold held vss {HOLD_FARADS:.6e}",
-        f"Bcmp cmp_out vss V = v(vdd,vss)*(1-{strobe}+{strobe}*{keep})",
-        f"Bcmpn cmp_out_n vss V = v(vdd,vss)*(1-{strobe}*{keep})",
+        f"Bcmp cmp_out vss V = v(vdd,vss)*({idle}+{strobe}*{keep})",
+        f"Bcmpn cmp_out_n vss V = v(vdd,vss)*({idle}+{strobe}*(1-{keep}))",
         ".ends",
     ]
     return "\n".join(lines) + "\n"

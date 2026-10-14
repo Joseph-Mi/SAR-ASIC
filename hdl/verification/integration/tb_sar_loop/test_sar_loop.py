@@ -145,6 +145,26 @@ def test_sampling_hands_straight_over_to_the_first_trial(carries):
     assert not below
 
 
+def test_the_controller_reads_nothing_from_the_rail_the_latch_rests_on(controller, tmp_path):
+    """Which rail both outputs rest on between strobes is settled by the input
+    pair's flavour, not by the interface: an NMOS pair rests them high and a
+    PMOS pair rests them low. The controller strobes for a whole cycle and
+    captures on the edge that ends it, so it only ever reads a resolved pair
+    and converts the same either way. Both rails also read as metastable while
+    they rest, which is why resting on one of them cannot raise the flag."""
+    inputs = either_side(carry_codes(SMALL), SMALL)
+    want = codes(inputs, SMALL)
+    runs = {}
+    for rail in (True, False):
+        block = replace(IDEAL, n_bits=SMALL, precharge_high=rail)
+        work = tmp_path / f"rest{rail:d}"
+        work.mkdir()
+        runs[rail] = loop.convert(inputs, controller(SMALL), work, block)
+        assert not disagreements(inputs, runs[rail].codes, want, SMALL)
+        assert not any(runs[rail].flags)
+    assert runs[True].codes == runs[False].codes
+
+
 def converts_at(controller, workdir, clock: float) -> bool:
     inputs = either_side(carry_codes(N_BITS), N_BITS)
     got = loop.convert(inputs, controller(N_BITS), workdir, replace(IDEAL, r_vin=R_VIN), clock)
