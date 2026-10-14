@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import analog
+import ngspice
 from analog import NAME, terminals
 from sar import VCM_FRACTION
 from tinytapeout import R_PIN
@@ -35,14 +36,6 @@ READ_BEFORE_END = 0.02
 #: over.
 MAX_STEP = 0.01
 
-#: Solver relative tolerance. The default, a part in a thousand, lets the
-#: floating top plate drift by a visible fraction of an LSB at the target
-#: resolution; a floating node's charge has to be conserved far more tightly
-#: than the answer it is compared against. A decade tighter brings it well under
-#: that at no cost in run time. Tighter again stalls the solver on the ideal
-#: switches' hard edges without buying anything a test can see.
-RELTOL = 1e-4
-
 #: The solver's charge tolerance, as a fraction of the charge one LSB is on
 #: the smallest unit capacitor a bench builds. The simulator's default is fixed
 #: in coulombs and exceeds that charge on a realistic array: with transistors
@@ -57,7 +50,7 @@ def options(block: Block) -> str:
     if isinstance(block.unit, analog.Ideal):
         smallest = min(smallest, block.unit.farads)
     chgtol = CHARGE_FRACTION * smallest * block.supplies.vref
-    return f".options reltol={RELTOL} chgtol={chgtol:.6g}\n.temp {block.temp:g}"
+    return f".options reltol={ngspice.RELTOL} chgtol={chgtol:.6g}\n.temp {block.temp:g}"
 
 
 #: The simulator's own default temperature, degrees Celsius: the temperature
@@ -147,6 +140,10 @@ class Block:
     #: How the block samples: ideal switches, or transistors and how their
     #: phases are made. Passed to the block.
     sampling: analog.Gapped | analog.NonOverlap | None = None
+    #: Which rail the comparator's outputs rest on between strobes. The input
+    #: pair's flavour fixes it in a real latch, so a bench carries it rather
+    #: than assuming one.
+    precharge_high: bool = True
     #: What drives the common-mode pin.
     vcm: IdealVcm | PinVcm | Divider = field(default_factory=IdealVcm)
     #: Degrees Celsius. With the supplies and the devices' process corner, it
@@ -237,7 +234,13 @@ def surroundings(block: Block) -> list[str]:
     lines = [
         *header,
         analog.subckt(
-            block.n_bits, block.unit, block.c_par, block.ron_unit, block.ron_top, block.sampling
+            block.n_bits,
+            block.unit,
+            block.c_par,
+            block.ron_unit,
+            block.ron_top,
+            block.sampling,
+            block.precharge_high,
         ),
         "Vvss vss 0 0",
         f"Vvdd vdd 0 {s.vdd}",
