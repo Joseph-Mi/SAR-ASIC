@@ -153,8 +153,8 @@ upgrade. Reasoning in `docs/topology.md`.
 
 **DD-13 — The single-ended top plate is protected by layout, supplies and
 timing.** Top plate on the MiM's upper plate (met3 bottom plate shields it
-from substrate); comparator NMOS in deep n-well; double guard ring around
-array + comparator; nothing routed over the array; comparator inputs (top,
+from substrate); comparator input pair in its own n-well; double guard ring
+around array + comparator; nothing routed over the array; comparator inputs (top,
 `vcm`) routed as a matched pair; `dac_b` buffers at the array edge;
 star-routed analog ground; decap on the comparator supply; decap on
 `vref`/`vcm` only as the settling laws size it. In the RTL (M4): one clock
@@ -827,23 +827,6 @@ Delete each one when it is fixed.
   corners (largest ff, smallest ss cold): it moves with the corner, so a
   one-time factory calibration is not enough -- M4's DFT modes (forced
   input) let firmware measure it in the field.
-- **Full scale puts the comparator's input near ground, on the easy trials
-  (M5).** At the first trial the top plate sits at Vcm - Vin + Vref/2, ~0 V
-  at vin ~ Vref, and the reference sag drags it lower for a few ns. No code
-  is lost to the top switch's junction: the sky130 acceptance converts both
-  sides of the top code at every corner, ff/125 C included.
-
-  What is left is narrower than it first looks. A decision is taken where the
-  top plate reaches the comparator's own switching point, which is Vcm, so
-  the poor bias and the hard question never coincide: the first trials sit
-  near a rail but ask for half a volt, and the trials that ask for half an
-  LSB sit at Vcm, where the biasing is comfortable. Precision is not at risk
-  near ground -- *firing at all* is. So the question for M5 is functional and
-  answerable on the comparator alone, in a transient with one input held near
-  0 V: does the latch separate, or does it sit stuck and raise the flag? It
-  is not a converter-loop question and does not need the loop to answer.
-  If it does sit stuck, the fixes are unchanged -- a PMOS input pair, or Vcm
-  moved above Vref/2, which is a bench setting rather than a respin.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
 - **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
   DRC pitch may not fit the analog strip once power-stripe margins come off.

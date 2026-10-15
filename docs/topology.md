@@ -156,8 +156,13 @@ comparator margin, never in linearity.
   met3, is a driven bottom plate and sits between the top plate and the
   substrate, so the substrate couples to a node that is driven, not to the one
   that floats.
-- **The comparator's NMOS devices sit in deep n-well**, isolating their body
-  from the digital half's substrate current.
+- **The comparator's input pair sits in its own n-well**, which a PMOS pair
+  gets by construction, isolating the devices that set the offset from the
+  digital half's substrate current. The well follows the supply, so what that
+  isolation is worth is what the decap on the comparator supply is worth. The
+  latch's own NMOS devices stay in the substrate: they act on a charge
+  difference the input pair has already made, so what they pick up reaches the
+  input divided by the first stage's gain.
 - **Substrate ties under and around the array**, to the analog ground.
 
 ### Around: guard rings and distance
