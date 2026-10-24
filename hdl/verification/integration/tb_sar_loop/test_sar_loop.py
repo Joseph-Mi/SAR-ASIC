@@ -21,6 +21,7 @@ import analog
 import bench
 import cosim
 import loop
+import strongarm
 from bench import EDGE, NOMINAL_TEMP, Block, Supplies
 from devices import Sky130, pdk_library
 from interface import N_BITS
@@ -163,6 +164,40 @@ def test_the_controller_reads_nothing_from_the_rail_the_latch_rests_on(controlle
         assert not disagreements(inputs, runs[rail].codes, want, SMALL)
         assert not any(runs[rail].flags)
     assert runs[True].codes == runs[False].codes
+
+
+#: A clock long enough for the transistor latch, which integrates for tens
+#: of nanoseconds by design and is given one clock of strobe.
+LATCH_CLOCK = 200e-9
+
+#: The unit that gives a short array the farads the real one has. What the
+#: latch puts back into the top plate is a charge, so what it costs a code is
+#: that charge over the whole array: a short array built from the real unit
+#: would hand the comparator a node small enough to make the kick tens of
+#: times its own share, which is a harder converter than the one being built
+#: rather than a smaller one.
+SMALL_UNIT = analog.DEFAULT_UNIT.farads * 2 ** (N_BITS - SMALL)
+
+
+def test_the_array_converts_with_the_comparator_it_will_be_built_with(controller, tmp_path):
+    """The only arrangement in which the comparator's own input devices meet
+    the floating top plate. Every other bench is half the system: an ideal
+    source on a comparator input absorbs whatever the latch kicks back into
+    it, and a comparator written as a function has nothing to kick with. So
+    this is the first bench that can be wrong for a reason the others cannot
+    show, which is why it converts the same codes or the pair of them is not
+    the converter the model describes."""
+    block = replace(
+        IDEAL,
+        n_bits=SMALL,
+        unit=analog.Ideal(SMALL_UNIT),
+        sampling=analog.NonOverlap(devices=Sky130()),
+        latch=strongarm.DESIGNED,
+    )
+    inputs = either_side(carry_codes(SMALL), SMALL)
+    got = loop.convert(inputs, controller(SMALL), tmp_path, block, LATCH_CLOCK)
+    assert not disagreements(inputs, got.codes, codes(inputs, SMALL), SMALL)
+    assert not any(got.flags)
 
 
 def converts_at(controller, workdir, clock: float) -> bool:
