@@ -532,7 +532,7 @@ def subckt(
             # *below* Vcm, and the latch raises the output on the side whose
             # input won. The two conventions meet here, once, where both are
             # known, rather than in the digital half or inside the latch.
-            f"Xcmp vdd vss cmp_clk vcm top cmp_out cmp_out_n {strongarm.NAME}",
+            f"Xcmp vdd vss vref cmp_clk vcm top cmp_out cmp_out_n {strongarm.NAME}",
             ".ends",
         ]
         return "\n".join(lines) + "\n"

@@ -67,6 +67,10 @@ Why the converter is single-ended with conventional switching, what each analog
 pin is for, and how the single-ended top plate is protected, is in
 [docs/topology.md](docs/topology.md).
 
+What the comparator is, why its tail is a switch rather than a current
+source, and what its noise costs the converter, is in
+[docs/comparator.md](docs/comparator.md).
+
 Which description of a circuit is the authored one, which are produced from it,
 and the three points where that moves, is in
 [docs/authority.md](docs/authority.md).

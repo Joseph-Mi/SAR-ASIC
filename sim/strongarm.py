@@ -33,7 +33,7 @@ import ngspice
 NAME = "strongarm"
 
 #: Terminals, in the order the subcircuit declares them.
-TERMINALS = ("vdd", "vss", "clk", "inp", "inn", "outp", "outn")
+TERMINALS = ("vdd", "vss", "vref", "clk", "inp", "inn", "outp", "outn")
 
 #: The integration nodes and the tail, named here because the measurements
 #: probe them: they are where the noise and offset of this circuit are made,
@@ -58,6 +58,51 @@ FLAVOURS = ("n", "p")
 DESIGNED_FLAVOUR = "p"
 
 
+#: The node the mirror holds, and the tail's own gate.
+MIRROR = "bias"
+TAIL_GATE = "tgate"
+
+
+@dataclass(frozen=True)
+class Bias:
+    """A tail current the supply does not set.
+
+    A tail whose gate is driven to a rail carries whatever current the
+    overdrive of a whole supply gives it, which is the supply's number and
+    not the design's. A mirror driven from a device gated at the converter's
+    own reference carries a current the supply cannot reach: the diode's gate
+    settles whereever it must for the reference's current to flow, however
+    far the rail is above it.
+
+    The reference is the array's, not a new one. A gate draws no current, so
+    reading a voltage off that pin costs it nothing -- which is the whole
+    reason this can hang on the pin the array's charge also comes from.
+
+    What the reference buys is more than steadiness against the supply. The
+    current a gated device passes and the transconductance it buys both carry
+    the process's mobility, and the integration time carries it inversely, so
+    in the product the noise actually depends on it cancels: what is left
+    varies only with the threshold, and not with how fast the process is.
+    """
+
+    #: The device gated at the reference. Its width sets the current and its
+    #: length keeps that current from following the drain.
+    w_ref: float
+    l_ref: float
+    #: The diode the reference's current flows through, which the tail
+    #: copies. Equal lengths make the copy a ratio of widths.
+    w_mirror: float
+    l_mirror: float
+    #: The pair that hands the tail its gate: one holds it at the rail while
+    #: the latch precharges, the other hands it the mirror to evaluate on.
+    w_gate: float
+    l_gate: float
+    #: Capacitance on the mirror's node. The tail's gate arrives at it every
+    #: strobe carrying the charge of a whole supply's swing, and a node that
+    #: cannot absorb that hands the next decision a bias still recovering.
+    c_bias: float = 0.0
+
+
 @dataclass(frozen=True)
 class Sizes:
     """One sizing of the latch. Micrometres, farads.
@@ -78,6 +123,9 @@ class Sizes:
     l_latch: float
     w_pre: float
     l_pre: float
+    #: How the tail is given its current. Left out, its gate is the strobe
+    #: and the current is the supply's.
+    bias: Bias | None = None
     c_node: float = 0.0
     c_load: float = 0.0
     flavour: str = "n"
@@ -125,8 +173,27 @@ def subckt(sizes: Sizes, devices, name: str = NAME) -> str:
             devices.nmos("invn", strobe, "clk", "vss", "vss", sizes.w_pre, sizes.l_pre),
         ]
 
+    # The tail's gate: the strobe itself, or the mirror the strobe hands it.
+    gate = strobe
+    if sizes.bias is not None:
+        if sizes.flavour != "p":
+            raise ValueError("the mirror is drawn for a tail that hangs from the supply")
+        b = sizes.bias
+        gate = TAIL_GATE
+        lines += [
+            devices.nmos("bref", MIRROR, "vref", "vss", "vss", b.w_ref, b.l_ref),
+            devices.pmos("bdio", MIRROR, MIRROR, "vdd", "vdd", b.w_mirror, b.l_mirror),
+            # Off at the rail while the latch precharges, on the mirror to
+            # evaluate. The gate draws no current once it arrives, so what
+            # the pass device costs is the time it takes and not the value.
+            devices.pmos("bgoff", gate, "clk", "vdd", "vdd", b.w_gate, b.l_gate),
+            devices.nmos("bgon", MIRROR, "clk", gate, "vss", b.w_gate, b.l_gate),
+        ]
+        if b.c_bias > 0.0:
+            lines.append(f"Cbias {MIRROR} vss {b.c_bias:.6g}")
+
     lines += [
-        sunk("tail", TAIL, strobe, tail_rail, tail_rail, sizes.w_tail, sizes.l_tail),
+        sunk("tail", TAIL, gate, tail_rail, tail_rail, sizes.w_tail, sizes.l_tail),
         sunk("inp", xn, "inp", TAIL, tail_rail, sizes.w_in, sizes.l_in),
         sunk("inn", xp, "inn", TAIL, tail_rail, sizes.w_in, sizes.l_in),
         sunk("lchp", "outp", "outn", xp, tail_rail, sizes.w_latch_n, sizes.l_latch),
@@ -209,6 +276,20 @@ DESIGNED = Sizes(
     c_node=200e-15,
     c_load=10e-15,
     flavour=DESIGNED_FLAVOUR,
+    #: The reference device is long so its current does not follow its drain,
+    #: and narrow because the pair wants transconductance per ampere. The
+    #: mirror is half the tail's width, so the tail carries twice what the
+    #: reference draws and the reference's own current -- which flows whether
+    #: or not a decision is being taken -- costs half as much.
+    bias=Bias(
+        w_ref=1.0,
+        l_ref=2.0,
+        w_mirror=1.0,
+        l_mirror=0.5,
+        w_gate=1.0,
+        l_gate=0.15,
+        c_bias=100e-15,
+    ),
 )
 
 
@@ -219,10 +300,15 @@ class Drive:
     supply: float
     period: float
     temp: float = 27.0
+    #: The converter's reference, which the biased tail reads its current
+    #: from. A latch whose tail hangs on the strobe never looks at it.
+    reference: float = 1.0
 
     def __post_init__(self) -> None:
         if self.supply <= 0.0:
             raise ValueError(f"{self.supply} V is not a supply")
+        if self.reference <= 0.0:
+            raise ValueError(f"{self.reference} V is not a reference")
         if self.period <= 0.0:
             raise ValueError(f"{self.period} s is not a strobe period")
 
@@ -306,10 +392,11 @@ def deck(
         subckt(sizes, devices),
         f".options reltol={ngspice.RELTOL}",
         f"Vdd vdd 0 {drive.supply:g}",
+        f"Vref vref 0 {drive.reference:g}",
         f"Vclk clk 0 {pulse}",
         _staircase("inp", "inp", highs, drive),
         _staircase("inn", "inn", lows, drive),
-        f"X{NAME} vdd 0 clk inp inn outp outn {NAME}",
+        f"X{NAME} vdd 0 vref clk inp inn outp outn {NAME}",
         f".temp {drive.temp:g}",
         ".control",
         "set nomodcheck",
@@ -379,6 +466,12 @@ INTEGRATION_READ = 0.98
 #: resolve at.
 OPERATING_DIFFERENCE = 1e-3
 
+#: How far apart the outputs must end for the strobe to have produced an
+#: answer. A latch that resolved drives them to opposite rails, so that is
+#: the whole of the question: how far the losing output rose on the way is a
+#: consequence of the sizing, not evidence of anything.
+RESOLVED = 0.9
+
 #: A moment inside the strobe before any decision exists.
 SETTLED = 20e-9
 
@@ -431,11 +524,12 @@ def integration(workdir, sizes: Sizes, devices, drive: Drive, common: float) -> 
                 subckt(sizes, devices),
                 f".options reltol={ngspice.RELTOL}",
                 f"Vdd vdd 0 {drive.supply:g}",
+                f"Vref vref 0 {drive.reference:g}",
                 f"Vclk clk 0 pulse(0 {drive.supply:g} {SETTLED:.12g} {EDGE:.12g} "
                 f"{EDGE:.12g} {drive.period:.12g} {2 * span:.12g})",
                 f"Vinp inp 0 {common + OPERATING_DIFFERENCE:.12g}",
                 f"Vinn inn 0 {common:.12g}",
-                f"X{NAME} vdd 0 clk inp inn outp outn {NAME}",
+                f"X{NAME} vdd 0 vref clk inp inn outp outn {NAME}",
                 f".temp {drive.temp:g}",
                 f".save {vectors}",
                 ".control",
@@ -456,12 +550,23 @@ def integration(workdir, sizes: Sizes, devices, drive: Drive, common: float) -> 
     during = (time >= SETTLED) & (time <= SETTLED + drive.period)
     t = time[during] - SETTLED
     outp, outn = rows[during, 1], rows[during, 3]
+    # The turnover measures this latch only if this latch answered. Inside
+    # too short a strobe the maximum sits wherever the window cut the rise
+    # off, or in the noise before anything has moved, and the time returned
+    # is the window's rather than the circuit's.
+    separation = abs(outp[-1] - outn[-1])
+    if separation < RESOLVED * drive.supply:
+        raise ValueError(
+            f"a {drive.period * 1e9:g} ns strobe leaves the outputs {separation:.3f} V "
+            f"apart at {drive.temp:g} C, not the {RESOLVED * drive.supply:.3f} V a "
+            f"resolved latch drives them to: this sizing does not decide there"
+        )
     loser = outn if outp[-1] > outn[-1] else outp
     t_int = float(t[int(np.argmax(loser))])
     if not 0.0 < t_int < INTEGRATION_READ * drive.period:
         raise ValueError(
-            f"the strobe ended before the latch turned over: {drive.period * 1e9:g} ns "
-            f"is not long enough for this sizing at {drive.temp:g} C"
+            f"the losing output turns over at {t_int * 1e9:.2f} ns, at the edge of a "
+            f"{drive.period * 1e9:g} ns strobe: the window and not the latch set it"
         )
     window = (t > 0) & (t <= t_int)
     mean = [
