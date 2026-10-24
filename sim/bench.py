@@ -122,6 +122,26 @@ class Supplies:
     vin: float = 0.0
 
 
+#: How far the platform lets the supply sit from nominal, either way.
+SUPPLY_SPREAD = 0.1
+
+#: Process corner, supply and temperature. Sampling is slowest at ss, low
+#: supply and hot -- the top switch's resistance peaks there -- so the clock
+#: comes from it; the rest are where the other edges of the design sit: cold
+#: slow, the largest injection (ff cold), and the most leakage (ff hot).
+#: Which of them is worst is not the same question for every block, so one
+#: that has its own worst corner finds it by measuring rather than by reading
+#: this order.
+SLOWEST_SAMPLING = ("ss", (1 - SUPPLY_SPREAD) * Supplies().vdd, 125)
+SKY130_CORNERS = [
+    ("tt", Supplies().vdd, NOMINAL_TEMP),
+    SLOWEST_SAMPLING,
+    ("ss", (1 - SUPPLY_SPREAD) * Supplies().vdd, -40),
+    ("ff", (1 + SUPPLY_SPREAD) * Supplies().vdd, -40),
+    ("ff", (1 + SUPPLY_SPREAD) * Supplies().vdd, 125),
+]
+
+
 @dataclass(frozen=True)
 class Block:
     """The analog block and everything that feeds it but its digital inputs

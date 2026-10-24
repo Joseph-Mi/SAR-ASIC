@@ -23,6 +23,7 @@ caller, so a figure and a test cannot disagree about what was simulated.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -365,3 +366,106 @@ def boundary(differences, separation) -> float:
     k = crossings[0]
     gap = signs[k + 1] - signs[k]
     return float(swept[k] - signs[k] * (swept[k + 1] - swept[k]) / gap)
+
+
+#: Where inside the strobe the integration is read from, as a fraction of the
+#: strobe: far enough in that the latch has long since turned over at any
+#: corner, so the window never truncates the thing being measured.
+INTEGRATION_READ = 0.98
+
+#: How far the input sits from the common mode while the operating point is
+#: measured. Large enough that the decision is never in doubt, small enough
+#: that both input devices stay at the bias the converter will ask them to
+#: resolve at.
+OPERATING_DIFFERENCE = 1e-3
+
+#: A moment inside the strobe before any decision exists.
+SETTLED = 20e-9
+
+
+@dataclass(frozen=True)
+class Integration:
+    """What the input pair did while it was converting a difference to charge.
+
+    `t_int` ends where the losing output turns over: until then both outputs
+    move on the tail current, and after it the cross-coupled pair is pulling
+    one of them back. `charge` is the product the noise law needs -- a
+    transconductance times a time is a capacitance, and the input noise is
+    that capacitance's kT/C -- so it, and not a volts figure, is what a
+    measurement of this circuit yields.
+    """
+
+    t_int: float
+    transconductance: float
+    drain_current: float
+
+    @property
+    def charge(self) -> float:
+        return self.transconductance * self.t_int
+
+    @property
+    def efficiency(self) -> float:
+        return self.transconductance / self.drain_current
+
+
+def integration(workdir, sizes: Sizes, devices, drive: Drive, common: float) -> Integration:
+    """Measure one strobe's integration, with the inputs held either side of
+    `common`.
+
+    The strobe is the whole of `drive.period` rather than a fraction of it:
+    this asks how long the latch integrates, and a window that ended first
+    would answer with its own length. A turnover found at the very end is
+    refused for the same reason.
+    """
+    kind = sizes.flavour
+    gm, drain = (devices.probe(f"x{NAME}", "inp", p, kind) for p in ("gm", "id"))
+    vectors = f"v(outp) v(outn) {gm} {drain}"
+    span = SETTLED + drive.period
+    table = f"_integration{os.getpid()}.txt"
+    found = ngspice.run(
+        "\n".join(
+            [
+                f"* {NAME}: one integration, measured",
+                *devices.header(),
+                *devices.models(),
+                subckt(sizes, devices),
+                f".options reltol={ngspice.RELTOL}",
+                f"Vdd vdd 0 {drive.supply:g}",
+                f"Vclk clk 0 pulse(0 {drive.supply:g} {SETTLED:.12g} {EDGE:.12g} "
+                f"{EDGE:.12g} {drive.period:.12g} {2 * span:.12g})",
+                f"Vinp inp 0 {common + OPERATING_DIFFERENCE:.12g}",
+                f"Vinn inn 0 {common:.12g}",
+                f"X{NAME} vdd 0 clk inp inn outp outn {NAME}",
+                f".temp {drive.temp:g}",
+                f".save {vectors}",
+                ".control",
+                "set nomodcheck",
+                f"tran {STEP / 2:.12g} {span:.12g} 0 {STEP / 2:.12g}",
+                f"meas tran m_decided find v(outp) at={SETTLED + drive.period * READ_AT:.12g}",
+                f"wrdata {table} {vectors}",
+                ".endc",
+                ".end",
+            ]
+        ),
+        workdir,
+    )
+    del found
+    rows = np.loadtxt(workdir / table)
+    (workdir / table).unlink(missing_ok=True)
+    time = rows[:, 0]
+    during = (time >= SETTLED) & (time <= SETTLED + drive.period)
+    t = time[during] - SETTLED
+    outp, outn = rows[during, 1], rows[during, 3]
+    loser = outn if outp[-1] > outn[-1] else outp
+    t_int = float(t[int(np.argmax(loser))])
+    if not 0.0 < t_int < INTEGRATION_READ * drive.period:
+        raise ValueError(
+            f"the strobe ended before the latch turned over: {drive.period * 1e9:g} ns "
+            f"is not long enough for this sizing at {drive.temp:g} C"
+        )
+    window = (t > 0) & (t <= t_int)
+    mean = [
+        float(np.trapezoid(np.abs(rows[during, column])[window], t[window]) / t_int)
+        for column in (5, 7)
+    ]
+    return Integration(t_int=t_int, transconductance=mean[0], drain_current=mean[1])

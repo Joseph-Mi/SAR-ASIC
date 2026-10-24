@@ -33,6 +33,10 @@ class Generic:
     def header(self) -> list[str]:
         return []
 
+    def probe(self, path: str, name: str, parameter: str, kind: str = "n") -> str:
+        """One device's own model parameter, as a vector a run can save."""
+        return f"@m.{path}.m{name}[{parameter}]".lower()
+
     def nmos(self, name, d, g, s, b, w: float, length: float, mult: int = 1) -> str:
         return f"M{name} {d} {g} {s} {b} gen_n W={w:.6g}u L={length:.6g}u m={mult}"
 
@@ -75,6 +79,16 @@ class Sky130:
         each = sky130.mosfet(w / fingers, length, copies)
         params = " ".join(f"{k}={v:.6g}" for k, v in each.items())
         return f"X{name} {d} {g} {s} {b} {model} {params} m={copies}"
+
+    def probe(self, path: str, name: str, parameter: str, kind: str = "n") -> str:
+        """One device's own model parameter, as a vector a run can save.
+
+        The device is a transistor inside the PDK's wrapper, so the name
+        reaches through both: the wrapper this netlister instantiated, and the
+        transistor the wrapper is written around.
+        """
+        model = sky130.NFET if kind == "n" else sky130.PFET
+        return f"@m.{path}.x{name}.m{model}[{parameter}]".lower()
 
     def nmos(self, name, d, g, s, b, w: float, length: float, mult: int = 1) -> str:
         return self._instance(sky130.NFET, name, d, g, s, b, w, length, mult)

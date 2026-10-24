@@ -16,8 +16,12 @@ import numpy as np
 import pytest
 
 import strongarm
+from bench import SKY130_CORNERS
+from comparator import noise_for_margin, worst_margin
 from devices import Generic, Sky130, pdk_library
 from interface import N_BITS
+from latch import EXCESS_NOISE
+from noise import BOLTZMANN, ROOM
 from sar import VCM_FRACTION
 from strongarm import (
     DESIGNED_FLAVOUR,
@@ -291,3 +295,44 @@ def test_the_flavour_the_measurements_chose_is_the_one_declared():
     builds cannot drift apart: the pair that passes is the pair declared."""
     assert DESIGNED_FLAVOUR == "p"
     assert DESIGNED_FLAVOUR in strongarm.FLAVOURS
+
+
+#: Sigmas of comparator noise the converter's worst margin must hold.
+SIGMAS = 4.0
+
+#: The noise this converter asks of its comparator, and the product of
+#: transconductance and time that delivers it. A measurement of this circuit
+#: yields the product; the volts follow from it only once an excess noise
+#: factor is assumed, so the assertion is made where the measurement is.
+TARGET = noise_for_margin(worst_margin(N_BITS, VREF), SIGMAS)
+REQUIRED_CHARGE = 4.0 * BOLTZMANN * ROOM * EXCESS_NOISE / TARGET**2
+
+#: A strobe no corner's integration outlives. The design integrates for tens
+#: of nanoseconds at typical and longer when the process is slow and cold.
+CORNER_STROBE = 400e-9
+
+
+@needs_simulator
+@needs_pdk
+@pytest.mark.parametrize("corner", SKY130_CORNERS, ids=lambda c: f"{c[0]}{c[2]:g}")
+def test_the_noise_the_converter_asked_for_survives_every_corner(corner, tmp_path):
+    """The latch converts a difference to charge on its integration nodes,
+    and what it costs in noise is set by how much charge: transconductance
+    times integration time is a capacitance, and the input noise is that
+    capacitance's kT/C. So the corner that matters is wherever that product
+    is smallest, which is not the corner the sampling is slowest at -- a
+    slower process lowers the transconductance and lengthens the integration
+    at once, and the two do not cancel by arrangement.
+    """
+    process, supply, temp = corner
+    measured = strongarm.integration(
+        tmp_path,
+        strongarm.DESIGNED,
+        Sky130(process),
+        Drive(supply, CORNER_STROBE, temp),
+        VCM,
+    )
+    assert measured.charge > REQUIRED_CHARGE, (
+        f"{process} {supply:g} V {temp:g} C: gm*t_int {measured.charge * 1e12:.3f} pF "
+        f"against the {REQUIRED_CHARGE * 1e12:.3f} pF this converter needs"
+    )
