@@ -194,6 +194,24 @@ how a half-finished code gets latched.
 `pins.py` declares the map and derives the bidirectional group's output
 enables; a test fails if the RTL states either again.
 
+**DD-15 — The part is specified at room temperature, and the corner set is
+read against that.**
+What is being built is a bench part on a Tiny Tapeout board, measured on a
+desk. The industrial range the corner runs use was inherited rather than
+required, and naming the real one changes what a failing corner means. Two of
+the comparator's corners fail outside the bench range and neither is inside
+it: fast silicon at high supply and 125 C leaves its noise margin at nothing,
+and slow silicon at -40 C does not resolve inside the conversion clock. Both
+are the tail's current spread -- the tail is a switch, so its current is
+whatever the process, supply and temperature give it, and the extremes of
+temperature are where that spread runs out of margin.
+
+So the corners are still run over the wider range, because a result that only
+exists inside the specification cannot say how close to the edge the design
+sits. They are read as margin rather than as pass or fail. Widening the
+specification later is a circuit change and not a re-run:
+`docs/comparator.md` says what it costs, cheapest first.
+
 ---
 
 ## Environment

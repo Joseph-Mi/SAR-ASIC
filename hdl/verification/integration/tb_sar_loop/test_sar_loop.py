@@ -22,7 +22,7 @@ import bench
 import cosim
 import loop
 import strongarm
-from bench import EDGE, NOMINAL_TEMP, Block, Supplies
+from bench import EDGE, SKY130_CORNERS, SLOWEST_SAMPLING, Block, Supplies
 from devices import Sky130, pdk_library
 from interface import N_BITS
 from measure import first_trial_error, law_clock
@@ -265,20 +265,6 @@ def test_the_designed_block_converts_within_budget_once_its_offset_is_removed(co
 
 
 #: The supply's tolerance either side of nominal.
-SUPPLY_SPREAD = 0.1
-
-#: Process corner, supply and temperature. Sampling is slowest at ss, low
-#: supply and hot -- the top switch's resistance peaks there -- so the clock
-#: comes from it; the rest are where the other edges of the design sit: cold
-#: slow, the largest injection (ff cold), and the most leakage (ff hot).
-SLOWEST_SAMPLING = ("ss", (1 - SUPPLY_SPREAD) * VDD, 125)
-SKY130_CORNERS = [
-    ("tt", VDD, NOMINAL_TEMP),
-    SLOWEST_SAMPLING,
-    ("ss", (1 - SUPPLY_SPREAD) * VDD, -40),
-    ("ff", (1 + SUPPLY_SPREAD) * VDD, -40),
-    ("ff", (1 + SUPPLY_SPREAD) * VDD, 125),
-]
 
 
 def at_corner(corner) -> Block:
