@@ -20,6 +20,7 @@ import math
 from dataclasses import dataclass
 
 import sky130
+import strongarm
 from devices import Generic, Sky130
 from interface import N_BITS, PORTS
 
@@ -383,6 +384,7 @@ def subckt(
     ron_top: float = IDEAL_RON,
     sampling: Gapped | NonOverlap | None = None,
     precharge_high: bool = True,
+    latch: strongarm.Sizes | None = None,
 ) -> str:
     """The analog block, as one `.subckt`.
 
@@ -401,12 +403,23 @@ def subckt(
     phase generator (`NonOverlap`). Left as None, every switch is ideal and
     opens on `sample` alone.
 
+    `latch` replaces the behavioural comparator with the transistor one at
+    that sizing, which is the only arrangement where the comparator's own
+    input devices meet the floating top plate: an ideal source on a
+    comparator input absorbs whatever the latch kicks back into it, and a
+    comparator written as a function has nothing to kick with. It needs
+    `sampling`, because the latch is drawn from the same devices the switches
+    are. `precharge_high` then describes nothing, since the circuit rests
+    where its own input pair puts it.
+
     `precharge_high` is which rail both outputs rest on between strobes. A
     latch whose input pair is one flavour rests them at one rail and the other
     flavour rests them at the other, so it is a consequence of a transistor
     choice rather than a free one, and the controller is held to deciding
     nothing by it.
     """
+    if latch is not None and sampling is None:
+        raise ValueError("a transistor latch needs the devices `sampling` carries")
     unit = DEFAULT_UNIT if unit is None else unit
     ports = terminals(n_bits)
     half = "0.5*v(vdd,vss)"
@@ -509,6 +522,21 @@ def subckt(
     # settle in too, and hide exactly the settling a real one exposes. A top
     # plate exactly at Vcm is a decision no real comparator defines, so none
     # is promised here.
+    if latch is not None:
+        # Defined in here rather than beside the block: the device models are
+        # declared in this scope, and a definition outside it cannot see them.
+        lines += [
+            strongarm.subckt(latch, sampling.devices),
+            # Vcm on the terminal the latch calls its greater input: the
+            # controller is given a high `cmp_out` when the top plate sat
+            # *below* Vcm, and the latch raises the output on the side whose
+            # input won. The two conventions meet here, once, where both are
+            # known, rather than in the digital half or inside the latch.
+            f"Xcmp vdd vss cmp_clk vcm top cmp_out cmp_out_n {strongarm.NAME}",
+            ".ends",
+        ]
+        return "\n".join(lines) + "\n"
+
     strobe = high("cmp_clk")
     keep = "u(v(held,vss))"
     idle = f"(1-{strobe})" if precharge_high else "0"

@@ -21,6 +21,7 @@ import analog
 import bench
 import cosim
 import loop
+import strongarm
 from bench import EDGE, NOMINAL_TEMP, Block, Supplies
 from devices import Sky130, pdk_library
 from interface import N_BITS
@@ -163,6 +164,55 @@ def test_the_controller_reads_nothing_from_the_rail_the_latch_rests_on(controlle
         assert not disagreements(inputs, runs[rail].codes, want, SMALL)
         assert not any(runs[rail].flags)
     assert runs[True].codes == runs[False].codes
+
+
+#: A clock long enough for the transistor latch, which integrates for tens
+#: of nanoseconds by design and is given one clock of strobe.
+LATCH_CLOCK = 200e-9
+
+
+def test_the_array_converts_with_the_comparator_it_will_be_built_with(controller, tmp_path):
+    """The only arrangement in which the comparator's own input devices meet
+    the floating top plate. Every other bench is half the system: an ideal
+    source on a comparator input absorbs whatever the latch kicks back into
+    it, and a comparator written as a function has nothing to kick with. So
+    this is the first bench that can be wrong for a reason the others cannot
+    show, which is why it converts the same codes or the pair of them is not
+    the converter the model describes."""
+    block = replace(
+        IDEAL,
+        n_bits=SMALL,
+        sampling=analog.NonOverlap(devices=Sky130()),
+        latch=strongarm.DESIGNED,
+    )
+    inputs = either_side(carry_codes(SMALL), SMALL)
+    got = loop.convert(inputs, controller(SMALL), tmp_path, block, LATCH_CLOCK)
+    assert not disagreements(inputs, got.codes, codes(inputs, SMALL), SMALL)
+    assert not any(got.flags)
+
+
+def test_zz_kickback_probe(controller, tmp_path):
+    """Scratch: mean code error against the array the latch kicks into."""
+    inputs = either_side(carry_codes(SMALL), SMALL)
+    want = codes(inputs, SMALL)
+    for farads in (8e-15, 32e-15, 128e-15):
+        block = replace(
+            IDEAL,
+            n_bits=SMALL,
+            unit=analog.Ideal(farads),
+            sampling=analog.NonOverlap(devices=Sky130()),
+            latch=strongarm.DESIGNED,
+        )
+        work = tmp_path / f"u{farads * 1e15:.0f}"
+        work.mkdir()
+        got = loop.convert(inputs, controller(SMALL), work, block, LATCH_CLOCK)
+        err = [g - w for g, w in zip(got.codes, want, strict=True)]
+        total = 2**SMALL * farads
+        print(
+            f"unit {farads * 1e15:6.1f} fF  C_total {total * 1e12:7.3f} pF  "
+            f"mean err {sum(err) / len(err):+6.2f} LSB  {err}",
+            flush=True,
+        )
 
 
 def converts_at(controller, workdir, clock: float) -> bool:

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 import analog
 import ngspice
+import strongarm
 from analog import NAME, terminals
 from sar import VCM_FRACTION
 from tinytapeout import R_PIN
@@ -144,6 +145,10 @@ class Block:
     #: pair's flavour fixes it in a real latch, so a bench carries it rather
     #: than assuming one.
     precharge_high: bool = True
+    #: The comparator as transistors, at this sizing, in place of the
+    #: behavioural one. The only arrangement in which the latch's input
+    #: devices meet the floating top plate.
+    latch: strongarm.Sizes | None = None
     #: What drives the common-mode pin.
     vcm: IdealVcm | PinVcm | Divider = field(default_factory=IdealVcm)
     #: Degrees Celsius. With the supplies and the devices' process corner, it
@@ -241,6 +246,7 @@ def surroundings(block: Block) -> list[str]:
             block.ron_top,
             block.sampling,
             block.precharge_high,
+            block.latch,
         ),
         "Vvss vss 0 0",
         f"Vvdd vdd 0 {s.vdd}",

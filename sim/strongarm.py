@@ -180,6 +180,37 @@ FIRST_STROBE = 1.5
 EVALUATE = 0.5
 
 
+#: The sizing this converter asks for, and why each number is what it is.
+#:
+#: The input pair's width is what the array can afford to have hanging on its
+#: top plate, since a comparator input *is* the top plate's parasitic, and the
+#: pair is long because the noise wants transconductance per ampere rather
+#: than per micrometre.
+#:
+#: The tail is narrow and the integration nodes are loaded heavily, which is
+#: the whole of the noise result: input noise falls as the charge swung on
+#: those nodes grows, and the tail current cancels out of it except through
+#: the efficiency a leaner bias buys. Both are paid for in integration time,
+#: which is the one thing this converter has in excess -- the latch decides
+#: in tens of nanoseconds inside a strobe of well over a hundred. Loading the
+#: nodes costs energy and no input capacitance, because they are drains; a
+#: wider pair would have cost the array its swing instead.
+DESIGNED = Sizes(
+    w_in=4.0,
+    l_in=0.5,
+    w_tail=2.0,
+    l_tail=0.5,
+    w_latch_n=1.0,
+    w_latch_p=2.0,
+    l_latch=0.15,
+    w_pre=2.0,
+    l_pre=0.15,
+    c_node=200e-15,
+    c_load=10e-15,
+    flavour=DESIGNED_FLAVOUR,
+)
+
+
 @dataclass(frozen=True)
 class Drive:
     """How the latch is strobed while it is measured. Volts, seconds, celsius."""
