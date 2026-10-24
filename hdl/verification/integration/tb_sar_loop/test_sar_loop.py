@@ -170,6 +170,14 @@ def test_the_controller_reads_nothing_from_the_rail_the_latch_rests_on(controlle
 #: of nanoseconds by design and is given one clock of strobe.
 LATCH_CLOCK = 200e-9
 
+#: The unit that gives a short array the farads the real one has. What the
+#: latch puts back into the top plate is a charge, so what it costs a code is
+#: that charge over the whole array: a short array built from the real unit
+#: would hand the comparator a node small enough to make the kick tens of
+#: times its own share, which is a harder converter than the one being built
+#: rather than a smaller one.
+SMALL_UNIT = analog.DEFAULT_UNIT.farads * 2 ** (N_BITS - SMALL)
+
 
 def test_the_array_converts_with_the_comparator_it_will_be_built_with(controller, tmp_path):
     """The only arrangement in which the comparator's own input devices meet
@@ -182,6 +190,7 @@ def test_the_array_converts_with_the_comparator_it_will_be_built_with(controller
     block = replace(
         IDEAL,
         n_bits=SMALL,
+        unit=analog.Ideal(SMALL_UNIT),
         sampling=analog.NonOverlap(devices=Sky130()),
         latch=strongarm.DESIGNED,
     )
@@ -189,30 +198,6 @@ def test_the_array_converts_with_the_comparator_it_will_be_built_with(controller
     got = loop.convert(inputs, controller(SMALL), tmp_path, block, LATCH_CLOCK)
     assert not disagreements(inputs, got.codes, codes(inputs, SMALL), SMALL)
     assert not any(got.flags)
-
-
-def test_zz_kickback_probe(controller, tmp_path):
-    """Scratch: mean code error against the array the latch kicks into."""
-    inputs = either_side(carry_codes(SMALL), SMALL)
-    want = codes(inputs, SMALL)
-    for farads in (8e-15, 32e-15, 128e-15):
-        block = replace(
-            IDEAL,
-            n_bits=SMALL,
-            unit=analog.Ideal(farads),
-            sampling=analog.NonOverlap(devices=Sky130()),
-            latch=strongarm.DESIGNED,
-        )
-        work = tmp_path / f"u{farads * 1e15:.0f}"
-        work.mkdir()
-        got = loop.convert(inputs, controller(SMALL), work, block, LATCH_CLOCK)
-        err = [g - w for g, w in zip(got.codes, want, strict=True)]
-        total = 2**SMALL * farads
-        print(
-            f"unit {farads * 1e15:6.1f} fF  C_total {total * 1e12:7.3f} pF  "
-            f"mean err {sum(err) / len(err):+6.2f} LSB  {err}",
-            flush=True,
-        )
 
 
 def converts_at(controller, workdir, clock: float) -> bool:
