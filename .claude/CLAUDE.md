@@ -845,12 +845,63 @@ Delete each one when it is fixed.
   corners (largest ff, smallest ss cold): it moves with the corner, so a
   one-time factory calibration is not enough -- M4's DFT modes (forced
   input) let firmware measure it in the field.
+- **The real latch on the floating top plate reads three low codes high**, and
+  has since the comparator sizing landed.
+  `test_the_array_converts_with_the_comparator_it_will_be_built_with`
+  (`verify-integration`) disagrees with the model at the inputs 0.05 LSB below
+  the 1, 2 and 4 LSB carries, and agrees at the 8 and 15 LSB ones. Reproduced
+  on a clean checkout of the commit that closed the corner work, so it is not
+  a later change. Nothing else sees it: it is the one bench where the
+  comparator's own input devices meet a floating top plate, every other one
+  having an ideal source that absorbs what the latch kicks back or a
+  comparator written as a function. At 4 bits it takes about 3 mV to move one
+  of those inputs across a threshold, which is what makes this the most
+  sensitive bench in the repository.
+
+  What it is not: metastability (no flag is raised anywhere in the run), and
+  not a constant offset -- a constant one would move every input that sits
+  below a carry, and the two highest do not move. The error falls as the input
+  rises, which is gain plus offset. Which matters for the remedy: the sibling
+  loop tests are given the measured offset (`cmp_offset`) and this one is
+  deliberately not, so handing it an offset is right only if the error is
+  static. An input-dependent one is INL, and calibrating it away would be
+  hiding it.
+
+  Next step is a measurement and not a patch: this block's threshold error
+  against input, over the range, with the latch's kickback in it. Note also
+  that the run records top-plate lows reaching -0.375 V at the top of the
+  range, which is the transient-dip item below, with numbers.
+
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
 - **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
   DRC pitch may not fit the analog strip once power-stripe margins come off.
   Check capm/met3 spacing rules before layout; the digital budget has slack.
-- **Values still restated in docs:** `docs/floorplan.md` numbers vs a future
-  LibreLane config.
+- **Values still restated in docs:** `docs/floorplan.md`'s die is now read out
+  of the vendored template by a test (`tech/template.py`); the height it
+  splits that die at is still a number waiting for a LibreLane config.
+
+- **The platform names its supplies twice, differently.** The vendored DEF
+  carries `VPWR`/`VGND` as special nets; the shuttle's Verilog template names
+  them `VGND`/`VDPWR`. Our copy is not stale -- it is byte-identical to
+  upstream's `tt-support-tools` today -- so the two upstream repositories
+  disagree. The tile top follows the Verilog, which is what a port list has to
+  match, and `tech/tinytapeout.py` declares it with the reason. What is open is
+  what M9's power stripes are called in the layout; resolve it against the
+  shuttle actually targeted, not from the file that happens to be open.
+
+- **The clock the board is asked for is undecided**, and `info.yaml` carries
+  the platform's zero placeholder until it is. The settling law fixes how
+  short a conversion *step* may be at the slowest corner; the divider stands
+  between that and the clock a board supplies, so the rate is a board choice
+  and nothing on the die waits on it. Decide it before submission, because it
+  is what the datasheet advertises the part at.
+
+- **Which analog pin carries which signal.** `ua[0..2]` are claimed in order,
+  because the platform bonds them that way and bills per pin; `pins.py` fixes
+  the count and the no-gap rule and marks the assignment provisional. It
+  follows the analog strip's own placement -- pad coupling does not decide it
+  at a twenty-micrometre pitch, routing does -- so it is answered when the
+  strip is drawn, and `info.yaml` regenerates from the map when it is.
 
 ---
 

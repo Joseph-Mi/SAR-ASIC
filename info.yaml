@@ -1,0 +1,63 @@
+# Tiny Tapeout project information.
+# Generated from the pin map and the vendored template: make info.
+# Do not edit -- a hand edit is a pin assignment that nothing checks.
+project:
+  title:        "Charge-redistribution SAR ADC"
+  author:       "Joseph-Mi"
+  discord:      ""
+  description:  "Successive-approximation ADC: a binary-weighted capacitor array as both sample-and-hold and DAC, a StrongARM latch comparator, and a Verilog controller with SPI configuration and six design-for-test modes."
+  language:     "Analog"
+  clock_hz:     0
+
+  # Tiles, as the vendored template in layout/ draws them.
+  tiles: "2x2"
+
+  # Analog pins claimed. The platform bonds this many, counting from
+  # ua[0]: a signal on a pin past it is not connected.
+  analog_pins: 3
+  uses_vapwr: false
+
+  top_module:  "tt_um_josephmi_sar_adc"
+
+  source_files:
+    - "project.v"
+
+# The pinout, for the datasheet. Unused pins are left empty.
+pinout:
+
+  ui[0]: "HOLD (freeze result pins)"
+  ui[1]: "START (begin conversion)"
+  ui[2]: "SINGLE_SHOT (one conversion per request)"
+  ui[3]: "EDGE_CAPTURE (capture on rising HOLD)"
+  ui[4]: ""
+  ui[5]: ""
+  ui[6]: ""
+  ui[7]: ""
+
+  uo[0]: "CODE[2]"
+  uo[1]: "CODE[3]"
+  uo[2]: "CODE[4]"
+  uo[3]: "CODE[5]"
+  uo[4]: "CODE[6]"
+  uo[5]: "CODE[7]"
+  uo[6]: "CODE[8]"
+  uo[7]: "CODE[9] (MSB)"
+
+  uio[0]: "SPI CS_N"
+  uio[1]: "SPI MOSI"
+  uio[2]: "SPI MISO"
+  uio[3]: "SPI SCK"
+  uio[4]: "CODE[0] (LSB)"
+  uio[5]: "CODE[1]"
+  uio[6]: "DONE (result ready, one cycle)"
+  uio[7]: ""
+
+  ua[0]: "VIN (analog input)"
+  ua[1]: "VREF (reference)"
+  ua[2]: "VCM (common mode)"
+  ua[3]: ""
+  ua[4]: ""
+  ua[5]: ""
+
+# Do not change!
+yaml_version: 6
