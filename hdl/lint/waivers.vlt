@@ -18,3 +18,22 @@
 // larger one, and the generator's prefix is what keeps the waiver off anything
 // written by hand.
 lint_off -rule UNUSEDPARAM -file "*sar_regs.vh" -match "Parameter is not used: 'SAR_*"
+
+// The analog half has no body and cannot have one: it is hand-drawn custom
+// layout, declared in Verilog only so the tile top can be elaborated, linted
+// and structurally checked. Every one of its ports is therefore unread or
+// undriven, which is the declaration doing its job rather than a defect.
+lint_off -rule UNUSEDSIGNAL -file "*sar_analog.v"
+lint_off -rule UNDRIVEN -file "*sar_analog.v"
+
+// The platform's enable, which a project is told it may ignore: it is high
+// whenever the design is powered, so the only use for it would be to put a
+// tile-select line into the reset or the clock of a converter that may be
+// mid-conversion. The tile top's header says this at length.
+lint_off -rule UNUSEDSIGNAL -file "*tt_um_*.v" -match "*'ena'*"
+
+// Analog pins the design does not claim. Tying off an unused one is layout's
+// job and not Verilog's -- there is nothing a digital driver should be doing
+// on a pin that reaches its pad through an analog switch.
+lint_off -rule UNUSEDSIGNAL -file "*tt_um_*.v" -match "*'ua'*"
+lint_off -rule UNDRIVEN -file "*tt_um_*.v" -match "*'ua'*"

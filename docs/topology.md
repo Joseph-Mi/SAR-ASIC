@@ -228,6 +228,34 @@ strobe**:
   trial leaves the supply range and the top switch's junction conducts. The
   board provides the limit: a series resistor and clamp diodes to the
   reference and ground, outside the chip.
+- **Every analog pin is referenced to one node on the board.** The platform
+  gives a single ground and no analog counterpart to it, and a bought `ua` pin
+  would be a hundred times worse a return than the ground already there -- the
+  pin's series resistance against the power network's few ohms -- so the
+  analog ground is the tile's ground and the question is only where the
+  sources outside reference to. It has to be one node: `vref`'s source,
+  `vcm`'s divider and the decoupling on both pins return to it, and it goes to
+  the chip's ground.
+
+  What makes that enough is that a shared offset cancels. If the on-chip
+  ground sits a little above the board's, every pin reads low by the same
+  amount, so it cancels out of the difference the converter measures and
+  survives only in the reference that divides it -- a gain error of tens of
+  parts per million, since the only static current at the decision is the
+  comparator's own tail and the array is capacitors. The array's trials do
+  push a milliamp through the return, which is millivolts and several LSB of
+  bounce, and it costs nothing for the reason above: it has returned to where
+  it was long before the strobe.
+
+  What does not cancel is a *second* ground. A `vin` source referenced
+  somewhere else -- a bench instrument on its own chassis ground is the
+  ordinary case -- puts the difference between the two grounds straight onto
+  `vin - vcm`, against a half-LSB, with every other symptom looking correct.
+  Two of the DFT modes separate that from the chip's own offset: sweeping
+  `vcm` reads offset against common mode, and the forced input bypasses
+  `vin`'s wiring altogether, so an offset that vanishes when the input is
+  forced is an offset in the board.
+
 - **No large on-chip protection structure on `vin`.** Its junction capacitance
   loads the input and its leakage depends on the input's level. The analog
   path's own ESD provision is TinyTapeout's; confirm it against the spec

@@ -259,10 +259,13 @@ EVALUATE = 0.5
 #: the whole of the noise result: input noise falls as the charge swung on
 #: those nodes grows, and the tail current cancels out of it except through
 #: the efficiency a leaner bias buys. Both are paid for in integration time,
-#: which is the one thing this converter has in excess -- the latch decides
-#: in tens of nanoseconds inside a strobe of well over a hundred. Loading the
-#: nodes costs energy and no input capacitance, because they are drains; a
-#: wider pair would have cost the array its swing instead.
+#: which is the one thing this converter has in excess over the range it is
+#: specified for -- the latch decides in tens of nanoseconds inside a strobe
+#: of well over a hundred, until the process is slow and the part is cold,
+#: where the same current spread stretches it past the phase a conversion
+#: allows. Loading the nodes costs energy and no input capacitance, because
+#: they are drains; a wider pair would have cost the array its swing
+#: instead.
 DESIGNED = Sizes(
     w_in=4.0,
     l_in=0.5,
