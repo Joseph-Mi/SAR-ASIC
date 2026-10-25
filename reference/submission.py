@@ -141,6 +141,45 @@ def _quoted(value: str) -> str:
     return '"' + value.replace('"', '\\"') + '"'
 
 
+#: The version of the schema the platform reads this file against.
+YAML_VERSION = 6
+
+
+def project_fields() -> dict[str, object]:
+    """The `project` mapping, as values rather than as text.
+
+    Separate from the rendering so that what the file claims can be asserted
+    without parsing it back: a test that reads YAML needs a YAML library, and
+    the digital half of CI builds its own toolchain and has none. The round
+    trip is still checked where a library exists, which is what keeps these
+    two from drifting.
+    """
+    return {
+        "title": TITLE,
+        "author": AUTHOR,
+        "discord": "",
+        "description": DESCRIPTION,
+        "language": LANGUAGE,
+        "clock_hz": CLOCK_HZ,
+        "tiles": template.tiles(),
+        "analog_pins": len(analog_pins()),
+        "uses_vapwr": USES_VAPWR,
+        "top_module": TOP_MODULE,
+        "source_files": list(SOURCE_FILES),
+    }
+
+
+def pinout() -> dict[str, str]:
+    """Every pin the platform lists, and what the datasheet calls it."""
+    found = {}
+    for section, group in SECTIONS:
+        count = ANALOG_WIDTH if section == "ua" else GROUP_WIDTH
+        for index in range(count):
+            signal = group[index] if index < len(group) else None
+            found[f"{section}[{index}]"] = pin_name(signal)
+    return found
+
+
 def as_yaml() -> str:
     """The file, in the platform's own key order and shape.
 
@@ -148,41 +187,44 @@ def as_yaml() -> str:
     a commented document whose comments are instructions to whoever reads the
     file next, and a serialiser would drop them.
     """
+    field = project_fields()
     lines = [
         "# Tiny Tapeout project information.",
         f"# Generated from the pin map and the vendored template: {REGENERATE}.",
         "# Do not edit -- a hand edit is a pin assignment that nothing checks.",
         "project:",
-        f"  title:        {_quoted(TITLE)}",
-        f"  author:       {_quoted(AUTHOR)}",
-        '  discord:      ""',
-        f"  description:  {_quoted(DESCRIPTION)}",
-        f"  language:     {_quoted(LANGUAGE)}",
-        f"  clock_hz:     {CLOCK_HZ}",
+        f"  title:        {_quoted(field['title'])}",
+        f"  author:       {_quoted(field['author'])}",
+        f"  discord:      {_quoted(field['discord'])}",
+        f"  description:  {_quoted(field['description'])}",
+        f"  language:     {_quoted(field['language'])}",
+        f"  clock_hz:     {field['clock_hz']}",
         "",
         "  # Tiles, as the vendored template in layout/ draws them.",
-        f"  tiles: {_quoted(template.tiles())}",
+        f"  tiles: {_quoted(field['tiles'])}",
         "",
         "  # Analog pins claimed. The platform bonds this many, counting from",
         "  # ua[0]: a signal on a pin past it is not connected.",
-        f"  analog_pins: {len(analog_pins())}",
-        f"  uses_vapwr: {str(USES_VAPWR).lower()}",
+        f"  analog_pins: {field['analog_pins']}",
+        f"  uses_vapwr: {str(field['uses_vapwr']).lower()}",
         "",
-        f"  top_module:  {_quoted(TOP_MODULE)}",
+        f"  top_module:  {_quoted(field['top_module'])}",
         "",
         "  source_files:",
-        *[f"    - {_quoted(name)}" for name in SOURCE_FILES],
+        *[f"    - {_quoted(name)}" for name in field["source_files"]],
         "",
         "# The pinout, for the datasheet. Unused pins are left empty.",
         "pinout:",
     ]
-    for section, group in SECTIONS:
-        count = ANALOG_WIDTH if section == "ua" else GROUP_WIDTH
+    listed = pinout()
+    for section, _ in SECTIONS:
         lines.append("")
-        for index in range(count):
-            signal = group[index] if index < len(group) else None
-            lines.append(f"  {section}[{index}]: {_quoted(pin_name(signal))}")
-    lines += ["", "# Do not change!", "yaml_version: 6", ""]
+        lines += [
+            f"  {key}: {_quoted(name)}"
+            for key, name in listed.items()
+            if key.startswith(f"{section}[")
+        ]
+    lines += ["", "# Do not change!", f"yaml_version: {YAML_VERSION}", ""]
     return "\n".join(lines)
 
 

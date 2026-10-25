@@ -15,6 +15,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import replace
 
+import numpy as np
 import pytest
 
 import analog
@@ -179,24 +180,83 @@ LATCH_CLOCK = 200e-9
 SMALL_UNIT = analog.DEFAULT_UNIT.farads * 2 ** (N_BITS - SMALL)
 
 
-def test_the_array_converts_with_the_comparator_it_will_be_built_with(controller, tmp_path):
-    """The only arrangement in which the comparator's own input devices meet
-    the floating top plate. Every other bench is half the system: an ideal
-    source on a comparator input absorbs whatever the latch kicks back into
-    it, and a comparator written as a function has nothing to kick with. So
-    this is the first bench that can be wrong for a reason the others cannot
-    show, which is why it converts the same codes or the pair of them is not
-    the converter the model describes."""
-    block = replace(
+#: Where the one calibration threshold is looked for, in LSB, and how finely.
+#: The window holds several times any offset measured so far, and the
+#: resolution is a small fraction of the tolerance the test then applies, so
+#: what the test reads is the block and not the search that calibrated it.
+CALIBRATION_WINDOW = 0.4
+CALIBRATION_STEP = 0.0125
+
+
+def latch_block():
+    """The short array with the designed latch on its floating top plate."""
+    return replace(
         IDEAL,
         n_bits=SMALL,
         unit=analog.Ideal(SMALL_UNIT),
         sampling=analog.NonOverlap(devices=Sky130()),
         latch=strongarm.DESIGNED,
     )
+
+
+def located_threshold(controller, workdir, block, code: int, n_bits: int) -> float:
+    """Where one code transition actually sits, in volts, by bisection.
+
+    A threshold rather than a conversion, because a conversion at mid-code
+    gives the right answer however large the offset is and so carries none of
+    it. This is the only quantity in the bench that locates the curve.
+    """
+    step = lsb(n_bits)
+    low, high = (code - CALIBRATION_WINDOW) * step, (code + CALIBRATION_WINDOW) * step
+    rounds = int(np.ceil(np.log2(2 * CALIBRATION_WINDOW / CALIBRATION_STEP)))
+    for _ in range(rounds):
+        mid = (low + high) / 2
+        found = loop.convert([mid], controller(n_bits), workdir, block, LATCH_CLOCK).codes[0]
+        # At or above the code means the transition is at or below here.
+        if found >= code:
+            high = mid
+        else:
+            low = mid
+    return (low + high) / 2
+
+
+def model_threshold(code: int, n_bits: int) -> float:
+    """Where the model puts the same transition, in volts."""
+    step = lsb(n_bits)
+    units = ideal_units(n_bits)
+    grid = np.linspace((code - CALIBRATION_WINDOW) * step, (code + CALIBRATION_WINDOW) * step, 2001)
+    return next(v for v in grid if sar_convert(v, units, VREF)[0] >= code)
+
+
+def test_the_array_converts_with_the_comparator_it_will_be_built_with(controller, tmp_path):
+    """The only arrangement in which the comparator's own input devices meet
+    the floating top plate. Every other bench is half the system: an ideal
+    source on a comparator input absorbs whatever the latch kicks back into
+    it, and a comparator written as a function has nothing to kick with. So
+    this is the first bench that can be wrong for a reason the others cannot
+    show.
+
+    What it holds the pair to is linearity, not offset. Its inputs sit
+    `EDGE_OFFSET_LSB` from each threshold, so once the curve's position is
+    located the question asked is whether the curve is *straight* to within
+    that -- which is the thing only this bench can answer, and the thing a
+    kick that depended on the code would break. The position is located first,
+    from one threshold, the way a part is calibrated in the field.
+
+    Measuring the codes against the bare model instead would assert that this
+    comparator has no offset. It has about an LSB's twentieth of one, which is
+    the tolerance itself, so that criterion turned on which side of a solver's
+    last digit the offset fell -- it failed three codes while every threshold
+    sat within 0.007 LSB of a straight line through them.
+    """
+    block = latch_block()
+    offset = located_threshold(controller, tmp_path, block, 1, SMALL) - model_threshold(1, SMALL)
     inputs = either_side(carry_codes(SMALL), SMALL)
     got = loop.convert(inputs, controller(SMALL), tmp_path, block, LATCH_CLOCK)
-    assert not disagreements(inputs, got.codes, codes(inputs, SMALL), SMALL)
+    units = ideal_units(SMALL)
+    # A curve that sits low reads as an input that sits high.
+    want = [sar_convert(vin, units, VREF, cmp_offset=-offset)[0] for vin in inputs]
+    assert not disagreements(inputs, got.codes, want, SMALL)
     assert not any(got.flags)
 
 
