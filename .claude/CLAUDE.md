@@ -322,7 +322,17 @@ Two things that are easy to get wrong:
   surface, and it found one the first time it ran.
 - CI's `analog` job runs `make verify-analog verify-integration` inside the
   pinned image with `SAR_REQUIRE_TOOLS=1` (root `conftest.py`: a skip fails).
-  The `digital` job still builds its tools on ubuntu-latest. Consider
+  The `digital` job still builds its tools on ubuntu-latest -- so it has no
+  PyYAML and no container packages, and a test that imports one has to skip
+  rather than fail there (`pytest.importorskip`); check a new dependency
+  against that job, not against the container, which has everything.
+- **`make verify-analog` is not the regression.** It is `sim/`. The controller
+  running in ngspice, the formal proofs and the full-converter benches are
+  behind `verify-integration`, `verify-formal` and `verify-unit`/`-system`,
+  and only `make verify` runs the lot. A comparator sizing once landed gated
+  on the narrow one, leaving the most sensitive bench in the repository --
+  the real latch on a floating top plate -- never run against it. Anything
+  that touches `strongarm.py` wants `verify-integration` at least. Consider
   mirroring the tag to GHCR if pull times get annoying -- the image is ~20 GB.
 
 ### Understanding the digital half beyond simulation
@@ -845,33 +855,21 @@ Delete each one when it is fixed.
   corners (largest ff, smallest ss cold): it moves with the corner, so a
   one-time factory calibration is not enough -- M4's DFT modes (forced
   input) let firmware measure it in the field.
-- **The real latch on the floating top plate reads three low codes high**, and
-  has since the comparator sizing landed.
-  `test_the_array_converts_with_the_comparator_it_will_be_built_with`
-  (`verify-integration`) disagrees with the model at the inputs 0.05 LSB below
-  the 1, 2 and 4 LSB carries, and agrees at the 8 and 15 LSB ones. Reproduced
-  on a clean checkout of the commit that closed the corner work, so it is not
-  a later change. Nothing else sees it: it is the one bench where the
-  comparator's own input devices meet a floating top plate, every other one
-  having an ideal source that absorbs what the latch kicks back or a
-  comparator written as a function. At 4 bits it takes about 3 mV to move one
-  of those inputs across a threshold, which is what makes this the most
-  sensitive bench in the repository.
-
-  What it is not: metastability (no flag is raised anywhere in the run), and
-  not a constant offset -- a constant one would move every input that sits
-  below a carry, and the two highest do not move. The error falls as the input
-  rises, which is gain plus offset. Which matters for the remedy: the sibling
-  loop tests are given the measured offset (`cmp_offset`) and this one is
-  deliberately not, so handing it an offset is right only if the error is
-  static. An input-dependent one is INL, and calibrating it away would be
-  hiding it.
-
-  Next step is a measurement and not a patch: this block's threshold error
-  against input, over the range, with the latch's kickback in it. Note also
-  that the run records top-plate lows reaching -0.375 V at the top of the
-  range, which is the transient-dip item below, with numbers.
-
+  The designed latch adds its own, and it is an offset and nothing else:
+  measured over every threshold of the 4-bit loop with the transistor latch
+  on the floating top plate (`build/threshold.py`), each one sits 0.05 LSB
+  below the model's, constant to within the measurement's own resolution.
+  Which cost a day's confusion once, and the lesson generalises:
+  `test_the_array_converts_with_the_comparator_it_will_be_built_with` judged
+  codes from inputs `EDGE_OFFSET_LSB` (0.05 LSB) from a threshold against the
+  bare model, so its tolerance *was* the offset. It failed three codes, and
+  calibrating it at one threshold only moved the failures to the other end of
+  the range -- a criterion whose margin is finer than the resolution of the
+  thing it measures reports the measurement, not the circuit. It now uses
+  mid-code inputs like every other designed-block run, which leaves the
+  offset ten times inside tolerance and still sees what only that bench can:
+  a kick that varies with the code, a latch that cannot resolve against a
+  floating node, a flag raised.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
 - **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
   DRC pitch may not fit the analog strip once power-stripe margins come off.
