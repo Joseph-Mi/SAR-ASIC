@@ -12,6 +12,7 @@ calibrated out: with the generic models, and with sky130's at every corner.
 
 from __future__ import annotations
 
+import math
 import shutil
 from dataclasses import replace
 
@@ -217,6 +218,91 @@ def test_the_array_converts_with_the_comparator_it_will_be_built_with(controller
     got = loop.convert(inputs, controller(SMALL), tmp_path, block, LATCH_CLOCK)
     assert not disagreements(inputs, got.codes, codes(inputs, SMALL), SMALL)
     assert not any(got.flags)
+
+
+#: How a threshold of that pair is located: how far either side of the
+#: model's the search starts and how finely it ends, both in LSB. The
+#: resolution is the floor under everything measured this way, which is why it
+#: is named rather than inlined -- the error below moves by exactly one step
+#: across the whole range, so a criterion finer than this reads the grid
+#: instead of the circuit.
+THRESHOLD_WINDOW = 0.4
+THRESHOLD_RESOLUTION = 0.0125
+
+#: What that error may spread by and still be an offset. Measured, it spreads
+#: by one step -- which is what a grid contributes on its own, since the two
+#: ends of the range can quantise to neighbouring points however constant the
+#: error under them is. So the bound is three: one for the grid and room
+#: either side of it, because a bound set at the resolution is the mistake
+#: this whole measurement exists to document. It is still an order finer than
+#: the mid-code bench above, so a gain or a curvature that bench cannot see
+#: fails here.
+OFFSET_SPREAD = 3 * THRESHOLD_RESOLUTION
+
+
+def located_thresholds(controller, workdir, block: Block, n_bits: int) -> dict[int, float]:
+    """Where every code transition of this block actually sits, in LSB.
+
+    All of them are bisected at once, one conversion per round rather than per
+    threshold: what this costs is ngspice runs, and advancing every search
+    together makes that the number of rounds instead of their product.
+    """
+    step = lsb(n_bits)
+    wanted = list(range(1, 2**n_bits))
+    low = {k: (k - THRESHOLD_WINDOW) * step for k in wanted}
+    high = {k: (k + THRESHOLD_WINDOW) * step for k in wanted}
+    library = controller(n_bits)
+    for _ in range(math.ceil(math.log2(2 * THRESHOLD_WINDOW / THRESHOLD_RESOLUTION))):
+        mid = {k: (low[k] + high[k]) / 2 for k in wanted}
+        got = loop.convert([mid[k] for k in wanted], library, workdir, block, LATCH_CLOCK)
+        for k, code in zip(wanted, got.codes, strict=True):
+            # At or above the code means the transition is at or below here.
+            if code >= k:
+                high[k] = mid[k]
+            else:
+                low[k] = mid[k]
+    return {k: (low[k] + high[k]) / 2 / step for k in wanted}
+
+
+def model_thresholds(n_bits: int) -> dict[int, float]:
+    """Where the model puts the same transitions, in LSB, read the way the
+    loop's are: the input at which its code first reaches each one."""
+    units = ideal_units(n_bits)
+    step = lsb(n_bits)
+    fine = THRESHOLD_RESOLUTION / 10
+    points = int(2 * THRESHOLD_WINDOW / fine) + 1
+    found = {}
+    for k in range(1, 2**n_bits):
+        offsets = (-THRESHOLD_WINDOW + i * fine for i in range(points))
+        found[k] = next(k + d for d in offsets if sar_convert((k + d) * step, units, VREF)[0] >= k)
+    return found
+
+
+def test_what_the_latch_adds_is_an_offset_and_not_a_shape(controller, tmp_path):
+    """Why the bench above may judge codes at mid-code: what the real latch on
+    a floating top plate adds is an offset, and an offset is what the part
+    removes in the field.
+
+    This is the measurement that licenses that criterion, kept apart from it
+    because the two say different things. That one says the codes are right
+    with half an LSB of room; this one says the error inside that room has no
+    shape. It locates every threshold of the short loop and holds the spread
+    of their errors to the measurement's own resolution -- and holds nothing
+    finer, because a criterion under that grid is how the bench above once
+    came to assert that this comparator has no offset at all, and then to
+    fail on which side of a bisection step the offset it does have fell.
+    """
+    block = latch_block()
+    measured = located_thresholds(controller, tmp_path, block, SMALL)
+    model = model_thresholds(SMALL)
+    errors = {k: measured[k] - model[k] for k in sorted(measured)}
+    shown = " ".join(f"{k}:{e:+.4f}" for k, e in errors.items())
+    spread = max(errors.values()) - min(errors.values())
+    assert spread <= OFFSET_SPREAD, f"the error has a shape, not an offset: {shown}"
+    worst = max(abs(e) for e in errors.values())
+    assert worst < MID_CODE / 2, (
+        f"the offset is {worst:.4f} LSB, over half the room the bench above leaves: {shown}"
+    )
 
 
 def converts_at(controller, workdir, clock: float) -> bool:

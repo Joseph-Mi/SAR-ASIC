@@ -128,3 +128,27 @@ def test_the_second_analog_supply_is_not_asked_for(fields):
 def test_nothing_in_it_is_empty_that_the_platform_prints(fields):
     for name in ("title", "author", "description", "language", "top_module"):
         assert fields[name], name
+
+
+def test_every_source_file_is_a_bare_name_the_platform_can_resolve():
+    """It lists them by name and looks in one directory of its own, so a path
+    or a name without a Verilog suffix is a file it will not find."""
+    assert submission.SOURCE_FILES, "a submission with no source file is not compiled at all"
+    for name in submission.SOURCE_FILES:
+        assert pathlib.PurePath(name).name == name, f"{name} is a path, not a name"
+        assert name.endswith(".v"), f"{name} is not Verilog"
+
+
+def test_the_submission_directory_holds_every_source_file_it_lists():
+    """The M9 gate, and the reason it is written now: `info.yaml` names a file
+    the tree does not have yet, which reads as an oversight rather than as
+    work outstanding. This is what turns it into one or the other -- it skips
+    while the directory is unbuilt and fails the moment it is built without
+    what the submission promised."""
+    where = REPO / submission.SOURCE_DIR
+    if not where.is_dir():
+        pytest.skip(f"{submission.SOURCE_DIR}/ is not packaged yet")
+    missing = [name for name in submission.SOURCE_FILES if not (where / name).is_file()]
+    assert not missing, (
+        f"{submission.RENDERING} lists what {submission.SOURCE_DIR}/ does not hold: {missing}"
+    )

@@ -94,8 +94,16 @@ CLOCK_HZ = 0
 #: template and a different die.
 USES_VAPWR = False
 
+#: Where the platform looks for the files below, relative to the submission
+#: root. It lists them by bare name and resolves them itself, so a path here
+#: would not be found.
+SOURCE_DIR = "src"
+
 #: The file the platform compiles to black-box the design. One entry, because
-#: an analog submission hands over a stub and a layout.
+#: an analog submission hands over a stub and a layout. The directory does not
+#: exist yet -- packaging it is M9's -- and a test holds this list against it
+#: as soon as it does, so the listing cannot be the thing that is wrong on the
+#: day it is read.
 SOURCE_FILES = ("project.v",)
 
 #: What each signal is called on the datasheet. The map decides which pin

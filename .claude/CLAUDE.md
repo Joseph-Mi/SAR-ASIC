@@ -857,8 +857,13 @@ Delete each one when it is fixed.
   input) let firmware measure it in the field.
   The designed latch adds its own, and it is an offset and nothing else:
   measured over every threshold of the 4-bit loop with the transistor latch
-  on the floating top plate (`build/threshold.py`), each one sits 0.05 LSB
-  below the model's, constant to within the measurement's own resolution.
+  on the floating top plate, each one sits 0.05 LSB below the model's,
+  constant to within the measurement's own resolution. Pinned by
+  `test_what_the_latch_adds_is_an_offset_and_not_a_shape`, which bisects every
+  threshold and holds the spread of their errors to that resolution and no
+  finer -- the claim this rests on is a test rather than prose and a scratch
+  script. The apparent gain in the first run of it was a line fitted through
+  one bisection step; there is no gain to calibrate.
   Which cost a day's confusion once, and the lesson generalises:
   `test_the_array_converts_with_the_comparator_it_will_be_built_with` judged
   codes from inputs `EDGE_OFFSET_LSB` (0.05 LSB) from a threshold against the
