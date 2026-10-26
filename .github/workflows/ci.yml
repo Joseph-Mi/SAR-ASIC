@@ -211,23 +211,23 @@ jobs:
       # The job's own limit is left as what it is, a bound on the bill when
       # more than one thing goes wrong at once.
       - name: Tool locations and PDK selection
-        run: scripts/in-image.sh bash -c 'echo "PDK_ROOT=$PDK_ROOT PDK=$PDK"; for t in ngspice verilator sby python3; do command -v "$t"; done'
+        run: sh scripts/in-image.sh bash -c 'echo "PDK_ROOT=$PDK_ROOT PDK=$PDK"; for t in ngspice verilator sby python3; do command -v "$t"; done'
 
       - name: Figures
         timeout-minutes: 10
-        run: scripts/in-image.sh make figures PYTHON=python3
+        run: sh scripts/in-image.sh make figures PYTHON=python3
 
       - name: Proofs
         timeout-minutes: 30
-        run: scripts/in-image.sh make verify-formal PYTHON=python3
+        run: sh scripts/in-image.sh make verify-formal PYTHON=python3
 
       - name: Analog harness
         timeout-minutes: 80
-        run: scripts/in-image.sh make verify-analog PYTHON=python3
+        run: sh scripts/in-image.sh make verify-analog PYTHON=python3
 
       - name: Closed loop
         timeout-minutes: 60
-        run: scripts/in-image.sh make verify-integration PYTHON=python3
+        run: sh scripts/in-image.sh make verify-integration PYTHON=python3
 
       # The run's own page then answers where the time went, so finding out
       # costs nobody a download. It reads the reports the levels wrote, so a
