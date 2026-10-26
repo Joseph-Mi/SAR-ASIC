@@ -62,8 +62,10 @@ else. Two of them are nearly free here: the node's capacitance sits on the
 input devices' drains, so growing it costs energy and integration time but no
 input capacitance, while growing the input pair would feed straight back into
 the top plate's parasitic and divide the array's own swing. Integration time
-is the one thing this converter has in excess, because the latch decides in
-tens of nanoseconds inside a strobe of well over a hundred.
+is the one thing this converter has in excess at the corners it is specified
+over, because the latch decides in tens of nanoseconds inside a strobe of well
+over a hundred. Slow cold silicon is where that stops being true, and the last
+section of this page is what buying it back would cost.
 
 ## Why the tail is not a switch
 
@@ -118,9 +120,20 @@ current, so it needs a startup device and a proof that it comes up.
 What referencing the array's voltage costs is a coupling that did not exist
 before: that pin now sets the tail's current as well as the full scale, so an
 error in it moves the comparator's noise and not only the converter's gain.
-The sensitivity is measured rather than argued. It is bounded by the fact
-that a reference wrong enough to matter here is already a gain error far
-larger than anything the comparator contributes.
+The sensitivity is measured rather than argued, and it runs the opposite way
+to the one the currents suggest. A lower reference gives the pair *more*
+charge: the drive it took away lengthens the integration by more than it
+lowered the transconductance, so the product rises -- 2.748 pF at 0.9 V
+against 2.431 pF at 1.1 V. But the margin the comparator has to fit inside is
+half an LSB, which that same reference sets, so the requirement tightens as
+the square of it. The requirement moves faster than the supply of charge
+does, and the net margin falls toward a low reference: 2.00 at 0.9 V, 2.29 at
+nominal, 2.65 at 1.1 V. A low reference is the dangerous direction, and a
+design judged against a target computed at nominal reads that backwards --
+it sees the charge rise and calls it margin.
+
+What is left to bound it is that a reference wrong enough to matter here is
+already a gain error far larger than anything the comparator contributes.
 
 ## Which corner is worst is not one question
 
@@ -135,3 +148,77 @@ Skewed corners, where the two device flavours move in opposite directions,
 sit between the two symmetric ones for this circuit. They are worth running
 anyway: the latch is a pair of one flavour loaded by the other, so what it
 does depends on a ratio that the symmetric corners leave untested.
+
+Measured on the design as sized, each corner given a strobe long enough that
+the integration ends where the circuit ends it rather than where the window
+does:
+
+| corner | tail | gm/id | t_int | gm*t_int | excess noise carried |
+|---|---|---|---|---|---|
+| tt 1.80 V 27 C | 5.49 uA | 11.9 | 39 ns | 2.551 pF | 2.29 |
+| ss 1.62 V 125 C | 4.26 uA | 10.6 | 46 ns | 2.063 pF | 1.86 |
+| ss 1.62 V -40 C | 0.75 uA | 21.1 | 288 ns | 4.556 pF | 4.10 |
+| ff 1.98 V -40 C | 7.91 uA | 12.3 | 28 ns | 2.763 pF | 2.49 |
+| ff 1.98 V 125 C | 8.18 uA | 9.0 | 22 ns | 1.647 pF | 1.48 |
+
+The last column is the one to read, and it is not a safety factor in the usual
+sense. The noise goes as the root of the excess noise factor over the charge,
+so a corner carrying twice the charge its target asks for is a corner whose
+answer survives an excess noise factor of two -- and that factor is the single
+quantity in the law that was assumed rather than measured. The column is the
+sweep of it this page asked for, taken at five corners instead of by hand, and
+what it says is that the assumption of unity has between a half and three
+times its own value in hand depending on where the part lands.
+
+Everything else in the table is the tail's current read twice. It spans eleven
+times across the set, for the reason the law above gives: the mirror's
+reference device is gated at the converter's reference, so its drive is that
+reference less a threshold, and a cold slow threshold takes most of it. At
+0.75 uA the pair slides toward weak inversion, the efficiency rises by half,
+and the noise product comes out the best of the five -- while the integration
+stretches to 288 ns and the decision stops arriving inside the phase a
+conversion allows. At the other end the current is eleven times larger, the
+decision lands in a fifth of the time, and the efficiency collapse leaves the
+thinnest margin in the set.
+
+So the two corners that bound this design sit at opposite ends of the process
+window and they run out of different things: slow cold silicon runs out of
+time, fast hot silicon runs out of margin. A single-axis corner run reports
+each of them as the other's best case, which is what makes two measurements
+necessary rather than one.
+
+And the noise figure on its own is not the budget. Four sigma of the fast hot
+corner's noise is four fifths of the half-LSB it has to fit inside, which
+leaves under a fifth of it for everything static -- the latch's own offset,
+the array's, and whatever the top plate's parasitic multiplies both by. (A
+ratio rather than volts, because the volts follow from the resolution and the
+reference and would go stale with either.) That is the sense in which that corner leaves nothing: what it passes is
+the noise target, and what it fails is noise plus offset. The offset itself is
+a Monte Carlo and not this page's, but the room it has to fit into is decided
+here.
+
+## What widening the specification would cost, cheapest first
+
+The part is specified at room temperature, and what makes saying otherwise
+expensive is one corner: slow cold silicon, where the decision does not arrive
+inside the conversion clock. Four ways out, in the order they cost:
+
+1. **A slower conversion clock.** The clock is programmable already, so this
+   is a register write and some conversion rate: the decision wants about two
+   and a half times the phase at that corner and nothing on the die changes.
+   It is the answer unless the rate is the point.
+2. **A higher reference.** The mirror's drive is the reference less a
+   threshold, so raising the reference buys back exactly what the threshold
+   took, and it buys margin as well as speed -- the sensitivity above runs
+   that way. What it costs is the full scale, which is the converter's own
+   specification rather than the comparator's, and the input pair's headroom
+   at the top of the array's excursion.
+3. **A wider mirror.** More current everywhere, and the supply spread flattens
+   with it. It is paid for at the far end of the window, because current is
+   what the fast hot corner already has too much of: this trades the corner
+   that runs out of time against the one that runs out of margin, and it is
+   only worth doing if the first is bounding and the second has room.
+4. **Gain ahead of the latch.** A preamplifier relaxes both axes at once and
+   is the only one of the four that does. It is also a new small-signal design
+   carrying its own stability and its own static current, which is why it is
+   the last entry and not the first.

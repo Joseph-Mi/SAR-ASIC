@@ -322,7 +322,17 @@ Two things that are easy to get wrong:
   surface, and it found one the first time it ran.
 - CI's `analog` job runs `make verify-analog verify-integration` inside the
   pinned image with `SAR_REQUIRE_TOOLS=1` (root `conftest.py`: a skip fails).
-  The `digital` job still builds its tools on ubuntu-latest. Consider
+  The `digital` job still builds its tools on ubuntu-latest -- so it has no
+  PyYAML and no container packages, and a test that imports one has to skip
+  rather than fail there (`pytest.importorskip`); check a new dependency
+  against that job, not against the container, which has everything.
+- **`make verify-analog` is not the regression.** It is `sim/`. The controller
+  running in ngspice, the formal proofs and the full-converter benches are
+  behind `verify-integration`, `verify-formal` and `verify-unit`/`-system`,
+  and only `make verify` runs the lot. A comparator sizing once landed gated
+  on the narrow one, leaving the most sensitive bench in the repository --
+  the real latch on a floating top plate -- never run against it. Anything
+  that touches `strongarm.py` wants `verify-integration` at least. Consider
   mirroring the tag to GHCR if pull times get annoying -- the image is ~20 GB.
 
 ### Understanding the digital half beyond simulation
@@ -845,12 +855,56 @@ Delete each one when it is fixed.
   corners (largest ff, smallest ss cold): it moves with the corner, so a
   one-time factory calibration is not enough -- M4's DFT modes (forced
   input) let firmware measure it in the field.
+  The designed latch adds its own, and it is an offset and nothing else:
+  measured over every threshold of the 4-bit loop with the transistor latch
+  on the floating top plate, each one sits 0.05 LSB below the model's,
+  constant to within the measurement's own resolution. Pinned by
+  `test_what_the_latch_adds_is_an_offset_and_not_a_shape`, which bisects every
+  threshold and holds the spread of their errors to that resolution and no
+  finer -- the claim this rests on is a test rather than prose and a scratch
+  script. The apparent gain in the first run of it was a line fitted through
+  one bisection step; there is no gain to calibrate.
+  Which cost a day's confusion once, and the lesson generalises:
+  `test_the_array_converts_with_the_comparator_it_will_be_built_with` judged
+  codes from inputs `EDGE_OFFSET_LSB` (0.05 LSB) from a threshold against the
+  bare model, so its tolerance *was* the offset. It failed three codes, and
+  calibrating it at one threshold only moved the failures to the other end of
+  the range -- a criterion whose margin is finer than the resolution of the
+  thing it measures reports the measurement, not the circuit. It now uses
+  mid-code inputs like every other designed-block run, which leaves the
+  offset ten times inside tolerance and still sees what only that bench can:
+  a kick that varies with the code, a latch that cannot resolve against a
+  floating node, a flag raised.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
 - **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
   DRC pitch may not fit the analog strip once power-stripe margins come off.
   Check capm/met3 spacing rules before layout; the digital budget has slack.
-- **Values still restated in docs:** `docs/floorplan.md` numbers vs a future
-  LibreLane config.
+- **Values still restated in docs:** `docs/floorplan.md`'s die is now read out
+  of the vendored template by a test (`tech/template.py`); the height it
+  splits that die at is still a number waiting for a LibreLane config.
+
+- **The platform names its supplies twice, differently.** The vendored DEF
+  carries `VPWR`/`VGND` as special nets; the shuttle's Verilog template names
+  them `VGND`/`VDPWR`. Our copy is not stale -- it is byte-identical to
+  upstream's `tt-support-tools` today -- so the two upstream repositories
+  disagree. The tile top follows the Verilog, which is what a port list has to
+  match, and `tech/tinytapeout.py` declares it with the reason. What is open is
+  what M9's power stripes are called in the layout; resolve it against the
+  shuttle actually targeted, not from the file that happens to be open.
+
+- **The clock the board is asked for is undecided**, and `info.yaml` carries
+  the platform's zero placeholder until it is. The settling law fixes how
+  short a conversion *step* may be at the slowest corner; the divider stands
+  between that and the clock a board supplies, so the rate is a board choice
+  and nothing on the die waits on it. Decide it before submission, because it
+  is what the datasheet advertises the part at.
+
+- **Which analog pin carries which signal.** `ua[0..2]` are claimed in order,
+  because the platform bonds them that way and bills per pin; `pins.py` fixes
+  the count and the no-gap rule and marks the assignment provisional. It
+  follows the analog strip's own placement -- pad coupling does not decide it
+  at a twenty-micrometre pitch, routing does -- so it is answered when the
+  strip is drawn, and `info.yaml` regenerates from the map when it is.
 
 ---
 

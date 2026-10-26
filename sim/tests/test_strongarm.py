@@ -307,9 +307,17 @@ SIGMAS = 4.0
 TARGET = noise_for_margin(worst_margin(N_BITS, VREF), SIGMAS)
 REQUIRED_CHARGE = 4.0 * BOLTZMANN * ROOM * EXCESS_NOISE / TARGET**2
 
-#: A strobe no corner's integration outlives. The design integrates for tens
-#: of nanoseconds at typical and longer when the process is slow and cold.
-CORNER_STROBE = 400e-9
+#: A strobe no corner's integration outlives. Slow cold silicon turns over at
+#: nearly 300 ns against tens of nanoseconds everywhere else, because the
+#: tail's gate drive is the reference less a threshold and a cold slow
+#: threshold takes most of it. One constant rather than a strobe per corner,
+#: for two reasons: the strobe belongs to the measurement and not to the
+#: corner, so a table of them is a second place for a corner fact to be
+#: wrong; and a strobe longer than it needs to be cannot move the answer,
+#: because the integration ends where the cross-coupled pair takes over,
+#: which is the circuit's moment rather than the window's. It costs solver
+#: time at the four corners that do not need it, and that is the trade.
+CORNER_STROBE = 1e-6
 
 
 @needs_simulator
@@ -336,3 +344,63 @@ def test_the_noise_the_converter_asked_for_survives_every_corner(corner, tmp_pat
         f"{process} {supply:g} V {temp:g} C: gm*t_int {measured.charge * 1e12:.3f} pF "
         f"against the {REQUIRED_CHARGE * 1e12:.3f} pF this converter needs"
     )
+
+
+#: The evaluate phase a conversion gives the latch. The same assumption
+#: `LONG_PERIOD` makes and for the same reason -- the clock comes from a
+#: settling measurement rather than from a constant -- and deliberately the
+#: generous end of it, so a corner that misses it is not failing on patience.
+DECISION_PHASE = LONG_PERIOD
+
+#: The corner whose decision does not fit that phase: slow silicon at -40 C,
+#: outside the range this part is specified over. Named so the expectation
+#: below is a pinned finding and not a corner quietly left out of a loop.
+UNRESOLVED = ("ss", -40)
+
+
+def _resolved(separation: float, asked: float, supply: float) -> bool:
+    """Whether a strobe ended with an answer, at this corner's own supply.
+
+    `_decides` asks the same question against the nominal supply, which at a
+    low-supply corner is the whole of that corner's swing: a latch there
+    cannot pass it however well it resolves.
+    """
+    return bool((separation > 0) == (asked > 0) and abs(separation) > SEPARATED * supply)
+
+
+@needs_simulator
+@needs_pdk
+@pytest.mark.parametrize("corner", SKY130_CORNERS, ids=lambda c: f"{c[0]}{c[2]:g}")
+def test_the_decision_arrives_inside_the_phase_except_where_it_is_known_not_to(corner, tmp_path):
+    """The other axis of the corner question, and the one the noise
+    measurement above cannot see: it hands the latch a strobe several times
+    the conversion clock, so it says how quiet a decision is and nothing
+    about whether it arrives in time. Asked inside the phase a conversion
+    actually allows, the answer is the opposite way round -- the corner with
+    the most noise margin is the one that does not answer, because both
+    figures are the same tail current read twice.
+
+    Slow cold silicon is pinned as failing rather than left out. It is a
+    documented limit of a tail biased from the reference, the reason the part
+    is specified at room temperature, and if it ever stops being a limit the
+    decision that accepted it is the thing to revisit -- which a test that
+    skipped the corner would never say.
+    """
+    process, supply, temp = corner
+    asked = (HALF_LSB, -HALF_LSB)
+    found = strongarm.separations(
+        tmp_path,
+        strongarm.DESIGNED,
+        Sky130(process),
+        around(VCM, asked),
+        Drive(supply, DECISION_PHASE, temp),
+    )[0]
+    decided = [_resolved(sep, want, supply) for sep, want in zip(found, asked, strict=True)]
+    where = f"{process} {supply:g} V {temp:g} C"
+    if (process, temp) == UNRESOLVED:
+        assert not any(decided), (
+            f"{where} now resolves inside the phase: the part is specified at room "
+            f"temperature because it did not, so that decision is now the stale one"
+        )
+    else:
+        assert all(decided), f"{where}: {found[0]:+.3f} V and {found[1]:+.3f} V, not resolved"
