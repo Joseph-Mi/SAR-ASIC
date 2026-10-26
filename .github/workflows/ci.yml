@@ -218,7 +218,7 @@ jobs:
         run: sh scripts/in-image.sh make figures PYTHON=python3
 
       - name: Proofs
-        timeout-minutes: 30
+        timeout-minutes: 10
         run: sh scripts/in-image.sh make verify-formal PYTHON=python3
 
       - name: Analog harness
