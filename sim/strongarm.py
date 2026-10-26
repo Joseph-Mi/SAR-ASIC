@@ -357,6 +357,7 @@ def deck(
     drive: Drive,
     draws: int = 1,
     mismatch: bool = False,
+    seed: int | None = None,
 ) -> str:
     """One run that asks the latch every question in `levels`.
 
@@ -366,9 +367,22 @@ def deck(
     one per point. With `mismatch`, `draws` passes each redraw the process'
     own matching terms, which is what makes the spread of the result a yield
     statement rather than a single part's.
+
+    `seed` fixes which part those terms describe, so the same run asked twice
+    returns the same part and a measurement of one becomes repeatable. It
+    names one part and not a population: the simulator re-seeds on every
+    redraw, so a seeded run of many draws is one part measured many times,
+    reporting a spread of zero while looking in every other way like a
+    Monte Carlo. A population is drawn by running this once per seed.
     """
     if draws < 1:
         raise ValueError(f"{draws} is not a number of draws")
+    if seed is not None and draws != 1:
+        raise ValueError(
+            f"a seeded run draws one part, not {draws}: the simulator re-seeds on "
+            "each redraw, so every draw here would be the same part and the spread "
+            "of them zero. Run once per seed instead."
+        )
     asked = [(float(high), float(low)) for high, low in levels]
     if not asked:
         raise ValueError("a run with no levels asks nothing")
@@ -392,6 +406,7 @@ def deck(
         *devices.models(),
         f".param mc_mm_switch={int(mismatch)}",
         ".param mc_pr_switch=0",
+        *([f".option seed={seed:d}"] if seed is not None else []),
         subckt(sizes, devices),
         f".options reltol={ngspice.RELTOL}",
         f"Vdd vdd 0 {drive.supply:g}",
@@ -456,6 +471,42 @@ def boundary(differences, separation) -> float:
     k = crossings[0]
     gap = signs[k + 1] - signs[k]
     return float(swept[k] - signs[k] * (swept[k + 1] - swept[k]) / gap)
+
+
+#: How far either side of a tie a part's boundary is looked for, volts. Wide
+#: enough to hold the spread this process gives the latch, and narrow enough
+#: that the first pass brackets it closely.
+OFFSET_SPAN = 40e-3
+
+#: Points per pass. What the interpolation resolves is the gap between the two
+#: points that straddle the boundary, because a latch that regenerates drives
+#: both of them to a rail and nothing in between is measured. So the span is
+#: walked twice, the second pass inside the first's bracket, which costs two
+#: passes instead of the single fine grid that would resolve the same gap.
+OFFSET_POINTS = 11
+
+
+def _one_part(workdir, sizes: Sizes, devices, differences, drive: Drive, common, seed):
+    """The separation curve of the one part `seed` names."""
+    return separations(
+        workdir, sizes, devices, around(common, differences), drive, mismatch=True, seed=seed
+    )[0]
+
+
+def offset(workdir, sizes: Sizes, devices, drive: Drive, common: float, seed: int) -> float:
+    """One part's input-referred offset, volts of input difference.
+
+    Contract: `seed` names the part, so both passes measure the same devices
+    and the answer is repeatable. The matching terms are on whether or not a
+    caller asks -- an offset measured without them is the netlist's own
+    asymmetry rather than a part's, and this function exists to report the
+    latter.
+    """
+    coarse = np.linspace(-OFFSET_SPAN, OFFSET_SPAN, OFFSET_POINTS)
+    rough = boundary(coarse, _one_part(workdir, sizes, devices, coarse, drive, common, seed))
+    step = float(coarse[1] - coarse[0])
+    fine = np.linspace(rough - step, rough + step, OFFSET_POINTS)
+    return boundary(fine, _one_part(workdir, sizes, devices, fine, drive, common, seed))
 
 
 #: Where inside the strobe the integration is read from, as a fraction of the
