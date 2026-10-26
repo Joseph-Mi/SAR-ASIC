@@ -1,4 +1,5 @@
-"""Reading a deck's output, and finding things in a netlist, without ngspice.
+"""Reading a deck's output, finding things in a netlist, and saying out loud
+which deck is running -- all without ngspice.
 
 These are the parts that decide what a simulation *said*. A parser that drops a
 result, or reads one name as another, turns a correct circuit into a failing
@@ -8,6 +9,7 @@ happen.
 
 from __future__ import annotations
 
+import logging
 import shutil
 
 import pytest
@@ -95,3 +97,53 @@ def test_a_real_deck_round_trips(tmp_path):
         ]
     )
     assert ngspice.run(deck, tmp_path)["vmid"] == [pytest.approx(1.0)]
+
+
+#: A deck whose answer nobody cares about: these tests are about what a run
+#: says while it works, not what it found.
+DIVIDER = "\n".join(
+    [
+        "* divider",
+        "V1 in 0 2",
+        "R1 in 0 1k",
+        ".control",
+        "op",
+        "let vin = v(in)",
+        "print vin",
+        ".endc",
+        ".end",
+    ]
+)
+
+
+def test_a_deck_is_named_by_its_own_first_line():
+    """What the heartbeat calls a simulation while it runs. The marker and the
+    space after it are ngspice's comment syntax, not part of the name."""
+    assert ngspice.title("* bench: one strobe\nV1 a 0 1\n") == "bench: one strobe"
+
+
+def test_a_deck_with_nothing_but_a_title_still_has_one():
+    assert ngspice.title("* nothing else") == "nothing else"
+
+
+@pytest.mark.skipif(shutil.which("ngspice") is None, reason="ngspice not on PATH")
+def test_a_run_says_which_deck_it_is_in_before_the_answer_arrives(tmp_path, caplog):
+    """The heartbeat's whole purpose is the record that survives a run which
+    never finishes, so the start of a simulation is on the record before the
+    simulator is asked anything."""
+    with caplog.at_level(logging.INFO, logger=ngspice.__name__):
+        ngspice.run(DIVIDER, tmp_path)
+    started, finished = [r.getMessage() for r in caplog.records]
+    assert ngspice.title(DIVIDER) in started and ngspice.title(DIVIDER) in finished
+    assert "start" in started and "done" in finished
+
+
+@pytest.mark.skipif(shutil.which("ngspice") is None, reason="ngspice not on PATH")
+def test_a_deck_that_outlasts_its_bound_is_a_stall_and_keeps_its_deck(tmp_path, monkeypatch):
+    """A wedged solver returns nothing, ever. Bounding one run turns that from
+    a job that dies of its own time limit with no idea which circuit did it
+    into a named failure holding the text that caused it."""
+    monkeypatch.setenv(ngspice.TIMEOUT_ENV, "0.001")
+    with pytest.raises(ngspice.DeckError, match="stalled"):
+        ngspice.run(DIVIDER, tmp_path)
+    assert list(tmp_path.glob("*.spice")), "the deck that stalled was thrown away"

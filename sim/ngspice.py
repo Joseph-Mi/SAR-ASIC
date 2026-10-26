@@ -6,10 +6,12 @@ and the caller owns a writable working directory for the scratch file.
 
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 import re
 import subprocess
+import time
 
 #: Names are captured whole so one result is not read as another whose name it
 #: ends; not end-anchored because min and max trail their sweep position.
@@ -32,9 +34,34 @@ LIBRARY = re.compile(r"^\.lib\s+(\S*sky130\.lib\.spice)\s+\w+\s*$", re.M)
 #: buying anything a test can see.
 RELTOL = 1e-4
 
+#: One record either side of every simulation, so that a suite whose tests are
+#: minutes of silence each says which circuit it is inside. A deck that wedges
+#: the solver never returns, and the record of it starting is the only thing
+#: that tells that apart from a deck still working.
+log = logging.getLogger(__name__)
+
+#: Seconds one deck may run before it is called a stall rather than a
+#: simulation. A wedged timestep does not finish at all, so this only has to
+#: sit above the longest deck any test asks for -- a batch of conversions
+#: through transistor switches at the slowest corner -- and below the patience
+#: of whatever is waiting on the suite.
+TIMEOUT = 1200.0
+
+#: Raising the bound for an exploratory deck, without editing it.
+TIMEOUT_ENV = "SAR_NGSPICE_TIMEOUT"
+
 
 class DeckError(RuntimeError):
     """A deck that produced nothing a caller can use."""
+
+
+def title(deck: str) -> str:
+    """A deck's own first line, which ngspice reads as its title.
+
+    What the heartbeat names a simulation by. Every deck this repository
+    generates opens with one.
+    """
+    return deck.partition("\n")[0].lstrip("*").strip()
 
 
 def library(netlist: str) -> str:
@@ -84,17 +111,35 @@ def run(deck: str, workdir: pathlib.Path) -> dict[str, list[float]]:
     """
     scratch = workdir / f"_run{os.getpid()}.spice"
     scratch.write_text(deck)
+    limit = float(os.environ.get(TIMEOUT_ENV, TIMEOUT))
+    log.info("start: %s (%d lines)", title(deck), deck.count("\n"))
+    started = time.monotonic()
     try:
         proc = subprocess.run(
             ["ngspice", "-b", scratch.name],
             cwd=workdir,
             capture_output=True,
             text=True,
+            timeout=limit,
         )
-    finally:
+    except subprocess.TimeoutExpired as expired:
+        # The deck is left where it was written: a stall is reproducible only
+        # from the exact text that caused it, and this is the one failure mode
+        # whose cause is the input rather than the answer.
+        raise DeckError(
+            f"{title(deck)}: no answer in {limit:g} s, which is a stalled solver "
+            f"rather than a slow one; the deck is at {scratch}"
+        ) from expired
+    else:
         scratch.unlink(missing_ok=True)
 
     found = results(proc.stdout)
+    log.info(
+        "done: %s in %.1f s, %d measurements",
+        title(deck),
+        time.monotonic() - started,
+        len(found),
+    )
     if not found:
         raise DeckError(f"deck produced no measurements\n{proc.stdout}\n{proc.stderr}")
     return found

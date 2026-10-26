@@ -113,6 +113,21 @@ YOSYS_CHECK := read_verilog $(RTL_SOURCES); hierarchy -check -auto-top; proc; op
 # bring-up, so that is a warning; any other non-zero status is a real failure.
 ALLOW_EMPTY = s=$$?; if [ $$s -eq 5 ]; then echo "WARNING: no tests collected"; else exit $$s; fi
 
+# What the levels that simulate circuits are run with. A test there is minutes
+# long and silent while it works, and the default progress line is one
+# character per test, printed only once its whole file is over -- so a run
+# gives no sign of which test it is in, and a solver that has wedged looks
+# exactly like one still working. `-v` names each test as it starts, the live
+# log carries the heartbeat each simulation prints while it runs, and the
+# durations say afterwards which tests the time went to. Emptying this on the
+# command line is what turns a level quiet again: a live log on at any level
+# makes pytest name every test, so PYTEST_ARGS cannot undo it from behind.
+PYTEST_LOUD := -v --log-cli-level=INFO --durations=25
+
+# A run that costs an hour leaves a record of what it spent the hour on, with
+# a duration per test, rather than only the lines that happened to scroll past.
+PYTEST_REPORT = --junitxml=$(BUILD_DIR)/verify/$@.xml
+
 ## help: list available targets
 help:
 	@echo "SAR-ASIC targets:"
@@ -300,7 +315,7 @@ lint-py:
 ## model: validate the process facts, the golden model, the physics laws
 ## 	and the studies -- before any RTL
 model:
-	@$(PYTHON) -m pytest $(TECH_DIR) $(REF_DIR) $(MODEL_DIR) $(STUDY_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(TECH_DIR) $(REF_DIR) $(MODEL_DIR) $(STUDY_DIR) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## regmap: regenerate the firmware register map -- commit the diff
 regmap:
@@ -332,7 +347,7 @@ plots:
 
 ## verify-analog: ngspice harness -- tests needing ngspice skip without it
 verify-analog:
-	@$(PYTHON) -m pytest $(SIM_DIR) $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(SIM_DIR) $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## show-loop: run the controller against the analog block and draw it
 ## 	VIN="0.3 0.95" (volts)  BITS=4  DESIGNED=1 (transistor switches)  ZOOM=1
@@ -344,11 +359,11 @@ show-loop:
 
 ## verify-unit: cocotb unit tests
 verify-unit:
-	@$(PYTHON) -m pytest $(VERIF_DIR)/unit $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(VERIF_DIR)/unit $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## verify-integration: the RTL running the analog block, loop closed
 verify-integration:
-	@$(PYTHON) -m pytest $(VERIF_DIR)/integration $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(VERIF_DIR)/integration $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## coverage: how much of the design and of the model the suite actually reaches
 coverage: coverage-rtl coverage-py
@@ -372,11 +387,11 @@ coverage-py:
 
 ## verify-formal: prove the control FSM's properties, and that they still bite
 verify-formal:
-	@$(PYTHON) -m pytest $(VERIF_DIR)/formal $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(VERIF_DIR)/formal $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## verify-system: full-converter tests (slow)
 verify-system:
-	@$(PYTHON) -m pytest $(VERIF_DIR)/system $(PYTEST_ARGS); $(ALLOW_EMPTY)
+	@$(PYTHON) -m pytest $(VERIF_DIR)/system $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## verify: model, then every verification level, in order
 verify: model verify-analog verify-unit verify-formal verify-integration verify-system

@@ -112,6 +112,10 @@ def measured(workdir: pathlib.Path, side: float, section: str) -> float:
     """
     deck = "\n".join(
         [
+            # The first line of a deck is its title, and ngspice reads it as
+            # one whatever it says. A directive left there is a directive the
+            # simulator never sees, and the record of a run names a deck by it.
+            f"* one {side:g} um device, {section}",
             f".lib {pdk_library()} {section}",
             f"X1 a 0 {sky130.MIM} w={side:.6g} l={side:.6g}",
             "V1 a 0 dc 0 ac 1",

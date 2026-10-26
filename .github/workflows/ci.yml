@@ -128,12 +128,21 @@ jobs:
       - name: Verify
         run: make verify
 
+      # The run's own page then answers where the time went, so finding out
+      # costs nobody a download. It reads the reports the levels wrote, so a
+      # level that failed is still counted.
+      - name: Summarise the run
+        if: always()
+        run: python3 scripts/verify-summary.py >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload simulation results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sim-results
-          path: build/sim/**/results.xml
+          path: |
+            build/sim/**/results.xml
+            build/verify/*.xml
           if-no-files-found: ignore
 
   # The analog half and the closed loop need ngspice, Verilator, the element
@@ -142,7 +151,12 @@ jobs:
   # instead of skipping: this is the environment that is meant to have them all.
   analog:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # The levels below are measured in tens of minutes each, so the work this
+    # job does is most of two hours before anything goes wrong. The limit is
+    # above the sum of the steps' own, so that one level wedging trips the
+    # step that wedged; this is what is left to bound the bill when several
+    # do at once.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -179,28 +193,56 @@ jobs:
           sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches' || true
           free -m
 
-      # The image's own start-up scripts set its tool paths and PDK_ROOT; the
-      # repository's pdk.env then selects sky130 the same way the local
-      # container does. The tool locations are printed first so a missing one
-      # is named before any test runs.
+      # Each level is its own step, so the run itself says where the time
+      # goes and which one it is in: a single step covering all of them
+      # reports one duration for most of an hour, and a step still running is
+      # the only sign of progress a collapsed log gives. The proofs and the
+      # figures run in this job rather than the other because the solver and
+      # the drawing library ship in this image, and because a skip is a
+      # failure here -- a proof that quietly did not run is worth less than no
+      # proof at all, and a figure script is the one kind of code nobody runs
+      # between writing it and wanting it. Both are seconds; the ordering just
+      # puts the cheap checks first.
       #
-      # The proofs and the figures run here rather than in the other job
-      # because the solver and the drawing library ship in this image, and
-      # because a skip is a failure here -- a proof that quietly did not run
-      # is worth less than no proof at all, and a figure script is the one
-      # kind of code nobody runs between writing it and wanting it. Both are
-      # seconds; the ordering just puts the cheap checks first.
-      - name: Figures, proofs, analog and closed-loop tests in the pinned image
-        run: |
-          docker run --rm --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp -e SAR_REQUIRE_TOOLS=1 \
-            -v "$PWD:/foss/designs/SAR-ASIC" -w /foss/designs/SAR-ASIC \
-            --entrypoint /bin/bash "$(make -s image-name)" -c '
-              set -e
-              for f in /dockerstartup/scripts/env.sh /headless/.bashrc; do
-                [ -f "$f" ] && . "$f" || true
-              done
-              . ./pdk.env
-              echo "PDK_ROOT=$PDK_ROOT PDK=$PDK"
-              command -v ngspice verilator sby python3
-              make figures verify-formal verify-analog verify-integration PYTHON=python3'
+      # Each step's timeout sits above the measured length of that level with
+      # room for a slower runner, and far enough under the job's that any one
+      # level wedging trips its own step rather than the job: the failure then
+      # names the level, and the summary and the reports are still written.
+      # The job's own limit is left as what it is, a bound on the bill when
+      # more than one thing goes wrong at once.
+      - name: Tool locations and PDK selection
+        run: sh scripts/in-image.sh bash -c 'echo "PDK_ROOT=$PDK_ROOT PDK=$PDK"; for t in ngspice verilator sby python3; do command -v "$t"; done'
+
+      - name: Figures
+        timeout-minutes: 10
+        run: sh scripts/in-image.sh make figures PYTHON=python3
+
+      - name: Proofs
+        timeout-minutes: 10
+        run: sh scripts/in-image.sh make verify-formal PYTHON=python3
+
+      - name: Analog harness
+        timeout-minutes: 80
+        run: sh scripts/in-image.sh make verify-analog PYTHON=python3
+
+      - name: Closed loop
+        timeout-minutes: 60
+        run: sh scripts/in-image.sh make verify-integration PYTHON=python3
+
+      # The run's own page then answers where the time went, so finding out
+      # costs nobody a download. It reads the reports the levels wrote, so a
+      # level that failed is still counted.
+      - name: Summarise the run
+        if: always()
+        run: python3 scripts/verify-summary.py >> "$GITHUB_STEP_SUMMARY"
+
+      # What each level spent its time on, per test, machine-readable. A run
+      # this long is worth comparing against the next one, and the log scrolls
+      # past in a browser tab while this does not.
+      - name: Upload the verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analog-reports
+          path: build/verify/*.xml
+          if-no-files-found: ignore

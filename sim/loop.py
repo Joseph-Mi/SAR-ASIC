@@ -119,7 +119,7 @@ def deck(loop: Loop) -> str:
     half = s.vdd / 2
     reads, drives = _wiring(loop)
 
-    lines = [f"* {NAME} closed loop", *bench.surroundings(block)]
+    lines = [f"* {NAME} closed loop: {bench.label(block)}", *bench.surroundings(block)]
 
     vin = [(0.0, loop.inputs[0])]
     for i in range(1, len(loop.inputs)):
