@@ -320,8 +320,12 @@ Two things that are easy to get wrong:
   coverage merged over every bench, and `pytest --cov` over the model. A
   passing suite that never drove a path is the failure mode this exists to
   surface, and it found one the first time it ran.
-- CI's `analog` job runs `make verify-analog verify-integration` inside the
-  pinned image with `SAR_REQUIRE_TOOLS=1` (root `conftest.py`: a skip fails).
+- CI's `analog` job runs the figures, the proofs, the analog harness and the
+  closed loop inside the pinned image, one step each so the run says where its
+  time went and a wedged level is named rather than taking the job with it,
+  with `SAR_REQUIRE_TOOLS=1` (root `conftest.py`: a skip fails). Each level
+  writes a report under `build/verify/`, which becomes a table on the run's
+  summary page and an artifact.
   The `digital` job still builds its tools on ubuntu-latest -- so it has no
   PyYAML and no container packages, and a test that imports one has to skip
   rather than fail there (`pytest.importorskip`); check a new dependency
@@ -381,6 +385,12 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   Broken down under "M3 — what it is made of" below.
 - **M4** — Digital half: FSM, SPI, clock divider, all six DFT modes, cocotb green.
 - **M5** — StrongARM sized, Monte Carlo offset known, preamp decision made.
+  Sizing, noise, the corner reading of DD-15 and the preamp decision are in
+  `docs/comparator.md`; the offset spread is measured per part and committed
+  (`make offset` -> `sim/offset_baseline.txt`). What is left is the process'
+  own threshold-mismatch coefficient, which `tech/` does not carry yet and
+  which `model/latch.py`'s offset law cannot be evaluated without -- measured
+  through the same netlister the benches use, the way the capacitors' is.
 - **M6** — Cap array laid out (scripted), DRC clean.
 - **M7** — Comparator laid out, DRC/LVS clean.
 - **M8** — Digital hardened by LibreLane, macro + LEF fit the floorplan budget.
@@ -555,7 +565,8 @@ Step 5 (`sim/cosim.py`, `sim/loop.py`, `sim/tests/test_cosim.py`,
 - `sar_fsm.v` runs inside ngspice as an XSPICE `d_cosim` element, compiled by
   ngspice's `vlnggen` script (Verilator underneath), with `adc_bridge` /
   `dac_bridge` as the input gates / output drivers at the boundary. ~0.1 s per
-  10-bit conversion; the whole integration suite is ~20 s including builds.
+  conversion. What the suite as a whole costs is in its own report rather than
+  here, where it would be true of whichever benches existed when it was typed.
 - `cosim.build` runs vlnggen's steps itself (verilator --cc, write the order
   headers, verilator --build --exe with ngspice's `scripts/src/` glue, g++
   --shared) instead of calling the script. Through the script it broke in the
@@ -780,6 +791,14 @@ nothing about the number looks wrong.
 `mc_mm_switch` also defaults to 0, so a Monte Carlo run without setting it
 shows exactly zero spread and invites a different wrong conclusion. Both traps
 cost real time once.
+
+A seeded Monte Carlo has the same failure from the other end: ngspice applies
+`.option seed` again on every redraw, so one run of many draws is one part
+measured many times, reporting a spread of zero while looking in every other
+way like a finished sweep. `set rndseed` does not seed the draws at all. A
+population is therefore one run per seed, each seed derived from what the draw
+is rather than where it sits, and `strongarm.deck` refuses a seed with more
+than one draw instead of explaining itself.
 
 No number is repeated here. `tech/sky130.py` declares the continuous tree's
 parameters, `mim_unit()` evaluates the device's own expression, and a test

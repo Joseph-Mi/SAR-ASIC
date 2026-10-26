@@ -1,0 +1,4 @@
+# draws=100 seed=20261026 strobe=2e-07 sizing=DESIGNED
+   corner     supply       temp      draws    mean_mv   sigma_mv   worst_mv  sigma_lsb
+       tt   1.800000         27        100  -0.559990   5.691563  12.800025   5.828161
+       ff   1.980000        125        100  -0.095974   6.772558  22.400339   6.935100

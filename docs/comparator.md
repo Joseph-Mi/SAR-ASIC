@@ -192,10 +192,26 @@ corner's noise is four fifths of the half-LSB it has to fit inside, which
 leaves under a fifth of it for everything static -- the latch's own offset,
 the array's, and whatever the top plate's parasitic multiplies both by. (A
 ratio rather than volts, because the volts follow from the resolution and the
-reference and would go stale with either.) That is the sense in which that corner leaves nothing: what it passes is
-the noise target, and what it fails is noise plus offset. The offset itself is
-a Monte Carlo and not this page's, but the room it has to fit into is decided
-here.
+reference and would go stale with either.) That is the sense in which that corner leaves nothing. What fills it is not
+the offset, though: the spread of offset across parts is several LSB, which is
+many times the room any margin argument has to offer, and no sizing brings it
+inside one. A constant displaces every threshold alike and moves no code
+against its neighbour, so it was never a margin item -- it is a calibration
+range, measured per part through the forced-input mode, and what has to fit
+the room above is only whatever a calibration leaves behind.
+
+Two things the measurement adds. Its spread is worst at this same corner, for
+the reason the offset law gives: the faster a latch resolves, the less
+integration gain stands between its own mismatch and its input, so the corner
+with the least noise margin has the widest offset as well -- one corner
+binding on both. And the spread is a property of the strobe it is measured
+at, not of the circuit alone, because a strobe too short to finish
+regenerating is decided by which node got ahead rather than by where the
+circuit ties. A calibration is therefore only valid at the conversion rate it
+was taken at, which matters because that rate is a register field.
+
+`sim/offset_baseline.txt` carries the spread and the corners it was drawn at;
+`model/latch.py` carries the law it follows.
 
 ## What widening the specification would cost, cheapest first
 

@@ -11,6 +11,7 @@ import os
 import pathlib
 import re
 import subprocess
+import threading
 import time
 
 #: Names are captured whole so one result is not read as another whose name it
@@ -106,10 +107,12 @@ def run(deck: str, workdir: pathlib.Path) -> dict[str, list[float]]:
     """Simulate one deck, returning every result it printed.
 
     ngspice exits zero whether or not a deck produced anything, so an empty
-    result is the failure signal. The scratch deck is named for the process
-    holding it: two runs sharing one name would simulate each other's circuit.
+    result is the failure signal. The scratch deck is named for the caller
+    holding it -- the process and the thread within it, because a pool of
+    threads shares one process id and two of them sharing one deck name would
+    simulate each other's circuit.
     """
-    scratch = workdir / f"_run{os.getpid()}.spice"
+    scratch = workdir / f"_run{os.getpid()}_{threading.get_ident()}.spice"
     scratch.write_text(deck)
     limit = float(os.environ.get(TIMEOUT_ENV, TIMEOUT))
     log.info("start: %s (%d lines)", title(deck), deck.count("\n"))

@@ -501,6 +501,15 @@ def offset(workdir, sizes: Sizes, devices, drive: Drive, common: float, seed: in
     caller asks -- an offset measured without them is the netlist's own
     asymmetry rather than a part's, and this function exists to report the
     latter.
+
+    Both passes are driven the same, and the strobe is part of the answer
+    rather than a setting the measurement is free to choose. Shortening the
+    bracketing pass -- which only has to get the sign right at the span's ends,
+    and holds most of the points -- was measured and does not work: inside a
+    strobe too short to finish regenerating, what displaces the crossing is
+    which output got ahead rather than where the circuit ties, and the two sit
+    tens of millivolts apart. A bracket taken that way does not contain the
+    answer the long strobe gives.
     """
     coarse = np.linspace(-OFFSET_SPAN, OFFSET_SPAN, OFFSET_POINTS)
     rough = boundary(coarse, _one_part(workdir, sizes, devices, coarse, drive, common, seed))
