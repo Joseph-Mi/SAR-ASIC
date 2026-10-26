@@ -7,6 +7,12 @@ pythonpath = ["tech", "figures", "reference", "model", "studies", "sim", "hdl/ve
 python_files = ["test_*.py"]
 addopts = "-ra"
 
+# The heartbeat a circuit run prints while it works, shown by the levels that
+# ask for it. Wall clock rather than elapsed: it is read against the timestamps
+# of whatever else was happening, often long after the run.
+log_cli_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+log_cli_date_format = "%H:%M:%S"
+
 # No markers: the Makefile selects levels by path (make verify-unit, etc.),
 # so a second parallel taxonomy would only drift.
 

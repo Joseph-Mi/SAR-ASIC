@@ -252,6 +252,16 @@ def node(terminal: str) -> str:
     return terminal.replace("[", "_").replace("]", "")
 
 
+def label(block: Block) -> str:
+    """What tells one bench's circuit from another's at a glance.
+
+    The corner and the resolution: what a run varies between simulations that
+    are otherwise the same deck, and so what the record of a long run has to
+    carry for its lines to mean anything apart.
+    """
+    return f"{block.n_bits} bits, {block.supplies.vdd:g} V, {block.temp:g} C"
+
+
 def surroundings(block: Block) -> list[str]:
     """The block and what feeds it, except its input pin and digital inputs."""
     s = block.supplies
@@ -281,7 +291,7 @@ def deck(bench: Bench) -> str:
 
     block = bench.block
     s = block.supplies
-    lines = [f"* {NAME} bench", *surroundings(block)]
+    lines = [f"* {NAME} bench: {label(block)}", *surroundings(block)]
     held = [s.vin if p.vin is None else p.vin for p in bench.phases]
     lines += pin("vin", _pwl(held, bench.phase), block.r_vin)
 

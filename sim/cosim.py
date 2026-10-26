@@ -14,10 +14,12 @@ below it.
 
 from __future__ import annotations
 
+import logging
 import pathlib
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 
 #: One port as the compiled model's interface declares it: direction, the
@@ -37,6 +39,10 @@ ORDER_FILES = {"IN": "inputs.h", "OUT": "outputs.h", "INOUT": "inouts.h"}
 #: The name the compiled model's classes and files are given. The glue code
 #: expects this one.
 PREFIX = "Vlng"
+
+#: One record either side of each compiler the build calls, so a bench whose
+#: slow part is a compilation says which one it is waiting on.
+log = logging.getLogger(__name__)
 
 
 #: Where the glue declares what it last reported on each output, and what it
@@ -114,9 +120,12 @@ def reporting_every_output(glue_source: str) -> str:
 
 
 def _run(command: list[str], workdir: pathlib.Path, what: str) -> None:
+    log.info("start: %s", what)
+    started = time.monotonic()
     proc = subprocess.run(command, cwd=workdir, capture_output=True, text=True)
     if proc.returncode:
         raise BuildError(f"{what} failed\n{' '.join(command)}\n{proc.stdout}\n{proc.stderr}")
+    log.info("done: %s in %.1f s", what, time.monotonic() - started)
 
 
 def build(source: pathlib.Path, workdir: pathlib.Path, parameters: dict | None = None) -> Library:

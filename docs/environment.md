@@ -238,6 +238,49 @@ miserable.
 
 ---
 
+## Watching a long run
+
+The levels that simulate circuits -- `verify-analog`, `verify-integration`,
+`verify-system` -- are long, and a passing one prints almost nothing by
+default: one character per test, flushed only when its whole file is over. A
+run gives no sign of which test it is inside, and this repository has
+documented solver stalls that look exactly like a simulation still working.
+
+So those levels are run loud. Each test is named as it starts, and each
+simulation records itself either side of the simulator:
+
+```
+15:25:08 INFO ngspice: start: closed loop, ss corner (412 lines)
+15:25:41 INFO ngspice: done: closed loop, ss corner in 32.6 s, 23 measurements
+```
+
+Two lines per deck, which is how a stall reads: a `start` with no `done` names
+the circuit that wedged, and the deck is left on disk at the path the failure
+prints, because a stall is reproducible only from the exact text that caused
+it. One deck is bounded in time (`SAR_NGSPICE_TIMEOUT` raises it for an
+exploratory run), so a wedged solver fails its own test, with a name, rather
+than running until something above it loses patience.
+
+Every level also writes a report of what it spent its time on, per test, under
+`build/verify/`, and prints its slowest tests when it finishes. The log scrolls
+past; those files do not, and `python3 scripts/verify-summary.py` turns however
+many of them are there into one table of where the time went.
+
+`PYTEST_ARGS` reaches every level and is appended last, so `-k`, `-x` and
+anything else pytest accepts goes through it. Turning the volume down is a
+separate knob, because a live log on at any level makes pytest name every test
+whatever else it is told: `make verify-analog PYTEST_LOUD=` restores the
+one-character progress line, and `PYTEST_ARGS=--log-cli-level=WARNING` keeps
+the names but drops the heartbeat.
+
+In CI the analog job runs one level per step, so the run says where the time
+goes without anyone reading the log, and each level is bounded on its own, so a
+wedged one is named instead of taking the job down with it. That same table is
+written to the run's summary page, and the reports are uploaded as an artifact,
+whether the job passed or not.
+
+---
+
 ## Do not install into a running container
 
 Anything `pip install`ed or `apt install`ed inside vanishes on restart and is not
