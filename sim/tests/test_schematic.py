@@ -20,6 +20,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+from unittest import mock
 
 import pytest
 
@@ -171,6 +172,37 @@ def test_the_symbol_declares_exactly_the_subcircuit():
     declared = {m["name"]: m["dir"] for m in TERMINAL.finditer(schematic.SYMBOL.read_text())}
     assert declared == strongarm.DIRECTIONS
     assert set(declared) == set(strongarm.TERMINALS)
+
+
+def test_the_symbol_declares_its_pins_in_the_subcircuit_order():
+    """The order the records sit in is the symbol's port list.
+
+    An instance of this symbol netlists its pins in the order they are
+    declared here, so a parent sheet wires them against that order while the
+    netlist every bench measures declares `TERMINALS`. The two orders being
+    the same is what makes the sheet's symbol usable above the sheet; when
+    they were not, an instance reached `vref` where the subcircuit wanted
+    `vdd` and nothing about either file looked wrong.
+    """
+    if not schematic.SYMBOL.exists():
+        pytest.skip(f"{schematic.SYMBOL.name} not generated yet")
+    declared = [m["name"] for m in TERMINAL.finditer(schematic.SYMBOL.read_text())]
+    assert tuple(declared) == strongarm.TERMINALS
+
+
+def test_which_side_a_pin_is_drawn_on_does_not_change_the_port_order():
+    """Moving a terminal to another edge is a drawing change and nothing more.
+
+    The guarantee the sides table is written for, asserted rather than
+    commented: the order above came out of the sides the first time, so a
+    reader rearranging the symbol silently repinned it.
+    """
+    moved = dict.fromkeys(schematic.SIDES, "top")
+    moved["vdd"], moved["vss"] = "left", "bottom"
+    with mock.patch.object(schematic, "SIDES", moved):
+        rearranged = schematic.symbol()
+    assert [m["name"] for m in TERMINAL.finditer(rearranged)] == list(strongarm.TERMINALS)
+    assert rearranged != schematic.symbol()
 
 
 def test_a_swapped_drain_and_source_is_caught():
