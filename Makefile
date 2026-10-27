@@ -339,6 +339,15 @@ noise:
 offset:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/offset.py $(ARGS)
 
+## schematic: regenerate the comparator symbol, and the sheet if it is still
+## 	generated -- commit the diff. The sheet is drawn by hand from
+## 	schematic.ARRANGEMENT onward, so this leaves it alone and writes what it
+## 	would have produced to build/ instead; FORCE=--force throws the drawing
+## 	away. Needs the editor and the PDK: it reads each device symbol's own pin
+## 	positions, which the two flavours do not agree on
+schematic:
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/schematic.py $(FORCE)
+
 ## figures: draw every figure the model can produce, into build/
 figures: plots diagrams
 
@@ -349,6 +358,14 @@ diagrams:
 ## plots: draw the committed sweep into build/studies/
 plots:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/plots.py
+
+## verify-schematic: the comparator sheet against the netlist the benches use
+## 	seconds, and the only analog check that is: it is a parse and a netlist,
+## 	no solver. Split out of verify-analog (which still runs it, being all of
+## 	sim/) so that a sheet edited into the wrong circuit says so before the
+## 	hour of simulation rather than inside it
+verify-schematic:
+	@$(PYTHON) -m pytest $(SIM_DIR)/tests/test_schematic.py $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS)
 
 ## verify-analog: ngspice harness -- tests needing ngspice skip without it
 verify-analog:
@@ -399,11 +416,11 @@ verify-system:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/system $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## verify: model, then every verification level, in order
-verify: model verify-analog verify-unit verify-formal verify-integration verify-system
+verify: model verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system
 
 ## clean: remove generated output
 clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop offset noise help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
+.PHONY: show-loop offset noise schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
