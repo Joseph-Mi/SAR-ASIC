@@ -216,6 +216,10 @@ jobs:
       # First because it is the cheapest thing here that can be wrong, and
       # because the sheet is edited by hand: a wire dragged off a pin is a
       # two-second failure that would otherwise surface an hour in.
+      - name: Rules
+        timeout-minutes: 5
+        run: sh scripts/in-image.sh make verify-rules PYTHON=python3
+
       - name: Schematic
         timeout-minutes: 5
         run: sh scripts/in-image.sh make verify-schematic PYTHON=python3

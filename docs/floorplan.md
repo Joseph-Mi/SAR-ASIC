@@ -43,11 +43,17 @@ Analog may not use met5 at all.
 
 ### Why 130
 
-| Digital height | Digital used | Analog left | Analog used |
-|---|---|---|---|
-| 110 um | 91% | 115.8 um | 17% |
-| **130 um** | **77%** | **95.8 um** | **21%** |
-| 140 um | 72% | 85.8 um | array no longer clears its keep-out |
+| Digital height | Digital used | Analog left | Array rows it holds | Width they need |
+|---|---|---|---|---|
+| 110 um | 91% | 115.8 um | 40 grouped / 32 interleaved | 84 / 130 um |
+| **130 um** | **77%** | **95.8 um** | **33 grouped / 27 interleaved** | **104 / 151 um** |
+| 140 um | 72% | 85.8 um | 29 grouped / 24 interleaved | 115 / 172 um |
+
+The analog column is rows rather than a percentage of area, because area was
+never what bound: the strip is three times as wide as it is tall, so the height
+decides how many rows the array gets and the width then has room to spare at
+every split in the table. Grouped and interleaved are the two placements, and
+they differ because the pitch does -- see the array's shape below.
 
 The headroom belongs on the digital side because that is the side whose
 requirement is a guess. The analog requirement is arithmetic -- the unit
@@ -81,14 +87,39 @@ conversion result, the settled word and the index counter all have to be held.
 - *Place-and-route reaches slightly under half utilisation.* Small macros
   usually do worse than large ones; this is the number to replace first with a
   real LibreLane run.
-- *The drawn array is over half again its raw capacitor area.* Dummy ring,
-  inter-cell spacing, top-plate shielding and routing. `docs/model.md` has the
-  raw figure.
+- ~~*The drawn array is over half again its raw capacitor area.*~~ Measured
+  instead, and it was optimistic by a wide margin: the drawn block is 2.24
+  times the plate area with each branch grouped and 3.33 times with the
+  branches interleaved. Dummy ring, inter-cell spacing and the keep-away a
+  power stripe needs. `docs/model.md` has the raw figure.
 
-The array's *shape* is the constraint that actually binds, not its area: a
-square array of the unit capacitor plus a dummy ring comes to roughly 76 um on a
-side, which is what stops the analog strip getting much below 90 um however
-little total area it needs.
+## The array's shape, which is what binds
+
+Not its area. And the number here was an estimate until the process's own rules
+were read: it said a square array plus a dummy ring came to roughly 76 um on a
+side, and the rules say **95.72 um**, or 98.40 um once unrelated metal is held
+off the plates. Against a 95.8 um strip that does not fit, so the estimate was
+wrong by twenty-two micrometres in the direction that does not announce itself.
+
+What fits is the same array not drawn square -- 33 rows of 36 columns rather
+than 34 of 34, 104 um wide in a strip with 334.88 um of width to give. The cost
+is not area. It is that a gradient across the die is no longer the same length
+in both directions, so a placement scheme cancelling it has a long axis and a
+short one to treat differently.
+
+Two numbers rather than one throughout, because the pitch depends on something
+that is not a property of the capacitors: units of one branch sit on a single
+bottom plate and step at the plate-to-plate spacing, 2.84 um; units of
+different branches are different nets, so the metal under them is two polygons
+that must be apart *as metal*, and the step is 3.48 um. Grouping each branch is
+therefore the compact array and interleaving them is the matched one. A
+common-centroid scheme interleaves on purpose -- so the gradient it cancels is
+paid for in rows, and at this split it costs six of them.
+
+`tech/sky130.py` declares the rules and the arithmetic, `tech/tests/test_drc.py`
+holds them to the two decks the DRC script runs, and
+`model/tests/test_footprint.py` holds the array to this strip. Nothing above is
+restated in either.
 
 ---
 
@@ -97,6 +128,8 @@ little total area it needs.
 - LibreLane reports a utilisation far from the assumption above
 - A digital block lands that is not small next to the FSM
 - The resolution changes, which moves both the array's area and its side
+- A capacitor rule changes under a PDK bump, which the rule tests report as a
+  disagreement with what `tech/` declares rather than as a DRC failure weeks later
 - The vendored template moves, which is visible as a diff in `layout/`
 
 Re-deriving is cheap. Discovering at M8 that the macro does not fit is not.

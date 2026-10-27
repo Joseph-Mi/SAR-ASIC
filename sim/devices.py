@@ -13,7 +13,6 @@ particular. sky130's is the real device, and needs the PDK.
 from __future__ import annotations
 
 import math
-import os
 import pathlib
 from dataclasses import dataclass
 
@@ -45,9 +44,13 @@ class Generic:
 
 
 def pdk_library() -> pathlib.Path:
-    """The model library the PDK's own schematic setup selects."""
-    root = pathlib.Path(os.environ.get("PDK_ROOT", "/nonexistent"))
-    return root / os.environ.get("PDK", "sky130A") / "libs.tech/combined/sky130.lib.spice"
+    """The model library the PDK's own schematic setup selects.
+
+    Where the tree is belongs to the process rather than to this harness, and
+    the rule decks are read from the same place, so the two had better not
+    disagree about which process is installed.
+    """
+    return sky130.pdk() / "libs.tech/combined/sky130.lib.spice"
 
 
 @dataclass(frozen=True)

@@ -371,6 +371,14 @@ SHEET_TESTS = $(SIM_DIR)/tests/test_schematic.py $(SIM_DIR)/tests/test_top_sheet
 verify-schematic:
 	@$(PYTHON) -m pytest $(SHEET_TESTS) $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS)
 
+## verify-rules: the declared process rules against the PDK's own decks
+## 	seconds, like the sheets, and for the same reason: it reads text. It runs
+## 	where the process tree is mounted, which is the only place it can -- the
+## 	tests skip without one, so `make model` runs them on a bare machine and
+## 	checks the arithmetic while this checks the numbers
+verify-rules:
+	@$(PYTHON) -m pytest $(TECH_DIR) $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS)
+
 ## verify-analog: ngspice harness -- tests needing ngspice skip without it
 verify-analog:
 	@$(PYTHON) -m pytest $(SIM_DIR) $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
@@ -420,11 +428,11 @@ verify-system:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/system $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## verify: model, then every verification level, in order
-verify: model verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system
+verify: model verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system
 
 ## clean: remove generated output
 clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop offset noise schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
+.PHONY: show-loop offset noise schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
