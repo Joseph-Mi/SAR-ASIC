@@ -40,6 +40,7 @@ from __future__ import annotations
 import pathlib
 import re
 import shutil
+import sys
 from dataclasses import dataclass
 
 import devices
@@ -479,8 +480,14 @@ def sheet(sizes: strongarm.Sizes | None = None, netlister=None) -> str:
 #: side-effect of direction, which this did first, published a port order of
 #: inputs-then-the-rest that no netlist here declares.
 SIDES = {
-    "vref": "left", "clk": "left", "inp": "left", "inn": "left",
-    "vdd": "right", "vss": "right", "outp": "right", "outn": "right",
+    "vref": "left",
+    "clk": "left",
+    "inp": "left",
+    "inn": "left",
+    "vdd": "right",
+    "vss": "right",
+    "outp": "right",
+    "outn": "right",
 }
 
 #: The symbol's box, and where its pins sit around it. The pin itself is a
@@ -591,12 +598,61 @@ def symbol(name: str = strongarm.NAME) -> str:
     return "\n".join(records) + "\n"
 
 
-def main() -> None:
-    """Write both files. The sheet is committed, so the diff is the review."""
-    SHEET.write_text(sheet())
+#: Who owns the sheet's arrangement, which is the one thing about this file
+#: that changes as the comparator is drawn rather than as it is designed.
+#:
+#: `generated` is the bootstrap: the generator writes the sheet, and a test
+#: holds the committed file byte-for-byte to its output, so the two cannot
+#: come apart. `drawn` is afterwards: the arrangement has been taken over in
+#: the editor, where a person can do things this generator has no vocabulary
+#: for -- a label stood off its pin on a stub of its own, text turned to read
+#: outward -- and regenerating would throw them away. So in `drawn` the
+#: generator will not write the sheet without being told twice.
+#:
+#: What does not change with the stage is the guarantee. The circuit is held
+#: by netlisting the sheet back and comparing it element by element against
+#: `strongarm.subckt`, which is a stronger check on a hand-drawn sheet than
+#: on a generated one: against a generated sheet it compares the generator
+#: with itself, and against a drawn one it is the thing that catches a wire
+#: dragged off a pin. The symbol stays generated in both stages, because it
+#: carries the interface and no arrangement.
+ARRANGEMENT = "drawn"
+
+#: Where a regeneration puts the sheet it would have written, once the sheet
+#: itself is hand-drawn: beside the build output, to be read and not kept.
+PROPOSED = REPO / "build" / "schematic" / SHEET.name
+
+
+def _said(path: pathlib.Path) -> str:
+    """A path as this repository spells it, or in full if it is outside."""
+    return str(path.relative_to(REPO) if path.is_relative_to(REPO) else path)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Write the symbol, and the sheet if this stage still owns it."""
+    argv = list(argv if argv is not None else [])
+    forced = "--force" in argv
+
     SYMBOL.write_text(symbol())
-    print(f"wrote {SHEET.relative_to(REPO)} and {SYMBOL.relative_to(REPO)}")
+    print(f"wrote {_said(SYMBOL)}")
+
+    if ARRANGEMENT == "generated" or forced or not SHEET.exists():
+        SHEET.write_text(sheet())
+        print(f"wrote {_said(SHEET)}")
+        return 0
+
+    PROPOSED.parent.mkdir(parents=True, exist_ok=True)
+    PROPOSED.write_text(sheet())
+    print(
+        f"{_said(SHEET)} is drawn by hand and was left alone.\n"
+        f"What the generator would write is {_said(PROPOSED)}.\n"
+        "The circuit on the sheet is checked by sim/tests/test_schematic.py,\n"
+        "which netlists it and names any device that differs -- fix those in\n"
+        "the editor. To throw the drawing away and start again: make schematic"
+        " FORCE=--force"
+    )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(sys.argv[1:]))

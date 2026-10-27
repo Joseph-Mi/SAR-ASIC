@@ -99,8 +99,8 @@ def elements(netlist: str) -> dict[str, tuple]:
 
 
 @pytest.fixture(scope="module")
-def drawn(tmp_path_factory) -> dict[str, tuple]:
-    """What the editor makes of the committed sheet.
+def netlisted(tmp_path_factory) -> str:
+    """The committed sheet as the editor netlists it.
 
     Netlisted from a copy, so a test run never rewrites what is committed and
     two runs at once cannot land on the same output file.
@@ -119,7 +119,13 @@ def drawn(tmp_path_factory) -> dict[str, tuple]:
     )
     produced = workdir / NETLIST_DIR / f"{schematic.SHEET.stem}.spice"
     assert produced.exists(), "the editor netlisted the sheet somewhere else"
-    return elements(produced.read_text())
+    return produced.read_text()
+
+
+@pytest.fixture(scope="module")
+def drawn(netlisted) -> dict[str, tuple]:
+    """The sheet's elements, which is what the circuit comparison is about."""
+    return elements(netlisted)
 
 
 @pytest.fixture(scope="module")
@@ -149,16 +155,89 @@ def test_every_element_is_the_same_device_on_the_same_nets(drawn, built):
 
 @needs_xschem
 @needs_pdk
-def test_regenerating_the_sheet_changes_nothing(drawn):
-    """The committed sheet is the generator's current output.
+def test_the_sheet_declares_exactly_the_subcircuits_ports(netlisted):
+    """The sheet's own boundary, in order and by direction.
 
-    What this catches that the comparison above does not is the generator
-    changing while the sheet it wrote stays behind: the old sheet still
-    netlists to the same circuit, and the two files have quietly stopped
-    being one artifact.
+    The element comparison cannot see this. A port symbol deleted from the
+    sheet leaves every device still on a net of the right name, because the
+    name is carried by the wire it was drawn on -- so the circuit compares
+    equal while the subcircuit it netlists to has lost a terminal, and what
+    instantiates it silently connects the rest one place over. Checked here
+    because the arrangement is edited by hand, where a port is as easy to
+    catch with a rubber band as anything else on the sheet.
     """
-    assert schematic.SHEET.read_text() == schematic.sheet()
+    header = next(line for line in netlisted.splitlines() if line.startswith("**.subckt"))
+    assert tuple(header.split()[2:]) == strongarm.TERMINALS
+
+    kinds = {"ipin": "in", "opin": "out", "iopin": "inout"}
+    declared = {
+        m["name"]: kinds[m["kind"]]
+        for m in re.finditer(r"^\*\.(?P<kind>i?[io]pin)\s+(?P<name>\S+)$", netlisted, re.M)
+    }
+    assert declared == strongarm.DIRECTIONS
+
+
+def test_the_symbol_is_the_generators_current_output():
+    """The symbol is generated in every stage, so it is held to the generator.
+
+    It carries the interface and no arrangement: where its pins sit is a table
+    in the generator, so there is nothing a person would reach for the editor
+    to do to it, and holding it exactly costs nothing. The sheet is the file
+    that gets drawn on, and `ARRANGEMENT` says whether it is still ours.
+    """
+    if not schematic.SYMBOL.exists():
+        pytest.skip(f"{schematic.SYMBOL.name} not generated yet")
     assert schematic.SYMBOL.read_text() == schematic.symbol()
+
+
+#: The stages the generator knows how to be in, so that a typo in the one it
+#: declares cannot quietly turn the check below into nothing.
+STAGES = ("generated", "drawn")
+
+
+def test_the_stage_the_sheet_is_at_holds_its_own_contract():
+    """While the generator owns the arrangement, the committed sheet is it.
+
+    What byte-equality catches that the element comparison does not is the
+    generator changing while the sheet it wrote stays behind: the old sheet
+    still netlists to the same circuit, and the two files have quietly
+    stopped being one artifact. It lapses once the sheet is drawn by hand,
+    where the text is nobody's output -- and the element comparison, which
+    until then compared the generator with itself, becomes the real test.
+
+    Branching rather than skipping, because `SAR_REQUIRE_TOOLS` turns a skip
+    into a failure and a stage is not a missing tool. The stage is asserted
+    against the known set first, so misspelling it fails here instead of
+    disabling the only thing holding the sheet to the generator.
+    """
+    assert schematic.ARRANGEMENT in STAGES, f"unknown arrangement stage, not one of {STAGES}"
+    if schematic.ARRANGEMENT == "generated":
+        assert schematic.SHEET.read_text() == schematic.sheet()
+
+
+def test_regenerating_leaves_a_hand_drawn_sheet_alone(tmp_path, monkeypatch):
+    """The drawn stage does not let `make schematic` throw a drawing away.
+
+    The hazard this exists for is quiet: the generator still runs, still
+    reports success, and the arrangement is gone. So the refusal is asserted
+    rather than documented, and so is the override, because a refusal with no
+    way past it would be a reason to edit the generator instead.
+    """
+    sheet, symbol = tmp_path / "strongarm.sch", tmp_path / "strongarm.sym"
+    drawing = "v {hand drawn}\n"
+    sheet.write_text(drawing)
+    monkeypatch.setattr(schematic, "SHEET", sheet)
+    monkeypatch.setattr(schematic, "SYMBOL", symbol)
+    monkeypatch.setattr(schematic, "PROPOSED", tmp_path / "build" / "strongarm.sch")
+    monkeypatch.setattr(schematic, "ARRANGEMENT", "drawn")
+
+    assert schematic.main([]) == 0
+    assert sheet.read_text() == drawing, "a regeneration overwrote the drawing"
+    assert (tmp_path / "build" / "strongarm.sch").exists(), "it did not say what it would write"
+    assert symbol.read_text() == schematic.symbol(), "the symbol is generated in every stage"
+
+    assert schematic.main(["--force"]) == 0
+    assert sheet.read_text() == schematic.sheet(), "--force did not regenerate"
 
 
 def test_the_symbol_declares_exactly_the_subcircuit():
