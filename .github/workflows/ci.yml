@@ -213,13 +213,16 @@ jobs:
       - name: Tool locations and PDK selection
         run: sh scripts/in-image.sh bash -c 'echo "PDK_ROOT=$PDK_ROOT PDK=$PDK"; for t in ngspice verilator sby python3; do command -v "$t"; done'
 
-      # First because it is the cheapest thing here that can be wrong, and
-      # because the sheet is edited by hand: a wire dragged off a pin is a
-      # two-second failure that would otherwise surface an hour in.
+      # First because it is the cheapest thing here and because it reads the
+      # process rather than the design: a PDK bump that moved a drawing rule
+      # would otherwise be found by whatever this job tried next, which would
+      # report it as the circuit's problem.
       - name: Rules
         timeout-minutes: 5
         run: sh scripts/in-image.sh make verify-rules PYTHON=python3
 
+      # Then, because the sheet is edited by hand: a wire dragged off a pin is
+      # a two-second failure that would otherwise surface an hour in.
       - name: Schematic
         timeout-minutes: 5
         run: sh scripts/in-image.sh make verify-schematic PYTHON=python3

@@ -21,7 +21,6 @@ half a machine with no process installed can still hold to.
 
 from __future__ import annotations
 
-import math
 import re
 
 import pytest
@@ -94,6 +93,10 @@ MAGIC_DECLARED = {
 #: the one the device's plate is on. Checked so that the day the PDK fixes it,
 #: this says so rather than going on warning about it.
 UNRUN = "{pdk}.lydrc"
+
+#: The largest a plate may be drawn, as that deck states it -- the one rule
+#: for which it is the only source in the tree.
+SIDE_MAX = re.compile(r'"capm\.6\s*:[^"]*?([\d.]+)\s*um"')
 WRONG_LAYER = re.compile(r"^(?!#).*\bm2\b.*capm|^(?!#).*capm.*\bvia2\b", re.M)
 
 #: A side a MiM may not be drawn at, micrometres: under the minimum width and
@@ -109,10 +112,6 @@ def klayout_rules() -> dict[str, float]:
 def magic_rules() -> dict[str, float]:
     text = sky130.drc_magic().read_text()
     return {m["name"]: int(m["nm"]) / PER_MICRON for m in MAGIC_RULE.finditer(text)}
-
-
-def unit_side() -> float:
-    return math.sqrt(sky130.CAP_MIN_AREA_MIM)
 
 
 @needs_pdk
@@ -150,7 +149,12 @@ def test_the_keep_away_is_the_one_both_decks_agree_on():
     direction in which being wrong is safe.
     """
     klayout, magic = klayout_rules(), magic_rules()
-    assert "capm.2b_a" in klayout, f"{sky130.drc_klayout().name} states no capm.2b_a"
+    for deck, found, wanted in (
+        (sky130.drc_klayout(), klayout, ("capm.2b_a", "capm.11")),
+        (sky130.drc_magic(), magic, ("capm.11",)),
+    ):
+        for rule in wanted:
+            assert rule in found, f"{deck.name} states no {rule}"
     from_plate = klayout["capm.2b_a"] + sky130.MIM_PLATE_ENCLOSURE
     assert from_plate == pytest.approx(magic["capm.11"])
     assert sky130.MIM_METAL_SPACING == pytest.approx(from_plate)
@@ -164,12 +168,21 @@ def test_the_largest_plate_is_a_rule_our_own_drc_would_not_catch():
     nothing runs, because that is the only deck it is in -- the one place in
     this module where that file is the authority, and it is the authority for
     a rule rather than for a layer."""
+    # Not `pytest.skip` when the deck is gone, however much that reads like
+    # the right way to say "nothing to check here": the job this runs in sets
+    # SAR_REQUIRE_TOOLS, and the root conftest turns every skip into a
+    # failure. A skip on the path a PDK bump is expected to take would fail
+    # the analog job for doing what was hoped for.
     unrun = sky130.pdk() / "libs.tech/klayout/drc" / UNRUN.format(pdk=sky130.pdk().name)
-    if not unrun.is_file():
-        pytest.skip(f"{unrun.name} is not shipped any more")
-    stated = re.search(r'"capm\.6\s*:[^"]*?([\d.]+)\s*um"', unrun.read_text())
-    assert stated, "capm.6 is not stated anywhere in the tree any more"
-    assert sky130.MIM_SIDE_MAX == pytest.approx(float(stated.group(1)))
+    stated = SIDE_MAX.search(unrun.read_text()) if unrun.is_file() else None
+    assert not unrun.is_file() or stated, (
+        f"{unrun.name} no longer states capm.6: find where the bound moved to, "
+        "because MIM_SIDE_MAX is read from nowhere else"
+    )
+    if stated:
+        assert sky130.MIM_SIDE_MAX == pytest.approx(float(stated.group(1)))
+    # These hold whether that deck is shipped or not, and they are the half of
+    # this worth knowing: the rule exists and our own DRC does not check it.
     assert "capm.6" not in sky130.drc_klayout().read_text()
     assert "capm.6" not in sky130.drc_magic().read_text()
 
@@ -184,10 +197,10 @@ def test_the_deck_nothing_runs_still_names_the_wrong_metal():
     the PDK fixes that, this fails, and the warning written beside the
     constants can come out.
     """
+    # Gone is the fix, and so is fixed, so both pass -- and for the reason
+    # above, neither may be spelled as a skip.
     unrun = sky130.pdk() / "libs.tech/klayout/drc" / UNRUN.format(pdk=sky130.pdk().name)
-    if not unrun.is_file():
-        pytest.skip(f"{unrun.name} is not shipped any more, which is the fix")
-    assert WRONG_LAYER.search(unrun.read_text()), (
+    assert not unrun.is_file() or WRONG_LAYER.search(unrun.read_text()), (
         f"{unrun.name} no longer names m2/via2 in its capm rules: "
         "re-read it, and drop the warning in tech/sky130.py if it is now right"
     )
@@ -196,7 +209,7 @@ def test_the_deck_nothing_runs_still_names_the_wrong_metal():
 def test_the_unit_the_project_draws_is_one_the_process_draws():
     """The check the declared area never had. It is the project's own floor
     and not the process's, so what holds it is the rule and not itself."""
-    side = unit_side()
+    side = sky130.mim_side()
     assert side >= sky130.MIM_WIDTH_MIN
     assert side <= sky130.MIM_SIDE_MAX
     assert sky130.mim_pitch(side) > side
@@ -205,7 +218,7 @@ def test_the_unit_the_project_draws_is_one_the_process_draws():
 def test_a_branch_boundary_is_wider_than_a_step_inside_a_branch():
     """And by the bottom plate's doing, not the capacitor's. This is what
     makes the array's footprint a consequence of its placement scheme."""
-    side = unit_side()
+    side = sky130.mim_side()
     assert sky130.mim_pitch(side, shared=True) == pytest.approx(side + sky130.MIM_SPACING)
     assert sky130.mim_pitch(side, shared=False) == pytest.approx(
         side + 2 * sky130.MIM_PLATE_ENCLOSURE + sky130.MIM_PLATE_SPACING
@@ -215,7 +228,7 @@ def test_a_branch_boundary_is_wider_than_a_step_inside_a_branch():
 
 def test_a_row_of_one_unit_is_the_unit():
     """The arithmetic's own edge, where a pitch has nowhere to be counted."""
-    side = unit_side()
+    side = sky130.mim_side()
     assert sky130.mim_row(1, side) == pytest.approx(side)
     assert sky130.mim_row(2, side) == pytest.approx(side + sky130.mim_pitch(side))
 
@@ -234,15 +247,45 @@ def test_a_strip_too_shallow_for_a_row_says_so_rather_than_refusing():
     answer. A side the process will not draw is the error, and it stays one
     however shallow the strip -- otherwise the two are reported the same way.
     """
-    side = unit_side()
+    side = sky130.mim_side()
     assert sky130.mim_rows_within(side, side) == 0
     assert sky130.mim_rows_within(1000.0, side) > sky130.mim_rows_within(100.0, side)
+    # And a ring costs rows, so asking for one leaves room for fewer.
+    assert (
+        sky130.mim_rows_within(100.0, side, ring=1)
+        < sky130.mim_rows_within(100.0, side, ring=0) + 2
+    )
     with pytest.raises(ValueError):
         sky130.mim_rows_within(1.0, TOO_SMALL)
 
 
+def test_the_ring_steps_at_the_wider_pitch_whatever_the_branches_do():
+    """Because a dummy carries no charge, so it is tied off somewhere of its
+    own and is a different net from the branch beside it. Which makes the
+    narrow pitch unreachable on any axis a ring crosses, and a figure that
+    applied it to every step of a ringed array described an array nobody can
+    place."""
+    side = sky130.mim_side()
+    assert sky130.mim_ring_step(side, 1) == pytest.approx(2 * sky130.mim_pitch(side, shared=False))
+    assert sky130.mim_ring_step(side, 0) == 0.0
+    grouped = sky130.mim_array_extent(1024, side, ring=1, shared=True)
+    assert grouped > sky130.mim_row(sky130.mim_array_side(1024, 1), side, shared=True)
+    with pytest.raises(ValueError):
+        sky130.mim_ring_step(side, -1)
+
+
+def test_the_interleaved_block_is_the_one_figure_a_ring_does_not_move():
+    """Its every step is already the wider one, the ring's included, so the
+    two expressions have to agree -- which is what says the ring is being
+    charged at that pitch and not at some third thing."""
+    side = sky130.mim_side()
+    assert sky130.mim_array_extent(1024, side, ring=1, shared=False) == pytest.approx(
+        sky130.mim_row(sky130.mim_array_side(1024, 1), side, shared=False)
+    )
+
+
 def test_the_keep_out_is_the_block_plus_the_rule_on_both_sides():
-    extent = sky130.mim_array_extent(1024, unit_side())
+    extent = sky130.mim_array_extent(1024, sky130.mim_side())
     assert sky130.mim_keep_out(extent) == pytest.approx(extent + 2 * sky130.MIM_METAL_SPACING)
 
 

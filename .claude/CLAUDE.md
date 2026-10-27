@@ -979,15 +979,23 @@ Delete each one when it is fixed.
   floating node, a flag raised.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
 - ~~**Array pitch vs analog strip height.**~~ Answered, and it binds. The
-  rules are read now, and a square array plus a dummy ring comes to 95.72 um
-  on a side, 98.40 once unrelated metal is held off the plates, against a
+  rules are read now, and a square array plus a dummy ring comes to 97.00 um
+  on a side, 99.68 once unrelated metal is held off the plates, against a
   95.76 um strip. `docs/floorplan.md` had estimated 76 um, so it was wrong by
-  twenty-two micrometres in the direction that does not announce itself. What
-  fits is the same array not drawn square: the strip is three times as wide as
-  it is tall, so the height sets the rows and the width has room to spare. The
-  cost is not area but symmetry -- a gradient is no longer the same length both
-  ways, so a placement scheme has a long axis and a short one to treat
-  differently.
+  twenty-three micrometres in the direction that does not announce itself.
+  What fits is the same array not drawn square: the strip is three times as
+  wide as it is tall, so the height sets the rows and the width has room to
+  spare. The cost is not area but symmetry -- a gradient is no longer the same
+  length both ways, so a placement scheme has a long axis and a short one to
+  treat differently.
+  The compact figure is a bound and not a layout, which is worth keeping
+  straight because the first version of this arithmetic was not: the narrow
+  pitch is what two units of *one branch* get, so applying it to a whole row
+  assumes no branch boundary falls on that row, and a ring never qualifies at
+  all -- a dummy carries no charge, so it is tied off on its own and the step
+  across it is the wider one whatever the branches inside do. That ring is the
+  entire 3.9 um by which the compact square array misses, and charging it
+  correctly cost a row at two of the three splits in that document's table.
   The pitch itself turns on something that is not a property of the
   capacitors. Units of one branch share a bottom plate and step at the
   plate-to-plate spacing (2.84 um); units of different branches are different

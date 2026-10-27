@@ -45,9 +45,9 @@ Analog may not use met5 at all.
 
 | Digital height | Digital used | Analog left | Array rows it holds | Width they need |
 |---|---|---|---|---|
-| 110 um | 91% | 115.8 um | 40 grouped / 32 interleaved | 84 / 130 um |
-| **130 um** | **77%** | **95.8 um** | **33 grouped / 27 interleaved** | **104 / 151 um** |
-| 140 um | 72% | 85.8 um | 29 grouped / 24 interleaved | 115 / 172 um |
+| 110 um | 91% | 115.8 um | 39 grouped / 32 interleaved | 88 / 130 um |
+| **130 um** | **77%** | **95.8 um** | **32 grouped / 27 interleaved** | **108 / 151 um** |
+| 140 um | 72% | 85.8 um | 29 grouped / 24 interleaved | 117 / 172 um |
 
 The analog column is rows rather than a percentage of area, because area was
 never what bound: the strip is three times as wide as it is tall, so the height
@@ -56,10 +56,18 @@ every split in the table. Grouped and interleaved are the two placements, and
 they differ because the pitch does -- see the array's shape below.
 
 The headroom belongs on the digital side because that is the side whose
-requirement is a guess. The analog requirement is arithmetic -- the unit
-capacitor is the smallest the process will draw, and the count is fixed by
-resolution -- so it cannot drift far. The digital requirement is an estimate
-built on an estimate, and it is the one that will move.
+requirement is a guess. The analog requirement is arithmetic once the unit's
+size is settled: the count is fixed by resolution and the pitch by the
+process. The digital requirement is an estimate built on an estimate, and it
+is the one that will move.
+
+The unit's size is the caveat, and it is not settled. It was written down as
+the smallest the process would draw and it is not that: no rule either DRC
+deck runs states a minimum *area* for the MiM, the only size rule is a
+minimum width, and the device's own model defaults to a micrometre each way.
+A smaller unit matches worse, so it is a matching decision with an area
+consequence rather than the other way round, and until it is made
+deliberately this table's analog column moves with it.
 
 ---
 
@@ -88,24 +96,36 @@ conversion result, the settled word and the index counter all have to be held.
   usually do worse than large ones; this is the number to replace first with a
   real LibreLane run.
 - ~~*The drawn array is over half again its raw capacitor area.*~~ Measured
-  instead, and it was optimistic by a wide margin: the drawn block is 2.24
-  times the plate area with each branch grouped and 3.33 times with the
-  branches interleaved. Dummy ring, inter-cell spacing and the keep-away a
-  power stripe needs. `docs/model.md` has the raw figure.
+  instead, and it was optimistic by a wide margin: what the array asks the
+  floorplan for is 2.43 times the plate area with each branch grouped and
+  3.49 times with the branches interleaved. Dummy ring, inter-cell spacing
+  and the keep-away a power stripe needs -- all three, which is why these are
+  quoted off the keep-out and not off the block. `docs/model.md` has the raw
+  figure.
 
 ## The array's shape, which is what binds
 
 Not its area. And the number here was an estimate until the process's own rules
 were read: it said a square array plus a dummy ring came to roughly 76 um on a
-side, and the rules say **95.72 um**, or 98.40 um once unrelated metal is held
+side, and the rules say **97.00 um**, or 99.68 um once unrelated metal is held
 off the plates. Against a 95.8 um strip that does not fit, so the estimate was
-wrong by twenty-two micrometres in the direction that does not announce itself.
+wrong by twenty-three micrometres in the direction that does not announce
+itself.
 
-What fits is the same array not drawn square -- 33 rows of 36 columns rather
-than 34 of 34, 104 um wide in a strip with 334.88 um of width to give. The cost
-is not area. It is that a gradient across the die is no longer the same length
-in both directions, so a placement scheme cancelling it has a long axis and a
-short one to treat differently.
+What fits is the same array not drawn square -- 30 rows of 35 columns inside
+its ring rather than 32 of 32, 108 um wide in a strip with 334.88 um of width
+to give. The cost is not area. It is that a gradient across the die is no
+longer the same length in both directions, so a placement scheme cancelling it
+has a long axis and a short one to treat differently.
+
+Both figures above are bounds on the compact side, not layouts. The narrow
+pitch is what two units of one branch get, so claiming it for a whole row
+claims that no branch boundary falls on that row -- which no placement of ten
+branches manages. The dummy ring never gets it at all: a dummy carries no
+charge, so it is tied off on its own, its bottom plate is a separate polygon,
+and the step across it is the wider one however the branches inside are
+placed. That ring is the whole of the 3.9 um by which the compact square
+array misses.
 
 Two numbers rather than one throughout, because the pitch depends on something
 that is not a property of the capacitors: units of one branch sit on a single

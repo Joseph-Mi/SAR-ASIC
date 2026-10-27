@@ -34,9 +34,12 @@ PDK_DEFAULT, PDK_NOWHERE = "sky130A", "/nonexistent"
 
 def pdk() -> pathlib.Path:
     """The process's own tree, wherever this machine keeps it."""
-    return pathlib.Path(os.environ.get(PDK_ROOT, PDK_NOWHERE)) / os.environ.get(
-        PDK_NAME, PDK_DEFAULT
-    )
+    # `or` rather than a default, for both: the image exports these before
+    # anything of ours is sourced, so the failure to expect is an empty value
+    # and not an absent one -- and an empty one would make this a relative
+    # path, which is a directory that exists wherever it is run from.
+    root = os.environ.get(PDK_ROOT) or PDK_NOWHERE
+    return pathlib.Path(root) / (os.environ.get(PDK_NAME) or PDK_DEFAULT)
 
 
 def drc_magic() -> pathlib.Path:
@@ -134,7 +137,7 @@ MIM_SIDE_MAX = 20.0
 DIFF_EXT = 0.29
 
 #: Resistance of the NMOS that holds the top plate at the common mode, ohms,
-#: by corner. Measured, like the diffusion above, and for the same reason.
+#: by corner. Measured, like the diffusion below, and for the same reason.
 #:
 #: It is quoted for one width and one level because both decide it: the level
 #: a switch passes is the gate drive it does not get and the body effect it
@@ -191,6 +194,16 @@ def mim_capacitance(width: float, length: float, corner: str = "typical") -> flo
     return CAP_MIM_AREA[corner] * (width + bias) * (length + bias)
 
 
+def mim_side() -> float:
+    """The unit capacitor's drawn side, micrometres.
+
+    Square, so the area is the whole of it. Here rather than at each of the
+    handful of call sites, because it is one fact and the arithmetic that
+    reads it is in three layers.
+    """
+    return math.sqrt(CAP_MIN_AREA_MIM)
+
+
 def mim_unit(corner: str = "typical") -> float:
     """The smallest unit capacitor the process will draw, in farads.
 
@@ -198,7 +211,7 @@ def mim_unit(corner: str = "typical") -> float:
     from them in value: the bias acts on both dimensions, so two shapes of
     equal drawn area do not end up with equal plates.
     """
-    side = math.sqrt(CAP_MIN_AREA_MIM)
+    side = mim_side()
     return mim_capacitance(side, side, corner)
 
 
@@ -262,8 +275,28 @@ def mim_array_side(unit_count: int, ring: int = 1) -> int:
     return math.isqrt(unit_count - 1) + 1 + 2 * ring
 
 
-def mim_rows_within(height: float, side: float, shared: bool = False) -> int:
-    """How many rows of units a strip of this height holds, keep-away counted.
+def mim_ring_step(side: float, ring: int) -> float:
+    """What the dummies around an array cost it, micrometres, both edges.
+
+    Charged at the wider pitch whatever the branches inside do, and that is
+    structural rather than a choice: a dummy carries no charge, so it is tied
+    off somewhere of its own and is a different net from whichever branch it
+    sits beside. Its bottom plate is therefore a separate polygon and the step
+    across it is the metal one.
+
+    Which is the whole of why a square array misses this tile. `shared` is a
+    property of two neighbours and a ring has no branch to share with, so a
+    figure that applied the narrow pitch to every step of a ringed array was
+    describing an array nobody can place.
+    """
+    if ring < 0:
+        raise ValueError(f"a ring cannot be {ring} units wide")
+    return 2 * ring * mim_pitch(side, shared=False)
+
+
+def mim_rows_within(height: float, side: float, ring: int = 1, shared: bool = False) -> int:
+    """How many rows of units a strip of this height holds, dummies and the
+    keep-away counted.
 
     Which is the question the tile actually asks, and it asks it because the
     array does not have to be square. Square is what makes a gradient
@@ -271,6 +304,9 @@ def mim_rows_within(height: float, side: float, shared: bool = False) -> int:
     there is room for it; the strip the analog half gets is three times as
     wide as it is tall, so there is not. What fits is decided the short way,
     and the long way then has room to spare.
+
+    The count is every row, the dummies included, so it is the number that
+    goes on a drawing rather than the number that holds charge.
 
     Zero is a legitimate answer and is returned rather than refused: a strip
     too shallow for one row is a floorplan to change, and a caller that got a
@@ -281,15 +317,23 @@ def mim_rows_within(height: float, side: float, shared: bool = False) -> int:
     # answer zero, which reads as a floorplan problem rather than as the
     # geometry error it is.
     pitch = mim_pitch(side, shared)
-    room = height - 2 * MIM_METAL_SPACING - side
+    room = height - 2 * MIM_METAL_SPACING - side - mim_ring_step(side, ring)
     if room < 0.0:
         return 0
-    return int(room // pitch) + 1
+    return int(room // pitch) + 1 + 2 * ring
 
 
 def mim_array_extent(unit_count: int, side: float, ring: int = 1, shared: bool = False) -> float:
-    """The square block of units, how far it reaches, micrometres."""
-    return mim_row(mim_array_side(unit_count, ring), side, shared)
+    """The square block of units, how far it reaches, micrometres.
+
+    `shared` describes the units that carry charge and nothing else: the ring
+    around them is a net of its own and is charged at the wider pitch either
+    way. So this is a bound and not a layout -- the narrow pitch assumes every
+    branch boundary inside the array has been placed away from this axis,
+    which is the most compact an array of several branches could be and is not
+    what a scheme cancelling a gradient would draw.
+    """
+    return mim_row(mim_array_side(unit_count, ring=0), side, shared) + mim_ring_step(side, ring)
 
 
 def mim_keep_out(extent: float) -> float:
