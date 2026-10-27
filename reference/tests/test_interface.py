@@ -53,6 +53,20 @@ def test_symbol_declares_exactly_the_contract(declared):
     assert set(declared) == set(declarations())
 
 
+def test_the_symbol_declares_its_ports_in_the_contracts_order(declared):
+    """The order of a symbol's pin records is its port order.
+
+    An instance of this symbol is wired by position, because that is what a
+    subcircuit instance is, and the position comes from the order the records
+    sit in rather than from anything a reader of the symbol can see. Drawn by
+    hand, that order is wherever the pins looked best: the committed symbol
+    put `cmp_out` third and `vdd` fifth against a netlist whose third and
+    fifth terminals are `cmp_clk` and `force_hi`. A check on the set passes
+    through that, which is why this one is ordered.
+    """
+    assert list(declared) == list(declarations())
+
+
 def test_every_direction_agrees(declared):
     """A supply drawn as an input is a short nobody notices until LVS."""
     assert declared == declarations()

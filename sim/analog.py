@@ -350,6 +350,38 @@ IDEAL_RON_UNIT = IDEAL_UNIT_TAU / DEFAULT_UNIT.farads
 MIM_SIZED = Ideal(sky130.mim_unit())
 
 
+#: The comparator instance, by the name the netlist and the sheet both give
+#: it. The leading X is part of the name and not a prefix something adds: a
+#: SPICE subcircuit call is spelled that way, and the editor writes an
+#: instance's name verbatim -- its own default is `x1` for the same reason. An
+#: instance called `cmp` netlists to a line no simulator will read.
+COMPARATOR = "Xcmp"
+
+#: Which of the block's nets each of the comparator's terminals carries.
+#:
+#: Vcm on the terminal the latch calls its greater input: the controller is
+#: given a high `cmp_out` when the top plate sat *below* Vcm, and the latch
+#: raises the output on the side whose input won. The two conventions meet
+#: here, once, where both are known, rather than in the digital half or inside
+#: the latch.
+#:
+#: A table rather than a line of a netlist because the schematic has to carry
+#: the same wiring, and a drawing is the one reader that cannot be diffed
+#: against a string. The instance line is built from this and
+#: `strongarm.TERMINALS`, so the order cannot drift from the subcircuit's, and
+#: the sheet is netlisted back and compared against it.
+COMPARATOR_NETS = {
+    "vdd": "vdd",
+    "vss": "vss",
+    "vref": "vref",
+    "clk": "cmp_clk",
+    "inp": "vcm",
+    "inn": "top",
+    "outp": "cmp_out",
+    "outn": "cmp_out_n",
+}
+
+
 def terminals(n_bits: int = N_BITS) -> list[str]:
     """Every terminal, in declaration order, the bus expanded MSB first.
 
@@ -527,12 +559,9 @@ def subckt(
         # declared in this scope, and a definition outside it cannot see them.
         lines += [
             strongarm.subckt(latch, sampling.devices),
-            # Vcm on the terminal the latch calls its greater input: the
-            # controller is given a high `cmp_out` when the top plate sat
-            # *below* Vcm, and the latch raises the output on the side whose
-            # input won. The two conventions meet here, once, where both are
-            # known, rather than in the digital half or inside the latch.
-            f"Xcmp vdd vss vref cmp_clk vcm top cmp_out cmp_out_n {strongarm.NAME}",
+            f"{COMPARATOR} "
+            + " ".join(COMPARATOR_NETS[t] for t in strongarm.TERMINALS)
+            + f" {strongarm.NAME}",
             ".ends",
         ]
         return "\n".join(lines) + "\n"

@@ -359,13 +359,17 @@ diagrams:
 plots:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/plots.py
 
-## verify-schematic: the comparator sheet against the netlist the benches use
+#: The sheets and what each is held to: the comparator's against the netlist
+#: every bench builds, the block's against the netlist every closed loop ran.
+SHEET_TESTS = $(SIM_DIR)/tests/test_schematic.py $(SIM_DIR)/tests/test_top_sheet.py
+
+## verify-schematic: the sheets against the netlists the benches use
 ## 	seconds, and the only analog check that is: it is a parse and a netlist,
 ## 	no solver. Split out of verify-analog (which still runs it, being all of
 ## 	sim/) so that a sheet edited into the wrong circuit says so before the
 ## 	hour of simulation rather than inside it
 verify-schematic:
-	@$(PYTHON) -m pytest $(SIM_DIR)/tests/test_schematic.py $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS)
+	@$(PYTHON) -m pytest $(SHEET_TESTS) $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS)
 
 ## verify-analog: ngspice harness -- tests needing ngspice skip without it
 verify-analog:
