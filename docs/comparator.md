@@ -5,6 +5,12 @@ are capacitors, followed by a cross-coupled pair that regenerates whatever
 difference the first stage built. It compares the array's top plate against
 `vcm` and drives the two wires the controller reads.
 
+The circuit is `sim/strongarm.py`, which every bench here builds from, and
+`xschem/strongarm.sch`, which is that netlist drawn: generated from it and
+held to it by a test that netlists the sheet back and compares every device.
+The drawing a reviewer reads and the circuit the numbers below were measured
+on are therefore the same one, and the sheet is what LVS will be handed.
+
 The two halves do different jobs and only one of them is a design problem.
 Regeneration sets how long a decision takes and nothing else -- it is positive
 feedback on a difference that already exists, so it adds no noise worth

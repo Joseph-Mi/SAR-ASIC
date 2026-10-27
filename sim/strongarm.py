@@ -35,6 +35,22 @@ NAME = "strongarm"
 #: Terminals, in the order the subcircuit declares them.
 TERMINALS = ("vdd", "vss", "vref", "clk", "inp", "inn", "outp", "outn")
 
+#: Which way each terminal faces, which the symbol a schematic is drawn
+#: behind has to declare and the netlist itself does not say. The supplies
+#: carry current both ways, the latch's two wires leave, and everything else
+#: is driven from outside. Declared beside the terminals so a pin cannot be
+#: added to one and not the other.
+DIRECTIONS = {
+    "vdd": "inout",
+    "vss": "inout",
+    "vref": "in",
+    "clk": "in",
+    "inp": "in",
+    "inn": "in",
+    "outp": "out",
+    "outn": "out",
+}
+
 #: The integration nodes and the tail, named here because the measurements
 #: probe them: they are where the noise and offset of this circuit are made,
 #: and a bench that could not see them could not say which stage was at fault.

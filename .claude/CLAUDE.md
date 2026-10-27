@@ -392,7 +392,11 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   which `model/latch.py`'s offset law cannot be evaluated without -- measured
   through the same netlister the benches use, the way the capacitors' is.
 - **M6** — Cap array laid out (scripted), DRC clean.
-- **M7** — Comparator laid out, DRC/LVS clean.
+- **M7** — Comparator laid out, DRC/LVS clean. Its schematic is generated from
+  the netlist the benches are measured on (`make schematic` ->
+  `xschem/strongarm.sch` and its symbol), so what LVS is handed and what M5
+  measured cannot be two circuits; `sim/tests/test_schematic.py` netlists the
+  sheet back with the editor and compares it element by element.
 - **M8** — Digital hardened by LibreLane, macro + LEF fit the floorplan budget.
 - **M9** — Merged tile GDS, DRC/LVS against TT template, `info.yaml`, docs.
 
@@ -943,7 +947,18 @@ Lives entirely in the digital half, costs near-zero area:
 
 ## Repo conventions
 
-- Xschem `.sch`/`.sym` and Magic `.mag` are text — diff and merge normally.
+- Xschem `.sch`/`.sym` and Magic `.mag` are text — diff and merge normally,
+  and a sheet can therefore be generated and checked rather than only drawn.
+  Two things about writing one cost real time once. **The two FET symbols are
+  drawn opposite ways round**: `pfet_01v8.sym` keeps its drain where
+  `nfet_01v8.sym` keeps its source, so pin offsets taken from one flavour swap
+  the other's drain and source -- a circuit that is wrong and draws right, and
+  invisible without netlisting it back. Read each symbol's own `B` records.
+  **And the editor suppresses `m=1`** while emitting `m=3`, so an instance
+  that does not state its multiplier netlists without one; that multiplier is
+  what the parallel fingers of a device too wide for the models are made of,
+  the same quantity whose absence once read as a reference switch five hundred
+  times too small.
 - GDS is binary — gitignored and regenerated. LFS only for final submission.
 - `.gitignore` must cover `runs/`, `*.raw`, ngspice output dirs. Otherwise the
   first commit is a gigabyte of waveforms.

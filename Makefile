@@ -339,6 +339,12 @@ noise:
 offset:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/offset.py $(ARGS)
 
+## schematic: regenerate the comparator sheet and its symbol -- commit the diff
+## 	needs the editor and the PDK: it reads each device symbol's own pin
+## 	positions, which the two flavours do not agree on
+schematic:
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/schematic.py
+
 ## figures: draw every figure the model can produce, into build/
 figures: plots diagrams
 
@@ -406,4 +412,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop offset noise help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
+.PHONY: show-loop offset noise schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
