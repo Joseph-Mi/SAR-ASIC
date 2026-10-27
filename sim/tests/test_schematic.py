@@ -222,6 +222,12 @@ def test_regenerating_leaves_a_hand_drawn_sheet_alone(tmp_path, monkeypatch):
     reports success, and the arrangement is gone. So the refusal is asserted
     rather than documented, and so is the override, because a refusal with no
     way past it would be a reason to edit the generator instead.
+
+    What the drawing is stands in for itself, because what is under test is
+    the decision and not the generator: drawing the real sheet needs the PDK
+    and the editor's symbol libraries, which would confine a check against
+    losing a person's work to the one job that has them. It belongs in the
+    cheapest.
     """
     sheet, symbol = tmp_path / "strongarm.sch", tmp_path / "strongarm.sym"
     drawing = "v {hand drawn}\n"
@@ -230,14 +236,33 @@ def test_regenerating_leaves_a_hand_drawn_sheet_alone(tmp_path, monkeypatch):
     monkeypatch.setattr(schematic, "SYMBOL", symbol)
     monkeypatch.setattr(schematic, "PROPOSED", tmp_path / "build" / "strongarm.sch")
     monkeypatch.setattr(schematic, "ARRANGEMENT", "drawn")
+    monkeypatch.setattr(schematic, "sheet", lambda *a, **k: "v {generated}\n")
 
     assert schematic.main([]) == 0
     assert sheet.read_text() == drawing, "a regeneration overwrote the drawing"
-    assert (tmp_path / "build" / "strongarm.sch").exists(), "it did not say what it would write"
+    assert (tmp_path / "build" / "strongarm.sch").read_text() == schematic.sheet(), (
+        "it did not say what it would have written"
+    )
     assert symbol.read_text() == schematic.symbol(), "the symbol is generated in every stage"
 
     assert schematic.main(["--force"]) == 0
     assert sheet.read_text() == schematic.sheet(), "--force did not regenerate"
+
+
+def test_a_missing_sheet_is_generated_even_once_the_stage_is_drawn(tmp_path, monkeypatch):
+    """There is nothing to protect when the file is not there.
+
+    The bootstrap has to keep working after the stage has moved on, or a
+    fresh checkout of a sheet that someone forgot to commit has no way back.
+    """
+    sheet = tmp_path / "strongarm.sch"
+    monkeypatch.setattr(schematic, "SHEET", sheet)
+    monkeypatch.setattr(schematic, "SYMBOL", tmp_path / "strongarm.sym")
+    monkeypatch.setattr(schematic, "ARRANGEMENT", "drawn")
+    monkeypatch.setattr(schematic, "sheet", lambda *a, **k: "v {generated}\n")
+
+    assert schematic.main([]) == 0
+    assert sheet.read_text() == schematic.sheet()
 
 
 def test_the_symbol_declares_exactly_the_subcircuit():
