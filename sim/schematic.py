@@ -40,6 +40,7 @@ from __future__ import annotations
 import pathlib
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 
@@ -120,6 +121,53 @@ PORT = {"in": "ipin.sym", "out": "opin.sym", "inout": "iopin.sym"}
 
 #: An ideal capacitor, which is what the netlist says these are.
 CAPACITOR = "capa.sym"
+
+
+#: Where the editor writes a netlist: beside the sheet, which is what
+#: `xschemrc` sets so that there is one copy of it and not two.
+NETLIST_DIR = "simulation"
+
+
+def netlist(sheet: str, workdir: pathlib.Path) -> str:
+    """One of this repository's sheets, as the editor itself netlists it.
+
+    The way a drawing is checked: the editor is the only thing that knows what
+    a sheet means -- which wires touch, which labels name a net, which way a
+    mirrored symbol's pins went -- so the check reads its answer rather than
+    reimplementing it.
+
+    Netlisted from a copy in `workdir`, because the editor writes its output
+    beside the sheet and a check must not rewrite what is committed nor
+    collide with another run. The whole directory is copied, not just the
+    sheet: a sheet descends into the sheets of the symbols it instantiates,
+    and a missing one netlists as an empty subcircuit rather than an error.
+
+    The exit status is read only for the message it carries when no file was
+    written. A non-zero one does not mean the netlist is bad: the editor
+    returns 10 when it found a net with nothing driving it, which is a real
+    finding and one an unfinished sheet has by construction -- the block's
+    top plate floats until the array is drawn, and the netlist beside it is
+    correct and complete. Measured by giving that net a driver, which takes
+    the same sheet to zero. Whether a net floats is therefore asserted from
+    the netlist, where the test can say *which* one, rather than from a
+    status that says only that one does.
+    """
+    for source in SHEET_DIR.iterdir():
+        if source.is_file():
+            shutil.copy(source, workdir / source.name)
+    done = subprocess.run(
+        ["xschem", "-b", "-n", "-q", "--rcfile", "./xschemrc", sheet],
+        cwd=workdir,
+        capture_output=True,
+        text=True,
+    )
+    produced = workdir / NETLIST_DIR / f"{pathlib.Path(sheet).stem}.spice"
+    if not produced.exists():
+        raise FileNotFoundError(
+            f"the editor netlisted {sheet} nowhere this can find "
+            f"(exit {done.returncode}): {done.stderr.strip() or done.stdout.strip()}"
+        )
+    return produced.read_text()
 
 
 def symbol_for(model: str) -> str:

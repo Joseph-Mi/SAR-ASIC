@@ -418,6 +418,17 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   symbol deleted from a sheet does not show up in the element comparison**,
   because the net keeps its name from the wire it was drawn on, so the sheet's
   own port list is asserted separately.
+  The tile's own sheet, `xschem/sar_analog.sch`, is drawn by hand -- above the
+  device level a sheet is a block diagram, and a block diagram is a drawing --
+  and held to `sim/analog.py` the same way: netlisted back and compared. It
+  carries the comparator so far, with the array, the switches and the phase
+  generator arriving as each is laid out, so its tests check the boundary,
+  whatever is drawn, and which nets still float. The comparator's wiring lives
+  in `analog.COMPARATOR_NETS` because the sheet and the bench both need it and
+  a drawing cannot be diffed against a string: the latch's terminals are not
+  symmetric (`inp` is Vcm, `inn` the top plate, which is what makes a high
+  `cmp_out` mean the plate sat *below* Vcm), so swapping the pair draws a sheet
+  that looks right and inverts every decision the converter makes.
 - **M8** — Digital hardened by LibreLane, macro + LEF fit the floorplan budget.
 - **M9** — Merged tile GDS, DRC/LVS against TT template, `info.yaml`, docs.
 
@@ -763,6 +774,20 @@ wires is written down twice: the interface module declares them, the symbol is
 drawn to match, and a test fails when the two disagree. Freeze the `.sym`
 around this and the two halves decouple.
 
+**The order of the terminals is part of the freeze, and was not at first.**
+The reasoning for leaving it out was that consumers wire by name; a SPICE
+subcircuit instance does not, it wires by position, and a symbol's port order
+is the order of its pin records -- which a person drawing one assigns by where
+the pins looked best. So `sar_analog.sym` published `dac_b[9:0] cmp_out sample
+cmp_out_n vdd cmp_clk vss ...` against `analog.terminals()`'s `dac_b[9:0]
+sample cmp_clk force_en force_hi cmp_out ...`, and an instance of it tied the
+strobe to the sampling phase and a supply to an output. Nothing failed,
+because both agreed on the set and the test compared sets. `interface.PORTS`
+is now the one order, the symbol's records are in it, and the test is ordered.
+Where a pin sits on the symbol stays free -- that is the lesson both times
+this bit: the side is a drawing choice, the order is electrical, and tying
+one to the other is what made a correct-looking symbol wrong.
+
 ---
 
 ## Key numbers
@@ -980,6 +1005,20 @@ Lives entirely in the digital half, costs near-zero area:
   what the parallel fingers of a device too wide for the models are made of,
   the same quantity whose absence once read as a reference switch five hundred
   times too small.
+  **An instance's name is written through verbatim**, and a SPICE subcircuit
+  call is spelled with a leading X -- which is why the editor's own default
+  instance name is `x1`. A block named `cmp` on a sheet netlists to a line
+  beginning `cmp`, which is not a call and not an element any simulator
+  knows, and the sheet looks right.
+  **And the editor runs an electrical rule check of its own**: `xschem -b -n
+  -q` exits 10 when a net has nothing driving it and 0 otherwise, measured
+  by giving one such net a driver and watching the same sheet go to zero. It
+  is a flag and not a count, so it says that something floats and never
+  which thing -- the netlist is still written and still correct. Worth
+  knowing because an unfinished sheet has the condition by construction, so
+  the status cannot be a gate until the block is whole; `sim/tests/
+  test_top_sheet.py` asserts which nets float instead, from the netlist,
+  which is a check that tightens by itself as blocks are drawn.
 - GDS is binary — gitignored and regenerated. LFS only for final submission.
 - `.gitignore` must cover `runs/`, `*.raw`, ngspice output dirs. Otherwise the
   first commit is a gigabyte of waveforms.

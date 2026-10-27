@@ -71,11 +71,22 @@ ANALOG_ONLY = (
     Port("vss", "inout"),
 )
 
-#: Every terminal. What is frozen is the set, each name, each direction and
-#: each width -- not the order, which the symbol editor assigns from geometry
-#: and which a netlister then reports. Consumers wire by name and take the
-#: order from whatever they are reading: a subcircuit wired by position against
-#: a differently ordered declaration is miswired without complaint.
+#: Every terminal, and the order is part of the freeze.
+#:
+#: It was not, and the reasoning for leaving it out was that consumers wire by
+#: name. A SPICE subcircuit instance does not: it wires by position, and the
+#: symbol is there to be instantiated. The editor assigns a symbol's port
+#: order from the order of its pin records, which a person drawing one assigns
+#: by where the pins looked best -- so the committed symbol published
+#: `dac_b[9:0] cmp_out sample cmp_out_n vdd cmp_clk vss ...` against the
+#: netlist's `dac_b[9:0] sample cmp_clk force_en force_hi cmp_out ...`, and an
+#: instance of it tied the strobe to the sampling phase and a supply to an
+#: output. Nothing failed, because the two agreed on the set and the test
+#: compared sets.
+#:
+#: So this order is the one order, the symbol's records are in it, a test
+#: holds them to it, and the bus expands most significant bit first the way
+#: the editor expands a range. Where a pin sits on the symbol stays free.
 PORTS = TO_ANALOG + TO_DIGITAL + ANALOG_ONLY
 
 

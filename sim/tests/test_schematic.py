@@ -32,10 +32,6 @@ from devices import Sky130, pdk_library
 needs_xschem = pytest.mark.skipif(shutil.which("xschem") is None, reason="xschem not on PATH")
 needs_pdk = pytest.mark.skipif(not pdk_library().exists(), reason="sky130 model library not found")
 
-#: The editor writes its netlist beside the sheet, which is what `xschemrc`
-#: sets it to do so that there is one copy of it and not two.
-NETLIST_DIR = "simulation"
-
 #: A continued line in a SPICE netlist. The editor wraps at a width of its
 #: own choosing, so a parse that reads lines has to undo that first.
 CONTINUED = re.compile(r"\n\+\s*")
@@ -100,26 +96,10 @@ def elements(netlist: str) -> dict[str, tuple]:
 
 @pytest.fixture(scope="module")
 def netlisted(tmp_path_factory) -> str:
-    """The committed sheet as the editor netlists it.
-
-    Netlisted from a copy, so a test run never rewrites what is committed and
-    two runs at once cannot land on the same output file.
-    """
+    """The committed sheet as the editor netlists it."""
     if not schematic.SHEET.exists():
         pytest.skip(f"{schematic.SHEET.name} not generated yet")
-    workdir = tmp_path_factory.mktemp("sheet")
-    for name in (schematic.SHEET.name, schematic.SYMBOL.name, "xschemrc"):
-        shutil.copy(schematic.SHEET_DIR / name, workdir / name)
-    subprocess.run(
-        ["xschem", "-b", "-n", "-q", "--rcfile", "./xschemrc", schematic.SHEET.name],
-        cwd=workdir,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    produced = workdir / NETLIST_DIR / f"{schematic.SHEET.stem}.spice"
-    assert produced.exists(), "the editor netlisted the sheet somewhere else"
-    return produced.read_text()
+    return schematic.netlist(schematic.SHEET.name, tmp_path_factory.mktemp("sheet"))
 
 
 @pytest.fixture(scope="module")
