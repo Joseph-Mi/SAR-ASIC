@@ -119,6 +119,10 @@ PIN = re.compile(
     re.M,
 )
 
+#: A continued line in a SPICE netlist. The editor wraps at a width of its
+#: own choosing, so a parse that reads lines has to undo that first.
+CONTINUED = re.compile(r"\n\+\s*")
+
 #: The editor's own symbols: a net name, and the three kinds of port.
 LABEL = "lab_pin.sym"
 PORT = {"in": "ipin.sym", "out": "opin.sym", "inout": "iopin.sym"}
@@ -289,6 +293,57 @@ def calls(netlist: str) -> dict[str, Call]:
             nets=dict(zip(names, nets, strict=True)),
             parameters=_parameters(call["params"]),
         )
+    return found
+
+
+#: Significant figures a netlist carries a geometry to. Numbers are compared
+#: at that precision rather than exactly: `devices.Sky130` formats to six
+#: figures and the editor evaluates the symbol's own expressions from the
+#: width and length it was given, so the two agree on every value and need not
+#: agree on how it is spelled. Finer than the netlist is written would be
+#: comparing the formatting.
+FIGURES = 6
+
+#: What a device multiplier means when a netlist does not state one. The
+#: editor writes a multiplier that is not one and suppresses one that is,
+#: because one copy is what an instance means on its own; the netlister always
+#: states it. So both sides are read against the same default, and a wide
+#: device built out of several copies still has to say so on both.
+COPIES, ONE = "m", "1"
+
+
+def _number(text: str) -> float:
+    """One value, at the precision the netlist carries it to."""
+    return float(f"{float(text):.{FIGURES}g}")
+
+
+def compared(netlist: str) -> dict[str, tuple]:
+    """Every element of a subcircuit as values, keyed by name.
+
+    What "the same circuit" means, in one place, because three sheets are
+    held to their netlists and three definitions of sameness is how two of
+    them end up checked to different standards. A device becomes its model,
+    its terminals in the order they are written, and its geometry as numbers;
+    an ideal capacitor its plates and its value. What is compared is then the
+    circuit and not the two tools' formatting.
+    """
+    found: dict[str, tuple] = {}
+    # The continuations first: the editor wraps a device line at a width of
+    # its own, and a parse that reads lines reads a truncated geometry
+    # without noticing -- which comes out as every device differing, not as
+    # an error.
+    netlist = CONTINUED.sub(" ", netlist)
+    for name, call in calls(netlist).items():
+        geometry = dict(call.parameters)
+        geometry.setdefault(COPIES, ONE)
+        found[name] = (
+            call.model,
+            tuple(call.nets.values()),
+            {key: _number(value) for key, value in geometry.items()},
+        )
+    for line in CONTINUED.sub(" ", netlist).splitlines():
+        if (cap := CAP.match(line)) is not None:
+            found[f"C{cap['name']}"] = ((cap["plus"], cap["minus"]), _number(cap["value"]))
     return found
 
 

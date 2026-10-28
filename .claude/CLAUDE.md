@@ -123,6 +123,15 @@ already sealed it lands on bottom plates that are about to be driven to
 VREF/GND anyway, so it never reaches the sample. Measured (Step 4c): top first
 leaves ~0.1 LSB that varies with Vin; together ~0.9; bottoms first ~1.7.
 
+The generator is drawn (`xschem/phase_gen.sch`, `sim/phase_gen.py`): a logic
+sheet, every gate a stack, the lines between gates carried by name, because
+what a reader needs from it is which line each gate watches. It is generated
+from `analog.generator_devices` and netlisted back against it, and the
+arrangement names where each gate goes and never what is in one -- the gates
+are read out of the netlist by the names `_inverter`, `_nor`, `_buffer` and
+the detectors give their devices, so a gate that gains a transistor gains it
+on the page and a gate the drawing places and the circuit does not is refused.
+
 How the generator guarantees the order: three NOR gates, two of them
 cross-coupled. phi_top (top switch) follows `sample`. phi_bot (input switches)
 = NOR(NOR(sample, top_still_on), conv_still_on): it cannot fall until the top
@@ -434,8 +443,8 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   The tile's own sheet, `xschem/sar_analog.sch`, is drawn by hand -- above the
   device level a sheet is a block diagram, and a block diagram is a drawing --
   and held to `sim/analog.py` the same way: netlisted back and compared. It
-  carries the comparator and the array so far, with the switches and the phase
-  generator arriving as each is laid out, so its tests check the boundary,
+  carries the comparator, the array and the phase generator so far, with the
+  switches arriving as they are laid out, so its tests check the boundary,
   whatever is drawn, and which nets still float -- a check that tightens by
   itself, since the top plate stopped floating the moment the array arrived
   and the bottom plates took its place. Each block is held twice: once here,
@@ -1134,6 +1143,17 @@ Lives entirely in the digital half, costs near-zero area:
   copy of the symbol kept here, which would quietly stop matching the PDK.
   The cost is that the format is now something a hand edit can delete, which
   the netlist comparison catches on the next run.
+  **A name drawn on a stub can land on the neighbour's pin.** The generator's
+  sheet first drew each gate's input name on a short wire out to its gate
+  pin, which is what a person draws; between the parallel legs of a NOR that
+  stub reached one leg-pitch left, onto the neighbour's body tie, and the two
+  nets merged. It netlisted a NOR whose second input was the ground rail --
+  a gate that can never go high, so the phase it guards was free to move
+  whatever the line it waits on was doing, which is the one property that
+  circuit exists to have. The page looked right; `xschem -b -n -q` said only
+  that *something* floated. Names now sit on their pins. The general form is
+  asserted instead of the instance: in that block nothing is tied off, so a
+  gate on a rail is always a mistake (`test_no_gate_is_held_at_a_rail`).
   **A PDK capacitor's `c0` is its upper plate** -- the straight plate on the
   symbol, against the curved one, and the plate magic extracts first (`device
   csubcircuit sky130_fd_pr__cap_mim_m3_1 *mimcap *m3`). So the array's
