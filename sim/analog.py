@@ -381,6 +381,20 @@ COMPARATOR_NETS = {
     "outn": "cmp_out_n",
 }
 
+#: The capacitor array as a block: the name of its own subcircuit, and the
+#: name the tile's sheet gives the one instance of it.
+#:
+#: A block and not eleven capacitors on the tile's sheet, because above the
+#: device level that sheet is a block diagram -- the switches and the phase
+#: generator arrive as blocks for the same reason. There is no table of which
+#: net each terminal carries, unlike the comparator's above: the array's
+#: terminals are named after the nets they carry, every one of them, because
+#: those nets exist for the array and nothing else connects them. The sheet's
+#: instance is held to `array_terminals()` directly, which is the stronger
+#: check of the two -- a table can be written to agree with a mistake.
+ARRAY_NAME = "cap_array"
+ARRAY = "Xarray"
+
 
 def terminals(n_bits: int = N_BITS) -> list[str]:
     """Every terminal, in declaration order, the bus expanded MSB first.
@@ -402,10 +416,71 @@ def branch_multipliers(n_bits: int = N_BITS) -> list[int]:
     return [2**k for k in range(n_bits)] + [1]
 
 
+def branch_tags(n_bits: int = N_BITS) -> list[str]:
+    """What each branch is called, in the same order, the dummy last.
+
+    The branch's index for the weighted ones, because that index is the bit
+    that drives it, and a letter for the dummy, which no bit drives.
+    """
+    return [str(k) for k in range(n_bits)] + ["d"]
+
+
+def array_terminals(n_bits: int = N_BITS) -> list[str]:
+    """The array block's own boundary: the top plate, then every bottom.
+
+    Frozen in this order for the reason the block's own terminals are
+    (`interface.PORTS`): a symbol's port order is the order of its pin
+    records, and a SPICE instance wires by position, so an array symbol whose
+    records were laid out by where the pins looked best would wire a branch
+    to its neighbour's switch and draw correctly while doing it.
+
+    The top plate first because it is the one terminal the array has that is
+    not a branch, and then the bottoms by weight, LSB first, which is the
+    order `branch_multipliers` counts them in and the order the bits are
+    numbered in.
+    """
+    return ["top"] + [f"b{tag}" for tag in branch_tags(n_bits)]
+
+
 def _capacitor(name: str, top: str, bottom: str, units: int, unit) -> str:
     if isinstance(unit, Ideal):
         return f"C{name} {top} {bottom} {unit.farads * units:.6e}"
-    return f"X{name} {top} {bottom} {sky130.MIM} w={unit.side:.6g} l={unit.side:.6g} m={units}"
+    # `mult` as well as `m`, and the two kept equal, for the reason the
+    # transistors carry both (`devices.Sky130._instance`): `m` is SPICE's
+    # own multiplier and makes the copies, while the PDK's wrapper divides
+    # its mismatch term by sqrt(w*l*mult) and so needs telling how many
+    # units the branch is. With `m` alone a branch of 1024 units reports one
+    # unit's matching -- measured, 0.22 % against the 0.05 % that 16 drawn
+    # units give -- because the whole branch is then one draw of a unit's
+    # spread. Nothing committed reads it today, since `mc_mm_switch` is off
+    # by default and the array's matching study is done in `model/`, which is
+    # exactly what makes it worth stating here rather than discovering it in
+    # the first circuit-level Monte Carlo of the array.
+    return (
+        f"X{name} {top} {bottom} {sky130.MIM} "
+        f"w={unit.side:.6g} l={unit.side:.6g} mult={units} m={units}"
+    )
+
+
+def array_capacitors(n_bits: int = N_BITS, unit: Ideal | Mim | None = None) -> list[str]:
+    """The array itself, one element per branch, in `branch_tags` order.
+
+    Here rather than inside `subckt` because the array's schematic sheet is
+    held to these very lines: the sheet is netlisted back and compared
+    element by element, so what it is compared against had better be what
+    every bench simulates rather than a second statement of the same thing.
+
+    One element per branch and not one per unit. A branch of 2^k units is 2^k
+    identical capacitors in parallel, which is what `m` says, and that is
+    also what a schematic says -- the drawing carries the ratio, and which
+    1024 pieces build the largest branch is the layout's business. The
+    matching that depends on there being 1024 of them is carried by `mult`.
+    """
+    unit = DEFAULT_UNIT if unit is None else unit
+    return [
+        _capacitor(f"u{tag}", "top", f"b{tag}", units, unit)
+        for tag, units in zip(branch_tags(n_bits), branch_multipliers(n_bits), strict=True)
+    ]
 
 
 def subckt(
@@ -500,16 +575,17 @@ def subckt(
         lines.append(dev.nmos("top", "top", "phi_top", "vcm", "vss", sw.w_top, sw.length))
     lines.append(f"Bc_cnv c_cnv vss V = {converting}")
 
+    capacitors = array_capacitors(n_bits, unit)
     for k, units in enumerate(branch_multipliers(n_bits)):
         is_dummy = k == n_bits
-        tag = "d" if is_dummy else str(k)
+        tag = branch_tags(n_bits)[k]
         bottom = f"b{tag}"
         model = f"sw_b{tag}"
         lines.append(
             f".model {model} sw vt={SWITCH_VT} vh={SWITCH_VH} "
             f"ron={ron_unit / units:.9g} roff={IDEAL_ROFF}"
         )
-        lines.append(_capacitor(f"u{tag}", "top", bottom, units, unit))
+        lines.append(capacitors[k])
         if sampling is None:
             lines.append(f"S_in{tag} {bottom} vs c_smp vss {model}")
         else:

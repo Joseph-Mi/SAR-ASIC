@@ -397,6 +397,14 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   square, because a square one plus its dummy ring does not fit the strip. The
   two numbers every pitch comes in are the grouped and interleaved placements,
   and choosing between them is this milestone's work, not the rules'.
+  Its schematic is drawn and held to the netlist the same way the
+  comparator's is (`xschem/cap_array.sch`, `sim/cap_array.py`,
+  `sim/tests/test_cap_array.py`): eleven elements, one per branch, each
+  carrying the units in it as a multiplier. One per branch and not one per
+  unit on purpose -- a schematic's job here is the ratio, and which 1024
+  pieces build the array and where each sits is this milestone's, scripted.
+  So the sheet is what LVS is handed and the placement is what DRC checks,
+  and they are different documents answering different questions.
 - **M7** — Comparator laid out, DRC/LVS clean. Its schematic was generated
   from the netlist the benches are measured on (`make schematic` ->
   `xschem/strongarm.sch` and its symbol), so what LVS is handed and what M5
@@ -426,14 +434,25 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   The tile's own sheet, `xschem/sar_analog.sch`, is drawn by hand -- above the
   device level a sheet is a block diagram, and a block diagram is a drawing --
   and held to `sim/analog.py` the same way: netlisted back and compared. It
-  carries the comparator so far, with the array, the switches and the phase
+  carries the comparator and the array so far, with the switches and the phase
   generator arriving as each is laid out, so its tests check the boundary,
-  whatever is drawn, and which nets still float. The comparator's wiring lives
+  whatever is drawn, and which nets still float -- a check that tightens by
+  itself, since the top plate stopped floating the moment the array arrived
+  and the bottom plates took its place. Each block is held twice: once here,
+  where the instance's wiring is compared against the netlist, and once on
+  its own sheet, where every device in it is. An instance of the right symbol
+  wired to the right nets is therefore the measured circuit whatever is inside
+  it. The comparator's wiring lives
   in `analog.COMPARATOR_NETS` because the sheet and the bench both need it and
   a drawing cannot be diffed against a string: the latch's terminals are not
   symmetric (`inp` is Vcm, `inn` the top plate, which is what makes a high
   `cmp_out` mean the plate sat *below* Vcm), so swapping the pair draws a sheet
-  that looks right and inverts every decision the converter makes.
+  that looks right and inverts every decision the converter makes. The array
+  needs no such table and is not given one: its terminals are named after the
+  nets they carry (`analog.array_terminals`, frozen in that order for the
+  reason the block's own ports are), so the sheet is held to the order
+  directly, which a table cannot be -- a table can be written to agree with a
+  mistake.
 - **M8** — Digital hardened by LibreLane, macro + LEF fit the floorplan budget.
 - **M9** — Merged tile GDS, DRC/LVS against TT template, `info.yaml`, docs.
 
@@ -847,6 +866,31 @@ nothing about the number looks wrong.
 shows exactly zero spread and invites a different wrong conclusion. Both traps
 cost real time once.
 
+**And a branch has to say how many units it is, twice, in two spellings.** The
+MiM's model takes `mult` and divides its mismatch term by `sqrt(w*l*mult)`;
+SPICE's own `m` makes the copies. With `m` alone the capacitance is right and
+the matching is one unit's -- the whole branch is a single draw of a unit's
+spread. Measured at sixteen units: `m=16` alone 0.20 %, `m=16 mult=16`
+0.051 %, sixteen separately drawn instances 0.057 %, one unit 0.21 %. So a
+circuit-level Monte Carlo of an array netlisted with `m` alone reports it
+matching a power of two worse than it does, and nothing about the run looks
+wrong. `sim/analog.py` emits both; `sim/tests/test_mim.py` measures all four
+constructions and `sim/tests/test_analog.py` holds the netlist to it. It is
+the same defect the transistors had when a 512-unit switch netlisted as one
+(M3 Step 6), which is why the pair is now checked for both device kinds.
+
+**The PDK's own capacitor symbol cannot state it.** `cap_mim_m3_1.sym` emits
+`MF=@MF`, and `MF` is a parameter its model does not read -- so a MiM drawn in
+xschem reports one unit's matching however many units the page says it is. The
+transistor symbols beside it in the same library get this right (`mult=@mult
+m=@mult`), which is how it was noticed. What makes it fixable without keeping
+a copy of a PDK symbol here to rot: **an instance's own `format` attribute
+overrides its symbol's**, measured by netlisting one of each side by side.
+`sim/cap_array.py` puts the corrected format on each branch and
+`sim/tests/test_cap_array.py` asserts both ends of it -- that the sheet
+netlists `mult`, and that the PDK's symbol still does not, so a PDK bump that
+fixes it says so.
+
 **And the drawing rules are shipped three times, which is worse.** The tree
 carries `klayout/drc/sky130A.lydrc`, `klayout/drc/sky130A_mr.drc` and
 `magic/sky130A.tech`, and `sak-drc.sh` -- our own DRC script -- runs the second
@@ -1083,6 +1127,18 @@ Lives entirely in the digital half, costs near-zero area:
   instance name is `x1`. A block named `cmp` on a sheet netlists to a line
   beginning `cmp`, which is not a call and not an element any simulator
   knows, and the sheet looks right.
+  **An instance may carry a `format` of its own, and it overrides its
+  symbol's**, measured by netlisting one of each side by side. That is the
+  way out when a PDK symbol's format is wrong -- the MiM's emits `MF=`, a
+  parameter its own model does not read -- and it is better than a corrected
+  copy of the symbol kept here, which would quietly stop matching the PDK.
+  The cost is that the format is now something a hand edit can delete, which
+  the netlist comparison catches on the next run.
+  **A PDK capacitor's `c0` is its upper plate** -- the straight plate on the
+  symbol, against the curved one, and the plate magic extracts first (`device
+  csubcircuit sky130_fd_pr__cap_mim_m3_1 *mimcap *m3`). So the array's
+  floating top plate belongs on `c0`, which is DD-13's shielding the way
+  round LVS will see it, and a sheet with the two swapped draws identically.
   **And the editor runs an electrical rule check of its own**: `xschem -b -n
   -q` exits 10 when a net has nothing driving it and 0 otherwise, measured
   by giving one such net a driver and watching the same sheet go to zero. It

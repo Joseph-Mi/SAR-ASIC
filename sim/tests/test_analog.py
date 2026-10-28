@@ -96,6 +96,35 @@ def test_a_mim_unit_is_the_smallest_drawable_square():
     assert len(re.findall(rf"^Xu\w+ top \S+ {sky130.MIM} ", text, re.M)) == N_BITS + 1
 
 
+def test_every_mim_branch_states_the_units_its_matching_depends_on():
+    """`mult` as well as `m`, and the two equal, on every branch.
+
+    Two different multipliers with one job each. `m` is SPICE's own and makes
+    the copies, so the capacitance is right with it alone. `mult` is the PDK
+    wrapper's, and all it does is divide the mismatch term by the square root
+    of the area times it -- so a branch that states only `m` is 2^k copies of
+    a device that believes it is one unit, and reports one unit's matching
+    spread for the whole branch. Measured: sixteen units as `m=16` alone
+    spread 0.20 %, as `m=16 mult=16` spread 0.051 %, and as sixteen drawn
+    instances 0.057 %, against one unit's 0.21 %. It is the same defect the
+    transistors had when a 512-unit switch netlisted as one.
+    """
+    text = analog.subckt(N_BITS, analog.Mim())
+    stated = re.findall(r"^Xu\w+ top \S+ \S+ .*?mult=(\d+) m=(\d+)$", text, re.M)
+    assert [int(mult) for mult, _ in stated] == analog.branch_multipliers(N_BITS)
+    assert all(mult == m for mult, m in stated), stated
+
+
+def test_the_arrays_elements_are_the_ones_the_sheet_is_held_to():
+    """`array_capacitors` is what the array's drawing is compared against, so
+    it has to be the very lines the block is simulated with and not a second
+    statement of them."""
+    unit = analog.Mim()
+    inside = analog.subckt(N_BITS, unit).splitlines()
+    for line in analog.array_capacitors(N_BITS, unit):
+        assert line in inside
+
+
 def test_a_bench_must_start_by_sampling():
     with pytest.raises(ValueError):
         bench.deck(Bench([Phase(sample=0)]))

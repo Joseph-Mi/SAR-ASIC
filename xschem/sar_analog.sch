@@ -6,7 +6,7 @@ S {}
 F {}
 E {}
 T {sar_analog -- the analog tile, as the digital half sees it.} -600 -340 0 0 0.4 0.4 {}
-T {Drawn: the comparator. Not yet drawn: the capacitor array, the sampling
+T {Drawn: the comparator and the capacitor array. Not yet drawn: the sampling
 and conversion switches, and the phase generator. Their netlists are in
 sim/analog.py and they arrive on the sheet as each one is laid out.
 The ports below are the frozen interface (reference/interface.py) and are
@@ -38,4 +38,16 @@ C {lab_pin.sym} -30 10 0 0 {name=l2 lab=vcm}
 C {lab_pin.sym} -180 30 0 0 {name=l3 lab=top}
 C {lab_pin.sym} 430 -30 0 0 {name=l4 lab=vdd}
 C {lab_pin.sym} 430 -10 0 0 {name=l5 lab=vss}
-T {the array's top plate} -180 60 0 0 0.25 0.25 {}
+C {cap_array.sym} -330 30 0 0 {name=Xarray}
+C {lab_pin.sym} -480 -70 0 0 {name=la0 lab=b0}
+C {lab_pin.sym} -480 -50 0 0 {name=la1 lab=b1}
+C {lab_pin.sym} -480 -30 0 0 {name=la2 lab=b2}
+C {lab_pin.sym} -480 -10 0 0 {name=la3 lab=b3}
+C {lab_pin.sym} -480 10 0 0 {name=la4 lab=b4}
+C {lab_pin.sym} -480 30 0 0 {name=la5 lab=b5}
+C {lab_pin.sym} -480 50 0 0 {name=la6 lab=b6}
+C {lab_pin.sym} -480 70 0 0 {name=la7 lab=b7}
+C {lab_pin.sym} -480 90 0 0 {name=la8 lab=b8}
+C {lab_pin.sym} -480 110 0 0 {name=la9 lab=b9}
+C {lab_pin.sym} -480 130 0 0 {name=la10 lab=bd}
+T {bottom plates, waiting for their switches} -480 170 0 0 0.25 0.25 {}

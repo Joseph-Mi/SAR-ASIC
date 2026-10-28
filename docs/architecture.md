@@ -46,8 +46,13 @@ their committed baselines, and the plots. A study is run, not imported;
 nothing depends on one.
 
 **`sim/`** -- the analog block as a generated netlist, the benches that drive
-it, the Verilog co-simulation that closes the loop, and the measurements the
-tests make of it. It imports the model for its expectations and the reference
+it, the Verilog co-simulation that closes the loop, the schematic sheets
+generated from those netlists, and the measurements the tests make of all of
+it. The sheets sit here rather than in a layer of their own because a sheet is
+checked by netlisting it back and comparing it against the netlist the benches
+simulate, so drawing one and running one are the same layer's work: `sheet.py`
+is the editor's vocabulary and knows no circuit, and `schematic.py` and
+`cap_array.py` each hold one circuit's arrangement. It imports the model for its expectations and the reference
 for its interface. A measurement too slow to take on every run is swept here
 and its baseline committed beside the code that draws it, the same way a study
 commits one: the sweep belongs to whichever layer can run the thing being

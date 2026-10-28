@@ -339,14 +339,15 @@ noise:
 offset:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/offset.py $(ARGS)
 
-## schematic: regenerate the comparator symbol, and the sheet if it is still
-## 	generated -- commit the diff. The sheet is drawn by hand from
-## 	schematic.ARRANGEMENT onward, so this leaves it alone and writes what it
-## 	would have produced to build/ instead; FORCE=--force throws the drawing
-## 	away. Needs the editor and the PDK: it reads each device symbol's own pin
-## 	positions, which the two flavours do not agree on
+## schematic: regenerate each generated symbol, and each sheet that is still
+## 	generated -- commit the diff. A sheet is drawn by hand from its module's
+## 	ARRANGEMENT onward, so this leaves those alone and writes what it would
+## 	have produced to build/ instead; FORCE=--force throws the drawing away.
+## 	Needs the editor and the PDK: it reads each device symbol's own pin
+## 	positions, which the two FET flavours do not agree on
 schematic:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/schematic.py $(FORCE)
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/cap_array.py $(FORCE)
 
 ## figures: draw every figure the model can produce, into build/
 figures: plots diagrams
@@ -360,8 +361,10 @@ plots:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/plots.py
 
 #: The sheets and what each is held to: the comparator's against the netlist
-#: every bench builds, the block's against the netlist every closed loop ran.
-SHEET_TESTS = $(SIM_DIR)/tests/test_schematic.py $(SIM_DIR)/tests/test_top_sheet.py
+#: every bench builds, the array's against the netlist every closed loop ran,
+#: and the tile's against both of theirs.
+SHEET_TESTS = $(SIM_DIR)/tests/test_schematic.py $(SIM_DIR)/tests/test_cap_array.py \
+	$(SIM_DIR)/tests/test_top_sheet.py
 
 ## verify-schematic: the sheets against the netlists the benches use
 ## 	seconds, and the only analog check that is: it is a parse and a netlist,
