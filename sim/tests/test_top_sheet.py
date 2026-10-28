@@ -210,6 +210,25 @@ def test_the_array_on_the_sheet_is_the_arrays_own_sheet(netlisted):
 
 
 @needs_xschem
+def test_the_generator_is_wired_the_way_the_benches_are(netlisted):
+    """Every terminal of the phase generator, against the order it declares.
+
+    No table here either, for the array's reason: the phases are named after
+    the switches they drive and nothing else makes them. The order is what
+    matters and is what is checked -- the outputs differ only in which
+    switches they let go of, so a symbol wired a place out hands the input
+    switches the conversion phase and draws correctly.
+    """
+    assert instance(netlisted, analog.GENERATOR) == analog.generator_terminals()
+
+
+@needs_xschem
+def test_the_generator_on_the_sheet_is_the_generators_own_sheet(netlisted):
+    """The instance resolves to the drawing that is held to the netlist."""
+    assert netlisted.count(f".subckt {analog.GENERATOR_NAME} ") == 1
+
+
+@needs_xschem
 def test_nothing_floats_but_the_switches_that_are_not_drawn_yet(netlisted):
     """Every internal net reaches something at both ends, or is named here.
 
@@ -221,19 +240,21 @@ def test_nothing_floats_but_the_switches_that_are_not_drawn_yet(netlisted):
     itself, because a net stops being listed the moment something else on the
     sheet connects to it.
 
-    What is left are the array's bottom plates, which reach their branch and
-    nothing else until the sampling and conversion switches are drawn. The
-    top plate is no longer among them: it was, until the array arrived on the
-    sheet, which is this check tightening by itself as blocks are drawn. When
-    the switches are drawn this set is empty and that is the assertion to
-    leave behind.
+    What is left are the two halves of the switches that are missing: the
+    array's bottom plates, which reach their branch and nothing else, and the
+    phases, which reach the generator that makes them and nothing they drive.
+    The top plate is no longer among them, and neither is `sample`, which is
+    this check tightening by itself as blocks arrive. When the switches are
+    drawn this set is empty and that is the assertion to leave behind.
     """
     once = {
         net
         for net, count in _connections(netlisted).items()
         if count == 1 and net not in _ports(netlisted)
     }
-    assert once == set(analog.array_terminals()) - {analog.COMPARATOR_NETS["inn"]}
+    plates = set(analog.array_terminals()) - {analog.COMPARATOR_NETS["inn"]}
+    phases = set(analog.generator_terminals()) - {"vdd", "vss", "sample"}
+    assert once == plates | phases
 
 
 @needs_xschem
@@ -245,7 +266,7 @@ def test_every_terminal_the_block_declares_is_a_net_or_waits_for_its_block(netli
     touches yet are listed by name: each belongs to a block that is not drawn,
     and a name appearing here that is not in that list is a mistake.
     """
-    waiting = {"dac_b", "sample", "force_en", "force_hi", "vin"}
+    waiting = {"dac_b", "force_en", "force_hi", "vin"}
     connected = set(_connections(netlisted))
     loose = {port for port in _ports(netlisted) if port not in connected}
     assert {port.split("[")[0] for port in loose} == waiting

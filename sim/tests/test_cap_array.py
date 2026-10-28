@@ -36,35 +36,12 @@ from devices import pdk_library
 needs_xschem = pytest.mark.skipif(shutil.which("xschem") is None, reason="xschem not on PATH")
 needs_pdk = pytest.mark.skipif(not pdk_library().exists(), reason="sky130 model library not found")
 
-#: A continued line in a SPICE netlist, which the editor wraps at a width of
-#: its own choosing.
-CONTINUED = re.compile(r"\n\+\s*")
-
 #: One terminal record in a symbol file, in the order the records appear --
 #: which is the order an instance of the symbol wires its pins.
 TERMINAL = re.compile(r"^B\s+\S+(?:\s+\S+){4}\s+\{name=(?P<name>\S+)\s+dir=(?P<dir>\w+)", re.M)
 
-#: What the editor leaves out: a multiplier of one. Measured -- it writes
-#: `m=3` and writes nothing at all for `m=1` -- so a sheet's netlist states
-#: the multiplier only where it is not one, and a comparison that did not know
-#: that would read every unit branch as a device the bench does not have.
-IMPLIED = {"m": "1"}
-
 #: How the stage this sheet is at may be spelled.
 STAGES = ("generated", "drawn")
-
-
-def geometry(parameters: dict[str, str]) -> dict[str, float]:
-    """One element's geometry as numbers, with what the editor leaves out."""
-    return {key: float(value) for key, value in {**IMPLIED, **parameters}.items()}
-
-
-def branches(netlist: str) -> dict[str, tuple[str, tuple[str, ...], dict[str, float]]]:
-    """Every capacitor in a netlist: its model, its plates in order, its size."""
-    return {
-        name: (call.model, tuple(call.nets.values()), geometry(call.parameters))
-        for name, call in sheet.calls(netlist).items()
-    }
 
 
 @pytest.fixture(scope="module")
@@ -72,17 +49,17 @@ def netlisted(tmp_path_factory) -> str:
     """The committed sheet as the editor netlists it."""
     if not cap_array.SHEET.exists():
         pytest.skip(f"{cap_array.SHEET.name} not drawn yet")
-    return CONTINUED.sub(" ", sheet.netlist(cap_array.SHEET.name, tmp_path_factory.mktemp("array")))
+    return sheet.netlist(cap_array.SHEET.name, tmp_path_factory.mktemp("array"))
 
 
 @pytest.fixture(scope="module")
 def drawn(netlisted) -> dict[str, tuple[str, tuple[str, ...], dict[str, float]]]:
-    return branches(netlisted)
+    return sheet.compared(netlisted)
 
 
 @pytest.fixture(scope="module")
 def built() -> dict[str, tuple[str, tuple[str, ...], dict[str, float]]]:
-    return branches("\n".join(analog.array_capacitors(unit=analog.Mim())))
+    return sheet.compared("\n".join(analog.array_capacitors(unit=analog.Mim())))
 
 
 @needs_xschem
@@ -145,7 +122,7 @@ def test_a_swapped_pair_of_weights_is_caught(built):
         head, _, size = lines[one].partition(" mult=")
         lines[one] = f"{head} mult={lines[other].partition(' mult=')[2]}"
         lines[other] = f"{lines[other].partition(' mult=')[0]} mult={size}"
-    swapped = branches("\n".join(lines))
+    swapped = sheet.compared("\n".join(lines))
     assert set(swapped) == set(built), "the mutation was supposed to keep every branch"
     assert swapped != built
     assert sorted(size["mult"] for _, _, size in swapped.values()) == sorted(
@@ -171,7 +148,7 @@ def test_nothing_on_the_sheet_floats(netlisted):
     would net to a name of the editor's own invention, and a plate wired to
     the wrong terminal would be caught above.
     """
-    carried = {net for _, nets, _ in branches(netlisted).values() for net in nets}
+    carried = {net for _, nets, _ in sheet.compared(netlisted).values() for net in nets}
     assert carried == set(analog.array_terminals())
 
 
@@ -269,3 +246,19 @@ def test_the_sheet_and_its_symbol_are_committed():
     ).stdout.split()
     for path in (cap_array.SHEET, cap_array.SYMBOL):
         assert str(path.relative_to(sheet.REPO)) in tracked, f"{path.name} is not tracked"
+
+
+def test_no_two_names_sit_on_one_point():
+    """A point carrying two symbols is the same net twice.
+
+    Harmless to the netlist, which is why the comparison above would not
+    notice, and not harmless to the editor's own check: it is one of the
+    things that makes `xschem -b -n -q` exit non-zero. That status is meant
+    to become a CI gate once the analog block is whole, so the noise is
+    refused now rather than explained then. Measured: two `vss` labels left
+    on one body tie took this sheet from exit 0 to exit 10 with every device
+    line identical.
+    """
+    if not cap_array.SHEET.exists():
+        pytest.skip(f"{cap_array.SHEET.name} not drawn yet")
+    assert sheet.stacked(cap_array.SHEET.read_text()) == {}

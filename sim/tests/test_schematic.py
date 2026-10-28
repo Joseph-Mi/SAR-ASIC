@@ -33,66 +33,9 @@ from devices import Sky130, pdk_library
 needs_xschem = pytest.mark.skipif(shutil.which("xschem") is None, reason="xschem not on PATH")
 needs_pdk = pytest.mark.skipif(not pdk_library().exists(), reason="sky130 model library not found")
 
-#: A continued line in a SPICE netlist. The editor wraps at a width of its
-#: own choosing, so a parse that reads lines has to undo that first.
-CONTINUED = re.compile(r"\n\+\s*")
-
-#: A subcircuit instance: the PDK's device wrapper, its four terminals, the
-#: model, and the geometry as `k=v`.
-INSTANCE = re.compile(
-    r"^X(?P<name>\S+)\s+(?P<terminals>\S+\s+\S+\s+\S+\s+\S+)\s+"
-    r"(?P<model>sky130\S+)\s+(?P<params>.+)$"
-)
-
-#: A capacitance: two plates and a value, no model.
-CAPACITOR = re.compile(r"^C(?P<name>\S+)\s+(?P<terminals>\S+\s+\S+)\s+(?P<value>[\d.eE+-]+)")
-
 #: Terminals in a symbol file, read the same way the interface freeze reads
 #: them, so the two checks cannot disagree about what a declaration is.
 TERMINAL = re.compile(r"^B\s+(?:\S+\s+){5}\{name=(?P<name>\S+)\s+dir=(?P<dir>\w+)\}", re.M)
-
-#: Significant figures the netlister writes a geometry to. Numbers are
-#: compared at that precision rather than exactly: the netlister formats to
-#: six figures and the editor evaluates the symbol's own expressions, so the
-#: two agree on every value and need not agree on how it is spelled. Finer
-#: than the netlist itself is written would be comparing the formatting.
-FIGURES = 6
-
-
-#: What a device multiplier means when the netlist does not state one. The
-#: editor writes a non-unit multiplier and suppresses a unit one, because one
-#: copy is what an instance means on its own; the netlister always states it.
-#: So the two are read against the same default, and a wide device built out
-#: of several copies still has to say so on both sides.
-COPIES = "m"
-ONE = "1"
-
-
-def _number(text: str) -> float:
-    """One value, at the precision the netlist carries it to."""
-    return float(f"{float(text):.{FIGURES}g}")
-
-
-def elements(netlist: str) -> dict[str, tuple]:
-    """Every element of a subcircuit, keyed by its name.
-
-    A device becomes its model, its terminals in the order they are written,
-    and its geometry as numbers, so that what is compared is the circuit and
-    not the two tools' formatting.
-    """
-    found: dict[str, tuple] = {}
-    for line in CONTINUED.sub(" ", netlist).splitlines():
-        if (device := INSTANCE.match(line)) is not None:
-            geometry = dict(pair.split("=", 1) for pair in device["params"].split())
-            geometry.setdefault(COPIES, ONE)
-            found[device["name"]] = (
-                device["model"],
-                tuple(device["terminals"].split()),
-                {key: _number(value) for key, value in geometry.items()},
-            )
-        elif (cap := CAPACITOR.match(line)) is not None:
-            found[cap["name"]] = (tuple(cap["terminals"].split()), _number(cap["value"]))
-    return found
 
 
 @pytest.fixture(scope="module")
@@ -106,13 +49,13 @@ def netlisted(tmp_path_factory) -> str:
 @pytest.fixture(scope="module")
 def drawn(netlisted) -> dict[str, tuple]:
     """The sheet's elements, which is what the circuit comparison is about."""
-    return elements(netlisted)
+    return sheet.compared(netlisted)
 
 
 @pytest.fixture(scope="module")
 def built() -> dict[str, tuple]:
     """What the benches build, which is the thing the sheet has to be."""
-    return elements(strongarm.subckt(strongarm.DESIGNED, Sky130()))
+    return sheet.compared(strongarm.subckt(strongarm.DESIGNED, Sky130()))
 
 
 @needs_xschem
@@ -297,8 +240,8 @@ def test_a_swapped_drain_and_source_is_caught():
     compared terminals as a set would have passed it.
     """
     netlist = strongarm.subckt(strongarm.DESIGNED, Sky130())
-    honest = elements(netlist)
-    swapped = elements(
+    honest = sheet.compared(netlist)
+    swapped = sheet.compared(
         netlist.replace(
             f"Xtail {strongarm.TAIL} {strongarm.TAIL_GATE} vdd vdd",
             f"Xtail vdd {strongarm.TAIL_GATE} {strongarm.TAIL} vdd",
@@ -334,3 +277,19 @@ def test_the_sheet_and_its_symbol_are_committed():
     ).stdout.split()
     for path in (schematic.SHEET, schematic.SYMBOL):
         assert str(path.relative_to(schematic.REPO)) in tracked, f"{path.name} is not tracked"
+
+
+def test_no_two_names_sit_on_one_point():
+    """A point carrying two symbols is the same net twice.
+
+    Harmless to the netlist, which is why the comparison above would not
+    notice, and not harmless to the editor's own check: it is one of the
+    things that makes `xschem -b -n -q` exit non-zero. That status is meant
+    to become a CI gate once the analog block is whole, so the noise is
+    refused now rather than explained then. Measured: two `vss` labels left
+    on one body tie took this sheet from exit 0 to exit 10 with every device
+    line identical.
+    """
+    if not schematic.SHEET.exists():
+        pytest.skip(f"{schematic.SHEET.name} not drawn yet")
+    assert sheet.stacked(schematic.SHEET.read_text()) == {}

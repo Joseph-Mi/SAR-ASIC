@@ -251,6 +251,34 @@ def _still_on_p(dev, name: str, line: str, out: str, g: GateSizes) -> list[str]:
     ]
 
 
+def generator_terminals() -> list[str]:
+    """The phase generator's boundary, in the order its symbol declares it.
+
+    Supplies first, then the one wire it is given, then the phases it makes,
+    each named after the switches it drives. Frozen in this order for the
+    reason every other boundary here is: a symbol's port order is the order
+    of its pin records and a SPICE instance wires by position, so a symbol
+    whose pins were ordered by where they looked best would hand the input
+    switches the conversion phase and draw correctly doing it.
+
+    The outputs are in the order the phases happen, which is also the order
+    each one waits on the last: the top switch lets go, then the input
+    switches, then the conversion switches take hold.
+    """
+    return ["vdd", "vss", "sample", "phi_top", "phi_bot", "phi_bot_n", "phi_conv"]
+
+
+def generator_devices(scheme: NonOverlap | None = None) -> list[str]:
+    """The generator itself, as the benches build it.
+
+    Here under a name rather than only inside `subckt` because the
+    generator's schematic sheet is held to these very lines, netlisted back
+    and compared element by element -- so what the drawing is compared
+    against has to be what is simulated and not a second statement of it.
+    """
+    return _generator(NonOverlap() if scheme is None else scheme)
+
+
 def _generator(scheme: NonOverlap) -> list[str]:
     """Three phases from `sample`, each able to change only after the one it
     must follow has finished, because it takes that one's own line as input.
@@ -394,6 +422,11 @@ COMPARATOR_NETS = {
 #: check of the two -- a table can be written to agree with a mistake.
 ARRAY_NAME = "cap_array"
 ARRAY = "Xarray"
+
+#: The phase generator as a block, the same way: its own subcircuit's name,
+#: and the name the tile's sheet gives its one instance.
+GENERATOR_NAME = "phase_gen"
+GENERATOR = "Xphases"
 
 
 def terminals(n_bits: int = N_BITS) -> list[str]:

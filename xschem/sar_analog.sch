@@ -6,8 +6,8 @@ S {}
 F {}
 E {}
 T {sar_analog -- the analog tile, as the digital half sees it.} -600 -340 0 0 0.4 0.4 {}
-T {Drawn: the comparator and the capacitor array. Not yet drawn: the sampling
-and conversion switches, and the phase generator. Their netlists are in
+T {Drawn: the comparator, the capacitor array and the phase generator.
+Not yet drawn: the sampling and conversion switches. Their netlists are in
 sim/analog.py and they arrive on the sheet as each one is laid out.
 The ports below are the frozen interface (reference/interface.py) and are
 declared whether or not anything is wired to them yet.} -600 -300 0 0 0.25 0.25 {}
@@ -39,6 +39,15 @@ C {lab_pin.sym} -30 10 0 0 {name=l2 lab=vcm}
 C {lab_pin.sym} -180 30 0 0 {name=l3 lab=top}
 C {lab_pin.sym} 430 -30 2 0 {name=l4 lab=vdd}
 C {lab_pin.sym} 430 -10 2 0 {name=l5 lab=vss}
+C {phase_gen.sym} -330 -150 0 0 {name=Xphases}
+C {lab_pin.sym} -480 -170 0 0 {name=lg0 lab=vdd}
+C {lab_pin.sym} -480 -150 0 0 {name=lg1 lab=vss}
+C {lab_pin.sym} -480 -130 0 0 {name=lg2 lab=sample}
+C {lab_pin.sym} -180 -180 0 0 {name=lg3 lab=phi_top}
+C {lab_pin.sym} -180 -160 0 0 {name=lg4 lab=phi_bot}
+C {lab_pin.sym} -180 -140 0 0 {name=lg5 lab=phi_bot_n}
+C {lab_pin.sym} -180 -120 0 0 {name=lg6 lab=phi_conv}
+T {the phases, waiting for the switches they drive} -180 -100 0 0 0.25 0.25 {}
 C {cap_array.sym} -330 30 0 0 {name=Xarray}
 C {lab_pin.sym} -480 -70 0 0 {name=la0 lab=b0}
 C {lab_pin.sym} -480 -50 0 0 {name=la1 lab=b1}

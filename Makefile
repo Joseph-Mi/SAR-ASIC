@@ -348,6 +348,7 @@ offset:
 schematic:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/schematic.py $(FORCE)
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/cap_array.py $(FORCE)
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/phase_gen.py $(FORCE)
 
 ## figures: draw every figure the model can produce, into build/
 figures: plots diagrams
@@ -360,11 +361,11 @@ diagrams:
 plots:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/plots.py
 
-#: The sheets and what each is held to: the comparator's against the netlist
-#: every bench builds, the array's against the netlist every closed loop ran,
-#: and the tile's against both of theirs.
+#: The sheets and what each is held to: the comparator's, the array's and
+#: the phase generator's against the netlists every bench and every closed
+#: loop ran, and the tile's against all three of theirs.
 SHEET_TESTS = $(SIM_DIR)/tests/test_schematic.py $(SIM_DIR)/tests/test_cap_array.py \
-	$(SIM_DIR)/tests/test_top_sheet.py
+	$(SIM_DIR)/tests/test_phase_gen.py $(SIM_DIR)/tests/test_top_sheet.py
 
 ## verify-schematic: the sheets against the netlists the benches use
 ## 	seconds, and the only analog check that is: it is a parse and a netlist,
