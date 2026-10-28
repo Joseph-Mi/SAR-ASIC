@@ -233,8 +233,17 @@ def symbol(n_bits: int = analog.N_BITS) -> str:
 #: draws is the arrangement; `drawn` once it has been taken over in the
 #: editor, after which a regeneration leaves it alone. The guarantee does not
 #: change with the stage: the sheet is netlisted back and compared element by
-#: element against `analog.array_capacitors`.
-ARRANGEMENT = "generated"
+#: element against `analog.array_capacitors`, which is a stronger check on a
+#: hand-drawn sheet than on a generated one -- against a generated sheet it
+#: compares the generator with itself.
+#:
+#: What the handover actually changed, which is worth knowing before reading
+#: the diff that made it: the editor rewrites a sheet in its own order and
+#: annotates each wire with the net it carries, so a re-save alone moves most
+#: of the file. Every instance kept its attributes, the format override
+#: included -- which is the thing to check first if this sheet ever stops
+#: netlisting `mult`.
+ARRANGEMENT = "drawn"
 
 #: Where a regeneration puts the sheet it would have written, once the sheet
 #: itself is hand-drawn.
