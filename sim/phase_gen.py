@@ -182,10 +182,14 @@ def _cell(name: str, place: dict[tuple[str, int], str], x: int, y: int, found, t
 
     legs = [x + LEG_PITCH * k for k in range(len(nmos))]
     spine = x + SPINE
-    records = [
-        f"N {spine} {y} {legs[-1] + SPINE} {y} {{}}",
-        instance(LABEL, spine, y, f"name=l{next(tag)} lab={output}"),
-    ]
+    records = [instance(LABEL, spine, y, f"name=l{next(tag)} lab={output}")]
+    # The line along the output node, where there is more than one leg to
+    # join. A gate with one leg would otherwise get a wire from a point to
+    # itself, which the editor drops on the next save -- so the sheet it
+    # writes back differs from the one this wrote, for no reason anyone
+    # reading the diff could see.
+    if len(legs) > 1:
+        records.insert(0, f"N {spine} {y} {legs[-1] + SPINE} {y} {{}}")
     for depth, device in enumerate(pmos):
         at = (x, y - STEP * (len(pmos) - depth))
         records.append(instance(found[device].symbol, *at, found[device].attributes))
@@ -202,6 +206,7 @@ def _terminals(element, at, output: str, spine: int, row: int, tag) -> list[str]
     drawn = []
     for terminal, (px, py) in placed(element.symbol, *at, 0, 0).items():
         net = element.nets[terminal]
+        px, py = round(px), round(py)
         if terminal == "G":
             # The name on the pin itself and not on a stub reaching out to
             # it. A stub is what a person draws, and it is what this drew
@@ -321,8 +326,10 @@ def symbol() -> str:
     )
 
 
-#: Who owns the sheet's arrangement; see `cap_array.ARRANGEMENT`.
-ARRANGEMENT = "generated"
+#: Who owns the sheet's arrangement; see `cap_array.ARRANGEMENT`. Taken over
+#: in the editor once the gates were spread out to be read, so a regeneration
+#: leaves it alone and the netlist comparison is what holds it.
+ARRANGEMENT = "drawn"
 
 #: Where a regeneration puts the sheet it would have written, once the sheet
 #: itself is hand-drawn.

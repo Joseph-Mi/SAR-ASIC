@@ -246,3 +246,19 @@ def test_the_sheet_and_its_symbol_are_committed():
     ).stdout.split()
     for path in (cap_array.SHEET, cap_array.SYMBOL):
         assert str(path.relative_to(sheet.REPO)) in tracked, f"{path.name} is not tracked"
+
+
+def test_no_two_names_sit_on_one_point():
+    """A point carrying two symbols is the same net twice.
+
+    Harmless to the netlist, which is why the comparison above would not
+    notice, and not harmless to the editor's own check: it is one of the
+    things that makes `xschem -b -n -q` exit non-zero. That status is meant
+    to become a CI gate once the analog block is whole, so the noise is
+    refused now rather than explained then. Measured: two `vss` labels left
+    on one body tie took this sheet from exit 0 to exit 10 with every device
+    line identical.
+    """
+    if not cap_array.SHEET.exists():
+        pytest.skip(f"{cap_array.SHEET.name} not drawn yet")
+    assert sheet.stacked(cap_array.SHEET.read_text()) == {}

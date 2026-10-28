@@ -1159,10 +1159,14 @@ Lives entirely in the digital half, costs near-zero area:
   csubcircuit sky130_fd_pr__cap_mim_m3_1 *mimcap *m3`). So the array's
   floating top plate belongs on `c0`, which is DD-13's shielding the way
   round LVS will see it, and a sheet with the two swapped draws identically.
-  **And the editor runs an electrical rule check of its own**: `xschem -b -n
-  -q` exits 10 when a net has nothing driving it and 0 otherwise, measured
-  by giving one such net a driver and watching the same sheet go to zero. It
-  is a flag and not a count, so it says that something floats and never
+  **And the editor runs a check of its own**: `xschem -b -n -q` exits 10 when
+  it finds something and 0 otherwise. One of those things is a net with
+  nothing driving it, measured by giving such a net a driver and watching the
+  same sheet go to zero -- but not the only one, and reading it as only that
+  misled this project once. A second is **two symbols placed on one point**:
+  two `vss` labels left on one body tie took the generator's sheet from 0 to
+  10 with every device line identical, which is a drawing that is correct and
+  a status that is useless. It is a flag and not a count, so it never says
   which thing -- the netlist is still written and still correct. Worth
   knowing because an unfinished sheet has the condition by construction, so
   the status cannot be a gate until the block is whole; `sim/tests/

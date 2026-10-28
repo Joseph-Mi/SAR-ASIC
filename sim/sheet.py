@@ -136,6 +136,27 @@ CAPACITOR = "capa.sym"
 NETLIST_DIR = "simulation"
 
 
+#: One placed symbol on a sheet, with where it sits.
+PLACED = re.compile(
+    r"^C \{(?P<symbol>[^}]+)\} (?P<x>\S+) (?P<y>\S+) \S+ \S+ \{(?P<attributes>[^}]*)\}", re.M
+)
+
+
+def stacked(drawing: str) -> dict[tuple[float, float], list[str]]:
+    """Points where a sheet places more than one symbol, and what sits there.
+
+    Two names on one point are the same net twice: harmless to the netlist,
+    which is why nothing else here would notice, and not harmless to the
+    editor's own check -- it is one of the things that makes `xschem -b -n -q`
+    exit non-zero. That status is meant to become a gate once the block is
+    whole, so noise in it is worth refusing now rather than explaining later.
+    """
+    at: dict[tuple[float, float], list[str]] = {}
+    for found in PLACED.finditer(drawing):
+        at.setdefault((float(found["x"]), float(found["y"])), []).append(found["symbol"])
+    return {point: symbols for point, symbols in at.items() if len(symbols) > 1}
+
+
 def instance(symbol: str, x: float, y: float, attributes: str, rot: int = 0, flip: int = 0) -> str:
     """One placed symbol, as the editor writes it."""
     return f"C {{{symbol}}} {x:g} {y:g} {rot} {flip} {{{attributes}}}"
