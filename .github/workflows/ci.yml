@@ -221,8 +221,8 @@ jobs:
         timeout-minutes: 5
         run: sh scripts/in-image.sh make verify-rules PYTHON=python3
 
-      # Then, because the sheet is edited by hand: a wire dragged off a pin is
-      # a two-second failure that would otherwise surface an hour in.
+      # Then, because the sheets are edited by hand: a wire dragged off a pin
+      # is a two-second failure that would otherwise surface an hour in.
       - name: Schematic
         timeout-minutes: 5
         run: sh scripts/in-image.sh make verify-schematic PYTHON=python3

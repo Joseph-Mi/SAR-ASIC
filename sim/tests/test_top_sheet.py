@@ -7,12 +7,19 @@ design is the same thing that holds the comparator's: the editor netlists it
 back, and what comes out is compared against `sim/analog.py`, which is what
 every closed-loop measurement was taken on.
 
-The sheet is incomplete on purpose. Only the comparator is drawn; the array,
+The sheet is incomplete on purpose. The comparator and the array are drawn;
 the switches and the phase generator arrive as each is laid out. So what is
-checked here is the boundary and whatever is drawn, and a device that is not
-on the sheet yet is not an error. What would be an error is the boundary
-drifting, or the one block that *is* drawn being wired a way the measurements
-were never taken at.
+checked here is the boundary and whatever is drawn, and a block that is not on
+the sheet yet is not an error. What would be an error is the boundary
+drifting, or a block that *is* drawn being wired a way the measurements were
+never taken at.
+
+Each block is held to the design twice over: here, where the instance's own
+wiring is compared against the netlist the benches use, and on the block's own
+sheet, where every device in it is (`test_schematic.py`, `test_cap_array.py`).
+That chain is what makes this drawing worth trusting rather than just worth
+reading -- an instance of the right symbol wired to the right nets is the
+measured circuit, whatever is inside it.
 """
 
 from __future__ import annotations
@@ -24,7 +31,7 @@ import subprocess
 import pytest
 
 import analog
-import schematic
+import sheet
 import strongarm
 
 needs_xschem = pytest.mark.skipif(shutil.which("xschem") is None, reason="xschem not on PATH")
@@ -95,10 +102,10 @@ def _connections(netlisted: str) -> dict[str, int]:
 @pytest.fixture(scope="module")
 def netlisted(tmp_path_factory) -> str:
     """The committed sheet as the editor netlists it."""
-    sheet = schematic.SHEET_DIR / SHEET
-    if not sheet.exists():
+    drawn = sheet.SHEET_DIR / SHEET
+    if not drawn.exists():
         pytest.skip(f"{SHEET} not drawn yet")
-    return CONTINUED.sub(" ", schematic.netlist(SHEET, tmp_path_factory.mktemp("top")))
+    return CONTINUED.sub(" ", sheet.netlist(SHEET, tmp_path_factory.mktemp("top")))
 
 
 def instance(netlisted: str, name: str) -> list[str]:
@@ -183,7 +190,27 @@ def test_the_comparator_on_the_sheet_is_the_comparators_own_sheet(netlisted):
 
 
 @needs_xschem
-def test_nothing_floats_but_the_array_that_is_not_drawn_yet(netlisted):
+def test_the_array_is_wired_the_way_the_benches_are(netlisted):
+    """Every plate of the array, against the order its block declares.
+
+    There is no table of nets for this one, unlike the comparator's: the
+    array's terminals carry the nets they are named after. So the check is
+    against `analog.array_terminals()` itself, which is also what the array's
+    symbol published its pin records in -- the two have to agree, because a
+    SPICE instance wires by position, and a bottom plate wired to its
+    neighbour's switch is a converter whose code is a permutation.
+    """
+    assert instance(netlisted, analog.ARRAY) == analog.array_terminals()
+
+
+@needs_xschem
+def test_the_array_on_the_sheet_is_the_arrays_own_sheet(netlisted):
+    """The instance resolves to the drawing that is held to the netlist."""
+    assert netlisted.count(f".subckt {analog.ARRAY_NAME} ") == 1
+
+
+@needs_xschem
+def test_nothing_floats_but_the_switches_that_are_not_drawn_yet(netlisted):
     """Every internal net reaches something at both ends, or is named here.
 
     This is the sheet's own electrical rule check, and the editor runs one
@@ -194,15 +221,19 @@ def test_nothing_floats_but_the_array_that_is_not_drawn_yet(netlisted):
     itself, because a net stops being listed the moment something else on the
     sheet connects to it.
 
-    `top` is the array's top plate and the array is not drawn. When it is,
-    this set is empty and that is the assertion to leave behind.
+    What is left are the array's bottom plates, which reach their branch and
+    nothing else until the sampling and conversion switches are drawn. The
+    top plate is no longer among them: it was, until the array arrived on the
+    sheet, which is this check tightening by itself as blocks are drawn. When
+    the switches are drawn this set is empty and that is the assertion to
+    leave behind.
     """
     once = {
         net
         for net, count in _connections(netlisted).items()
         if count == 1 and net not in _ports(netlisted)
     }
-    assert once == {analog.COMPARATOR_NETS["inn"]}
+    assert once == set(analog.array_terminals()) - {analog.COMPARATOR_NETS["inn"]}
 
 
 @needs_xschem
@@ -224,7 +255,7 @@ def test_the_sheet_is_committed():
     """A drawing nobody committed is a drawing the next checkout does not have."""
     tracked = subprocess.run(
         ["git", "ls-files", "xschem"],
-        cwd=schematic.REPO,
+        cwd=sheet.REPO,
         capture_output=True,
         text=True,
         check=True,

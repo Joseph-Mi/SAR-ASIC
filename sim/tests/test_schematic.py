@@ -25,6 +25,7 @@ from unittest import mock
 import pytest
 
 import schematic
+import sheet
 import sky130
 import strongarm
 from devices import Sky130, pdk_library
@@ -99,7 +100,7 @@ def netlisted(tmp_path_factory) -> str:
     """The committed sheet as the editor netlists it."""
     if not schematic.SHEET.exists():
         pytest.skip(f"{schematic.SHEET.name} not generated yet")
-    return schematic.netlist(schematic.SHEET.name, tmp_path_factory.mktemp("sheet"))
+    return sheet.netlist(schematic.SHEET.name, tmp_path_factory.mktemp("sheet"))
 
 
 @pytest.fixture(scope="module")
@@ -315,8 +316,8 @@ def test_the_generator_reads_its_pin_positions_from_the_symbols():
     """
     if shutil.which("xschem") is None or not pdk_library().exists():
         pytest.skip("symbol libraries not available")
-    nmos = schematic.pins(schematic.symbol_for(sky130.NFET))
-    pmos = schematic.pins(schematic.symbol_for(sky130.PFET))
+    nmos = sheet.pins(sheet.symbol_for(sky130.NFET))
+    pmos = sheet.pins(sheet.symbol_for(sky130.PFET))
     assert nmos["D"] == pmos["S"]
     assert nmos["S"] == pmos["D"]
     assert nmos["G"] == pmos["G"]
