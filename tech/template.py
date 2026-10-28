@@ -206,6 +206,31 @@ def analog_group() -> Group:
     return analog[0]
 
 
+#: How much of the die's height the digital macro is given, micrometres.
+#:
+#: The one number on this page that is not read out of the vendored file,
+#: because it is not in it: the platform hands over one die and the split is
+#: ours. It is assigned rather than discovered -- LibreLane is given a hard
+#: `DIE_AREA` and has to fit -- so it is a decision, and `docs/floorplan.md`
+#: argues it. It is declared here rather than left in that document because
+#: the analog half's own budget is arithmetic on it, and a budget checked
+#: against a number in prose is checked against nothing.
+DIGITAL_HEIGHT = 130.0
+
+
+def analog_strip() -> tuple[float, float]:
+    """What the split leaves the analog half, micrometres.
+
+    The full width, because the two halves are stacked and not side by side:
+    each half's pins are on its own edge of the die, and routing one half's
+    signals across the other is how both halves get worse.
+    """
+    width, height = die_area()
+    if not 0.0 < DIGITAL_HEIGHT < height:
+        raise ValueError(f"a {DIGITAL_HEIGHT} um digital half does not divide a {height} um die")
+    return width, height - DIGITAL_HEIGHT
+
+
 def analog_pitch() -> float:
     """How far apart consecutive analog pins sit, micrometres.
 

@@ -391,7 +391,12 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   own threshold-mismatch coefficient, which `tech/` does not carry yet and
   which `model/latch.py`'s offset law cannot be evaluated without -- measured
   through the same netlister the benches use, the way the capacitors' is.
-- **M6** — Cap array laid out (scripted), DRC clean.
+- **M6** — Cap array laid out (scripted), DRC clean. The drawing rules it has
+  to obey are read out of the PDK rather than recalled (`tech/sky130.py`,
+  `make verify-rules`), and they already decided the array's shape: it is not
+  square, because a square one plus its dummy ring does not fit the strip. The
+  two numbers every pitch comes in are the grouped and interleaved placements,
+  and choosing between them is this milestone's work, not the rules'.
 - **M7** — Comparator laid out, DRC/LVS clean. Its schematic was generated
   from the netlist the benches are measured on (`make schematic` ->
   `xschem/strongarm.sch` and its symbol), so what LVS is handed and what M5
@@ -842,6 +847,34 @@ nothing about the number looks wrong.
 shows exactly zero spread and invites a different wrong conclusion. Both traps
 cost real time once.
 
+**And the drawing rules are shipped three times, which is worse.** The tree
+carries `klayout/drc/sky130A.lydrc`, `klayout/drc/sky130A_mr.drc` and
+`magic/sky130A.tech`, and `sak-drc.sh` -- our own DRC script -- runs the second
+and the third. Not the first, which is the one named after the process, the one
+a search finds, and the one whose capacitor rules each name the metal a layer
+below the device's plate: `m2` and `via2` where the plate is on met3 and its
+contact is via3. Its numbers are mostly the right numbers attached to the wrong
+layers, so nothing about reading it looks like a mistake.
+
+The rule to distrust most is `capm.11`, the keep-away from unrelated metal,
+because the tree states it three ways: 0.14 in the unused deck's code, 0.5 in
+that same deck's message *and* in the running deck's own `capm.11`, and 1.34 in
+Magic. What settles it is that the running deck states the constraint a second
+time as 1.2 from the bottom plate (`capm.2b_a`), and the bottom plate runs 0.14
+past the plate -- so two independent expressions give 1.34 and one gives 0.5.
+The strictest is also the corroborated one, which is the only direction in
+which guessing is safe.
+
+The reverse trap is `capm.6`, the largest a plate may be drawn: a real rule of
+the process that *only* the unused deck codes, so a plate too large passes our
+own DRC and fails at whoever checks it next. It is declared and guarded in
+arithmetic for that reason. The array is nowhere near the bound; one shape
+drawn as a decoupling or bias capacitor could be.
+
+`tech/sky130.py` declares all of them, `tech/tests/test_drc.py` reads them back
+out of the decks -- each from the deck that is actually its authority -- and
+`make verify-rules` is the seconds-long CI step that runs it.
+
 A seeded Monte Carlo has the same failure from the other end: ngspice applies
 `.option seed` again on every redraw, so one run of many draws is one part
 measured many times, reporting a spread of zero while looking in every other
@@ -945,12 +978,52 @@ Delete each one when it is fixed.
   a kick that varies with the code, a latch that cannot resolve against a
   floating node, a flag raised.
 - **`dac_b` load imbalance** — see Verification. Needs buffer chains + `set_load`.
-- **Array pitch vs analog strip height.** A square array plus dummy ring at MiM
-  DRC pitch may not fit the analog strip once power-stripe margins come off.
-  Check capm/met3 spacing rules before layout; the digital budget has slack.
-- **Values still restated in docs:** `docs/floorplan.md`'s die is now read out
-  of the vendored template by a test (`tech/template.py`); the height it
-  splits that die at is still a number waiting for a LibreLane config.
+- ~~**Array pitch vs analog strip height.**~~ Answered, and it binds. The
+  rules are read now, and a square array plus a dummy ring comes to 97.00 um
+  on a side, 99.68 once unrelated metal is held off the plates, against a
+  95.76 um strip. `docs/floorplan.md` had estimated 76 um, so it was wrong by
+  twenty-three micrometres in the direction that does not announce itself.
+  What fits is the same array not drawn square: the strip is three times as
+  wide as it is tall, so the height sets the rows and the width has room to
+  spare. The cost is not area but symmetry -- a gradient is no longer the same
+  length both ways, so a placement scheme has a long axis and a short one to
+  treat differently.
+  The compact figure is a bound and not a layout, which is worth keeping
+  straight because the first version of this arithmetic was not: the narrow
+  pitch is what two units of *one branch* get, so applying it to a whole row
+  assumes no branch boundary falls on that row, and a ring never qualifies at
+  all -- a dummy carries no charge, so it is tied off on its own and the step
+  across it is the wider one whatever the branches inside do. That ring is the
+  entire 3.9 um by which the compact square array misses, and charging it
+  correctly cost a row at two of the three splits in that document's table.
+  The pitch itself turns on something that is not a property of the
+  capacitors. Units of one branch share a bottom plate and step at the
+  plate-to-plate spacing (2.84 um); units of different branches are different
+  nets, so the metal under them is two polygons that must be apart *as metal*,
+  and the step is 3.48 um. Grouping each branch is the compact array and
+  interleaving them is the matched one -- a common-centroid scheme interleaves
+  on purpose, so the gradient it cancels is paid for in rows, six of them at
+  this split. What is still open is which of the two the array is placed as,
+  which is M6's to decide with the yield study beside it.
+
+- **The unit capacitor's size is a choice nobody has made.**
+  `CAP_MIN_AREA_MIM` is 4.00 um2 and its comment claimed it was the smallest
+  the process would draw, so that no array could match worse. It is not:
+  neither running deck states a minimum area for the MiM, the only size rule
+  is a minimum width of 1.0 um, and the device's own model defaults to a
+  micrometre each way -- so a square a quarter of this is legal to draw and
+  matches half as well. Nothing is wrong today, because the project draws the
+  larger one and the test now holds it to the rule rather than to itself. What
+  is open is that the yield study's "worst matching buildable" line is drawn
+  at an area that is a decision, and `studies/plots.py` says "cannot be made"
+  of a device that can. Decide the unit's size deliberately, then say so there.
+- **Values still restated in docs:** `docs/floorplan.md`'s die is read out of
+  the vendored template by a test, and the height it splits that die at is
+  declared beside it now (`template.DIGITAL_HEIGHT`, `template.analog_strip()`)
+  rather than living in that document -- the analog half's budget is arithmetic
+  on it, and a budget checked against a number in prose is checked against
+  nothing. It is still a decision rather than a measurement, and the LibreLane
+  run that would replace it has not happened.
 
 - **The platform names its supplies twice, differently.** The vendored DEF
   carries `VPWR`/`VGND` as special nets; the shuttle's Verilog template names

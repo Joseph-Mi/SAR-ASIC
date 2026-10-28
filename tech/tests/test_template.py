@@ -25,6 +25,10 @@ FLOORPLAN = REPO / "docs" / "floorplan.md"
 #: pair to compare.
 DOCUMENTED = re.compile(r"\*\*(\d+\.\d+) x (\d+\.\d+) um\*\*")
 
+#: The split as that document states it: the digital half's height, which is
+#: the one number in the budget that is a decision rather than a reading.
+SPLIT = re.compile(r"^    digital\s+\d+\.\d+ x (\d+(?:\.\d+)?)\s", re.M)
+
 #: Edges a pin may sit on, as a fraction of the die's height: the template
 #: puts every pin on the top or the bottom, which is what decides that the
 #: digital half goes at the top and the analog half at the bottom.
@@ -73,6 +77,34 @@ def test_the_floorplan_document_states_the_die_the_template_draws():
     assert found, f"{FLOORPLAN.name} states no die size to check"
     stated = tuple(float(v) for v in found.groups())
     assert stated == template.die_area(), f"the document says {stated}"
+
+
+def test_the_floorplan_document_states_the_split_that_is_declared():
+    """For the same reason as the die above, and it is the weaker of the two
+    directions: the die moves only when the template is revendored, while the
+    split is ours to change, and a document left behind by that is a budget
+    argued from a number nothing uses."""
+    found = SPLIT.search(FLOORPLAN.read_text())
+    assert found, f"{FLOORPLAN.name} states no split to check"
+    assert float(found.group(1)) == pytest.approx(template.DIGITAL_HEIGHT)
+
+
+def test_the_split_leaves_a_strip_of_the_die():
+    """And leaves it the full width, the two halves being stacked."""
+    width, height = template.analog_strip()
+    assert (width, height) == (
+        template.die_area()[0],
+        template.die_area()[1] - template.DIGITAL_HEIGHT,
+    )
+
+
+@pytest.mark.parametrize("height", [0.0, -1.0, 1e6])
+def test_a_split_that_does_not_divide_the_die_is_refused(height, monkeypatch):
+    """A strip of no height or of negative height is a budget that would pass
+    every check below it while describing nothing."""
+    monkeypatch.setattr(template, "DIGITAL_HEIGHT", height)
+    with pytest.raises(ValueError):
+        template.analog_strip()
 
 
 def test_the_template_carries_no_supply_among_its_pins():
