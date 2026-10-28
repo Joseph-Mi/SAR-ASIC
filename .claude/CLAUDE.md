@@ -1065,11 +1065,46 @@ Delete each one when it is fixed.
   neither running deck states a minimum area for the MiM, the only size rule
   is a minimum width of 1.0 um, and the device's own model defaults to a
   micrometre each way -- so a square a quarter of this is legal to draw and
-  matches half as well. Nothing is wrong today, because the project draws the
-  larger one and the test now holds it to the rule rather than to itself. What
-  is open is that the yield study's "worst matching buildable" line is drawn
-  at an area that is a decision, and `studies/plots.py` says "cannot be made"
-  of a device that can. Decide the unit's size deliberately, then say so there.
+  matches half as well.
+
+  `studies/unit_study.py` (`make unit`, committed as `unit_baseline.txt`) is
+  what the choice should be made from. It is arithmetic on declared facts, so
+  a change in any of them arrives as a diff in it. What it says:
+
+  * **Matching is not the constraint, at any size in the sweep.** The MSB's
+    spread runs 0.050 to 0.150 LSB and kT/C 0.015 to 0.040 LSB, all of it
+    far inside half an LSB. A reader who assumes Pelgrom decides this picks
+    the wrong size, which is why that is asserted as a test rather than left
+    to be noticed.
+  * **Nor is the top plate's parasitic.** The switch's own diffusion leaves
+    the swing above 0.999 everywhere. The comparator's input is the part
+    that does not shrink with the array and is therefore the one that could
+    argue against a smaller unit -- measured, 2.58 fF precharging and
+    11.77 fF regenerating, which at the smallest unit the process draws
+    still leaves 0.996 of the swing (`test_the_comparator_leaves_the_array_
+    its_swing_at_any_unit_size`). Routing over the array is not in either
+    number and is a layout quantity.
+  * **Area is the constraint, and it binds today.** At 2.0 um the square
+    array plus its ring is 99.68 um grouped and 119.52 interleaved against a
+    95.76 um strip; at 1.0 um it is 65.68 and 85.52, so the common-centroid
+    placement fits. That is M6's grouped-or-interleaved decision stopping
+    being a trade.
+  * **And the switch's charge is not a trade either, below today's size.**
+    The sampling loop is R times C, so a smaller array settles faster and
+    the speed can be given back as a narrower top switch -- whose width is
+    what its charge on the top plate is proportional to. At 1.0 um, holding
+    today's clock allows a 0.74 um switch and leaves the injection at 0.33
+    of today's. Keeping the 8 um switch instead makes it 3.50x and the
+    conversion 3.5x faster. Above today's size neither is available: the
+    pins are 500 ohms each and a bigger array exceeds today's time constant
+    before the switch is reached.
+
+  So the decision is between a smaller unit and nothing, and what is still
+  open is making it. When it is made: `CAP_MIN_AREA_MIM` moves, the yield
+  study's "worst matching buildable" line and `studies/plots.py`'s "cannot be
+  made" move with it, `docs/floorplan.md`'s row counts are re-derived, and the
+  designed-block corner acceptance is re-run at the new size -- that last one
+  is the only part of it that is a measurement rather than arithmetic.
 - **Values still restated in docs:** `docs/floorplan.md`'s die is read out of
   the vendored template by a test, and the height it splits that die at is
   declared beside it now (`template.DIGITAL_HEIGHT`, `template.analog_strip()`)

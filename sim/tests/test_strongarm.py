@@ -15,6 +15,8 @@ import shutil
 import numpy as np
 import pytest
 
+import ngspice
+import sky130
 import strongarm
 from bench import SKY130_CORNERS
 from comparator import noise_for_margin, worst_margin
@@ -404,3 +406,80 @@ def test_the_decision_arrives_inside_the_phase_except_where_it_is_known_not_to(c
         )
     else:
         assert all(decided), f"{where}: {found[0]:+.3f} V and {found[1]:+.3f} V, not resolved"
+
+
+#: Gate parameters of one input device, which is what the top plate sees of
+#: the comparator: the whole gate, and the two halves a datasheet would split
+#: it into. Read from the device the simulator builds rather than computed,
+#: for the reason every other process number here is.
+GATE = ("cgg", "cgs", "cgd")
+
+#: How much of the array's swing the comparator must be left. The parasitic
+#: on the top plate divides the excursion down and multiplies every
+#: input-referred figure -- offset, noise, hysteresis -- by the inverse, so
+#: this is a comparator-budget bound and not a linearity one (M3 Step 1).
+SWING_FLOOR = 0.99
+
+
+def _input_capacitance(workdir, clk: float) -> float:
+    """What one input device's gate presents, farads, at that strobe level.
+
+    An operating point and not a transient: the question is what sits on the
+    node while the array settles, and the latch is at rest for all of that.
+    """
+    sizes, devices = strongarm.DESIGNED, Sky130()
+    probes = [devices.probe(f"x{strongarm.NAME}", "inn", p, sizes.flavour) for p in GATE]
+    deck = "\n".join(
+        [
+            f"* {strongarm.NAME}: what the top plate sees of the comparator",
+            *devices.header(),
+            *devices.models(),
+            strongarm.subckt(sizes, devices),
+            f"Vdd vdd 0 {VDD:g}",
+            f"Vref vref 0 {VREF:g}",
+            f"Vclk clk 0 {clk:g}",
+            f"Vinp inp 0 {VCM:g}",
+            f"Vinn inn 0 {VCM:g}",
+            f"X{strongarm.NAME} vdd 0 vref clk inp inn outp outn {strongarm.NAME}",
+            f".save {' '.join(probes)}",
+            ".control",
+            "set nomodcheck",
+            "op",
+            # Named before it is printed: a probe is spelled with brackets and
+            # dots, and what reads a run's output here keys results by a
+            # plain word, so printing the probe directly produces a line it
+            # cannot see and a run that looks like it returned nothing.
+            *(f"let {name} = {probe}" for name, probe in zip(GATE, probes, strict=True)),
+            *(f"print {name}" for name in GATE),
+            ".endc",
+            ".end",
+            "",
+        ]
+    )
+    return ngspice.run(deck, workdir)[GATE[0]][0]
+
+
+@needs_simulator
+@needs_pdk
+@pytest.mark.parametrize("clk", (0.0, VDD))
+def test_the_comparator_leaves_the_array_its_swing_at_any_unit_size(clk, tmp_path):
+    """What `studies/unit_study.py` does not count, counted here.
+
+    That study reports the top plate's parasitic as the top switch's own
+    diffusion, because that is the part which moves with the size being
+    chosen. The comparator's input does not move with it -- so as the array
+    shrinks it becomes a larger fraction of it, and it is the one thing that
+    could argue against drawing a smaller unit. It does not: at the smallest
+    unit the process will draw, the input still leaves the comparator
+    essentially the whole swing.
+
+    Measured at both strobe levels because the gate a latch presents is not
+    the same while it precharges as while it regenerates, and the array
+    settles against whichever is larger.
+    """
+    gate = _input_capacitance(tmp_path, clk)
+    assert gate > 0.0, "the input device presents no gate at all, which is a broken probe"
+    smallest = 2**N_BITS * sky130.mim_capacitance(sky130.MIM_WIDTH_MIN, sky130.MIM_WIDTH_MIN)
+    assert smallest / (smallest + gate) > SWING_FLOOR, (
+        f"{gate * 1e15:.3f} fF of gate on a {smallest * 1e12:.3f} pF array"
+    )
