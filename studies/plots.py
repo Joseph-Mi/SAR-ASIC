@@ -25,6 +25,7 @@ from mismatch import (
 )
 from noise_study import BASELINE as NOISE_BASELINE
 from noise_study import GROSS_ERROR_ONSET_LSB
+from unit_study import BASELINE as UNIT_BASELINE
 from yield_study import BASELINE
 
 OUT_DIR = pathlib.Path("build/studies")
@@ -64,8 +65,15 @@ PANELS = (
 )
 
 
-def read_table(path: pathlib.Path = BASELINE) -> tuple[dict, list[dict]]:
-    """Parse the artifact back into rows. The header comment carries the run."""
+def read_table(
+    path: pathlib.Path = BASELINE, counts: tuple[str, ...] = ("n_bits",)
+) -> tuple[dict, list[dict]]:
+    """Parse an artifact back into rows. The header comment carries the run.
+
+    `counts` names the columns that are whole numbers rather than
+    measurements, because one printed as a float labels a series "10.0 bits".
+    A study whose columns are all measurements passes none.
+    """
     lines = path.read_text().splitlines()
     header = dict(kv.split("=") for kv in lines[0].lstrip("# ").split())
     columns = lines[1].split()
@@ -73,7 +81,8 @@ def read_table(path: pathlib.Path = BASELINE) -> tuple[dict, list[dict]]:
     for line in lines[2:]:
         values = [float(v) for v in line.split()]
         row = dict(zip(columns, values, strict=True))
-        row["n_bits"] = int(row["n_bits"])
+        for name in counts:
+            row[name] = int(row[name])
         rows.append(row)
     return header, rows
 
@@ -236,7 +245,101 @@ def plot_noise(path: pathlib.Path = NOISE_BASELINE, out_dir: pathlib.Path = OUT_
 
 #: Every figure this module draws. Named once so the script and the test that
 #: renders them cannot disagree about what "every figure" means.
-FIGURES = (plot, plot_noise)
+#: Panels of the unit-size figure: the column to draw, the axis it is read
+#: on, and whether it wants a log scale. Each panel answers one question, and
+#: the questions are in the order the study answers them -- does it fit, does
+#: it match, what does the switch cost, how fast does it settle.
+UNIT_PANELS = (
+    (
+        ("block_group", "branches grouped"),
+        ("block_inter", "branches interleaved"),
+        "square array + ring + keep-away  [um]",
+        False,
+    ),
+    (
+        ("sigma_dnl_msb", "sigma(DNL) at the MSB"),
+        ("noise_lsb", "kT/C, rms"),
+        "error  [LSB]",
+        True,
+    ),
+    (
+        ("inject_scaled", "top switch narrowed to hold the clock"),
+        ("inject_fixed", "top switch left at 8 um"),
+        "charge on the top plate  [x today]",
+        True,
+    ),
+    (
+        ("tau_fixed_ns", "top switch left at 8 um"),
+        ("tau_min_ns", "top switch narrowed"),
+        "sampling loop, slowest corner  [ns]",
+        True,
+    ),
+)
+
+#: Half an LSB: what a converter's error budget is quoted against, and the
+#: line both of the second panel's series have to sit under.
+HALF_LSB = 0.5
+
+
+def plot_unit(path: pathlib.Path = UNIT_BASELINE, out_dir: pathlib.Path = OUT_DIR):
+    """What each candidate unit size costs, on one page.
+
+    Four panels because four things move with the size and they do not move
+    together: one of them binds today, two have margin to spare at every size
+    in the sweep, and one gets *better* as the unit shrinks, which is the
+    result that is hard to believe without seeing it.
+
+    Today's size is drawn as a vertical bound in every panel, because every
+    number here is only interesting next to the one the project already has.
+    """
+    header, rows = read_table(path, counts=())
+    side = np.array([r["side_um"] for r in rows])
+    today = sky130.mim_side()
+    strip = float(header["strip"].rstrip("um"))
+
+    # Narrowing the switch only means anything where the clock is still
+    # today's. Above today's unit the array exceeds the loop on the pins
+    # alone, so the narrowest switch the process draws is all there is and
+    # the conversion slows instead -- the charge is lower there because the
+    # part is slower, which is not a comparison anyone wants to read off a
+    # line. So that series stops where the comparison does.
+    clock = next(r["tau_min_ns"] for r in rows if r["side_um"] == today)
+    held = np.array([r["tau_min_ns"] <= clock for r in rows])
+
+    fig, axes = house.canvas(2, 2, size=YIELD_PANEL)
+    for ax, (first, second, label, log) in zip(axes.flat, UNIT_PANELS, strict=True):
+        for column, name in (first, second):
+            y = np.array([r[column] for r in rows])
+            x = side
+            if column == "inject_scaled":
+                x, y = side[held], y[held]
+            (ax.semilogy if log else ax.plot)(x, y, "o-", label=name)
+        house.bound(ax, today, f"{today:g} um today", axis="x")
+        if first[0].startswith("block"):
+            house.bound(ax, strip, f"the strip, {strip:g} um")
+        if first[0] == "sigma_dnl_msb":
+            house.bound(ax, HALF_LSB, "half an LSB")
+        if first[0] == "inject_scaled":
+            house.bound(ax, 1.0, "today")
+        ax.set_xlabel("unit capacitor side, drawn  [um]")
+        ax.set_ylabel(label)
+        ax.legend()
+
+    fig.suptitle(
+        "What the unit capacitor's size costs, at "
+        f"{header['bits']} bits into a {strip:g} um strip\n"
+        "top left is the only panel that binds: at today's size the square "
+        "array misses the strip whichever way its branches are placed.\n"
+        "bottom left is why shrinking is not a trade -- a smaller array "
+        "settles faster, and that buys a narrower switch, which injects less.\n"
+        "that series stops at today's size because above it the clock cannot "
+        "be held at any switch: the two pins alone exceed the loop.",
+    )
+    fig.tight_layout()
+    return house.save(fig, out_dir / "unit.png")
+
+
+FIGURES = (plot, plot_noise, plot_unit)
 
 
 def draw_all(out_dir: pathlib.Path = OUT_DIR) -> list[pathlib.Path]:
