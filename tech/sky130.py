@@ -94,11 +94,15 @@ CAP_MIM_BIAS = {"low": 0.055, "typical": 0.150, "high": 0.245}
 #: to a micrometre each way -- so a square a quarter of this is legal to draw
 #: and matches half as well. The decision to draw it at this one is DD-16, and
 #: the reasons are there rather than here because they are a balance across
-#: six quantities and not a property of the process. In short: the array fits
-#: interleaved at every candidate size, so area does not choose; of what is
-#: left, matching, kT/C, tolerance to coupling on the top plate and tolerance
-#: to leakage all improve with area, while the top switch's charge and the
-#: sampling loop's speed get worse, and neither of those is a wall. It stays
+#: several quantities and not a property of the process. In short: almost
+#: nothing discriminates. The array fits interleaved at every candidate size,
+#: matching is worth 0.0185 ENOB across the whole range and kT/C less, the
+#: gradient is size-independent, and the two axes that could argue for more
+#: area -- coupling onto the top plate and its parasitic -- cannot be
+#: evaluated until a layout is extracted. Of what can be measured, the top
+#: switch's charge and its off-state leakage both favour a *smaller* unit. So
+#: this value is held rather than chosen: it is the size every measured result
+#: in the repository was taken at. It stays
 #: written as an area so that the test below holds it to the rule it has to
 #: obey -- a minimum width -- rather than to a rule it invented.
 CAP_MIN_AREA_MIM = 4.00
