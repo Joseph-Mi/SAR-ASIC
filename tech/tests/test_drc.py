@@ -306,3 +306,34 @@ def test_a_geometry_the_rules_do_not_allow_is_refused(call):
     that looks like every other number and a floorplan built on nothing."""
     with pytest.raises(ValueError):
         call()
+
+
+def test_the_fit_and_the_square_bound_are_different_answers():
+    """And the fit is the smaller one, which is the whole reason it exists.
+
+    `mim_array_extent` is the array drawn square; `mim_fit` is the array drawn
+    to a strip. Where the strip is shallower than the square array is wide,
+    the fit trades height for length and reaches further along the strip while
+    needing less of its height -- so a square figure read against a strip
+    height answers a question nobody asked. Reversing a size decision once was
+    the cost of not having this (DD-16).
+    """
+    side = sky130.mim_side()
+    height = 95.76  # the declared split's strip, named here as the case that bit
+    square = sky130.mim_keep_out(sky130.mim_array_extent(1024, side, ring=1, shared=False))
+    placed = sky130.mim_fit(1024, side, height, ring=1, shared=False)
+    assert placed is not None, "the strip that the array was drawn for holds no row"
+    rows, per_row, reach = placed
+    assert square > height, "the square array fits; this test's premise is stale"
+    assert reach > square, "trading height for length should reach further"
+    assert rows * per_row >= 1024
+    assert sky130.mim_rows_within(height, side, ring=1, shared=False) == rows
+
+
+def test_a_strip_too_shallow_for_a_row_has_no_fit():
+    """Rather than a row nobody can draw. `mim_rows_within` answers zero for
+    the same case and this composes it, so the two agree about a floorplan
+    that does not work."""
+    side = sky130.mim_side()
+    assert sky130.mim_fit(1024, side, side) is None
+    assert sky130.mim_rows_within(side, side) == 0

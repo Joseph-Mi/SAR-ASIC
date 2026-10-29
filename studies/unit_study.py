@@ -19,8 +19,9 @@ What each point reports:
   sigma_rel        matching of one unit, Pelgrom on the declared coefficient
   sigma_dnl_msb    what that is worth at the transition where it is worst
   noise_lsb        kT/C against the LSB it has to hide under
-  block_group      the square array plus its dummy ring and the keep-away,
-  block_inter      branches grouped and branches interleaved
+  block_group      the array drawn *square*, plus its dummy ring and the
+  block_inter      keep-away, branches grouped and branches interleaved.
+                   A bound and not a fit -- see below
   swing_gain       what the top switch's diffusion leaves the comparator
   tau_fixed_ns     the sampling loop at the slowest corner, switch left as is
   w_top_um         the narrowest top switch that still holds today's clock
@@ -38,6 +39,18 @@ switch's charge is worth on a smaller array -- and those pull opposite ways,
 because a smaller array settles faster, which buys back a narrower top switch,
 which injects less. `inject_scaled` is that design; `inject_fixed` is what
 happens if the switch is left alone and the conversion is run faster instead.
+
+**The two block columns are bounds and not the fit.** They are the array
+drawn square, which is the shape to want -- the plate bias acts on both
+dimensions, so a gradient is shortest both ways at once -- and not the shape
+the tile gets. The analog strip is three times as wide as it is tall, so what
+fits is decided the short way by `sky130.mim_rows_within` and the long way has
+room to spare. Read against the strip height these columns therefore answer
+whether a *square* array fits, which is a narrower question than whether the
+array does, and an earlier reading of this table as the latter picked a size on
+a constraint that does not exist (DD-16). Every size in the sweep fits
+interleaved; `test_every_candidate_fits_interleaved_by_rows` is where that is
+asserted, because it is the claim this table invites a reader to get wrong.
 
 **The parasitic here is a floor, not the number.** `swing_gain` counts the top
 switch's own diffusion and nothing else. The comparator's input pair and the
@@ -223,9 +236,9 @@ def format_table(study: Study, rows: list[dict]) -> str:
     """The table, with the facts it was computed from in its header.
 
     The strip is in the header rather than in a column because it is the same
-    number on every row and it is what two of the columns are read against:
-    a block wider than it does not fit, and the table would otherwise have to
-    be read beside a document to be read at all.
+    number on every row and it is what two of the columns are read against --
+    as a bound on the square array and not as a fit, DD-16 -- and the table
+    would otherwise have to be read beside a document to be read at all.
     """
     _, height = template.analog_strip()
     widths = study_points.column_widths(study.columns)

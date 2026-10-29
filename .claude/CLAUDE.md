@@ -223,6 +223,92 @@ specification later is a circuit change and not a re-run:
 
 ---
 
+**DD-16 - The unit capacitor stays at 2.0 um square, held rather than chosen.**
+The value does not move; what it is does. `CAP_MIN_AREA_MIM` was 4.00 um2
+presented as the smallest the process draws, and it is not -- no running deck
+states a minimum area for the MiM, the only size rule is a 1.0 um minimum
+width, and the device's own model defaults to a micrometre each way. So a
+square a quarter of this is legal to draw, and whether to draw it was open.
+
+**What the evidence actually supports, axis by axis.** The honest summary is
+that almost nothing discriminates, and saying so is the decision:
+
+| Axis | Where the number comes from | Does it choose a size? |
+|---|---|---|
+| Matching, sigma_DNL(MSB) | `CAP_A_C` read from the PDK, the law confirmed in ngspice (`test_mim`: 0.057% measured against 0.059%), 10,000 arrays per point | **No.** `p_missing` is 0.000000 at 1.0 um and at 2.0 um; halving the unit costs 0.0185 ENOB |
+| kT/C | arithmetic on the PDK's capacitance | **No.** 0.040 against 0.021 LSB, both far under one |
+| Fit in the strip | the PDK's `capm` pitch rules through `mim_fit` | **No.** Every candidate fits interleaved at every split |
+| Gradient | derived, and measured over 2000 arrays | **No.** Size-independent; placement decides it (DD-17) |
+| Sampling speed | measured R(W), `R_PIN` from the platform spec | **Rate only.** The clock rescales 36 ns to 230 ns across the sweep and both cap corners. Nothing fails, and no conversion rate is specified |
+| Top switch charge | the measured R(W) curve | **Favours smaller**, 0.42x at a 1.0 um unit -- but it is an offset, and DFT mode 4 measures it in the field |
+| Off-switch leakage | measured, below | **Favours smaller**, and it is the one axis with a margin worth watching |
+| Coupling onto the top plate | nothing | **Cannot be evaluated without a layout** |
+| Top-plate parasitic | nothing | same |
+
+So the four quantities a smaller array is usually argued to spoil do not
+spoil: two are immaterial, one is size-independent, and one never bound. Of
+what is left, two favour a smaller unit and the two that could plausibly
+favour a larger one are rungs of the fidelity ladder that need a drawn and
+extracted array -- which is M6, not today. That circularity is the real
+reason this is underdetermined.
+
+**Why it stays here, then.** Because every measured result in this repository
+sits at this size: `analog.Mim.area` defaults to this constant, so the corner
+acceptance, `sim/offset_baseline.txt`, `test_mim`'s anchors, the first-trial
+error figures and the settling measurements were all taken at a 2.0 um unit.
+Moving it spends a re-verification -- the twenty-minute corner acceptance
+among it -- to buy nothing that has been demonstrated. That is a weaker claim
+than an optimum and it is the one the numbers carry.
+
+**The decision is reversible and has a trigger.** When M6 draws the array and
+`sak-pex.sh` extracts it, coupling and the top-plate parasitic become
+measurable; if either argues for a different size, or if the leakage margin
+below is confirmed against a real layout rather than the models' default
+junction geometry, this is reopened. Nothing downstream depends on the value
+except through this constant.
+
+**Three wrong answers preceded this one, and the pattern is worth more than
+the conclusion.** First 1.0 um, from reading `unit_study`'s committed "area is
+the constraint" as a measurement -- it had a passing test, but the test
+asserted the same square-block-against-strip-height comparison, so it
+confirmed the arithmetic and not the claim, while `docs/floorplan.md` carried
+the right table in the same tree. Then 1.5 um, from a seven-column margin
+table whose discriminating column was still that square fit: adding axes to a
+table whose dominant axis is wrong yields a more confident wrong answer, and
+the appearance of rigour was the failure. Then 2.0 um for the wrong reasons --
+having found the real constraint dissolved, four axes were promoted to
+decisive that are not, including leakage, which points the other way. The
+discipline that would have caught all three: per axis, state the budget, the
+margin, *and whether the axis can discriminate at all*, and when none can,
+report that instead of reaching for a reason. `test_every_candidate_fits_
+interleaved_by_rows` is the guard against the specific error; this paragraph
+is the guard against the general one.
+
+
+**DD-17 - The array is interleaved, not grouped, and that is forced rather
+than chosen.**
+Grouped placement amplifies a linear gradient by a quarter of the array: for
+an end-to-end fractional gradient `s`, DNL at the MSB transition is
+`s * (2^N - 1)/4`, which is 255.75 LSB per unit of `s` at ten bits -- derived,
+and measured at 255.3 over two thousand arrays. So a code goes missing at
+`s = 1/256`, four parts in a thousand across the array, and the converter is
+non-monotonic there; the model declines to report an ENOB for it at all.
+Interleaved placement -- branch-order slot `j` taking the physical position
+whose index is `j`'s bits reversed, which puts every branch's centroid within
+0.0005 of the array's -- is unaffected at 5%.
+
+The gradient term carries no capacitance, so a bigger unit buys no immunity
+and only placement does. (Strictly the two are not independent: a fixed
+process gradient in percent per micrometre spans less of a physically smaller
+array, so a smaller unit does see a smaller `s`. The effect is real, is far
+too small to outweigh DD-16, and does not change this decision, because
+nothing makes grouped safe.) Interleaving costs rows, which is the trade
+`mim_pitch` describes -- and since those rows are available at every size,
+there is no trade left to make. M6's grouped-or-interleaved question is
+closed; what remains is drawing it.
+
+---
+
 ## Environment
 
 Everything runs inside **IIC-OSIC-TOOLS**
@@ -402,10 +488,16 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   through the same netlister the benches use, the way the capacitors' is.
 - **M6** — Cap array laid out (scripted), DRC clean. The drawing rules it has
   to obey are read out of the PDK rather than recalled (`tech/sky130.py`,
-  `make verify-rules`), and they already decided the array's shape: it is not
-  square, because a square one plus its dummy ring does not fit the strip. The
-  two numbers every pitch comes in are the grouped and interleaved placements,
-  and choosing between them is this milestone's work, not the rules'.
+  `make verify-rules`). The two numbers every pitch comes in are the grouped
+  and interleaved placements, and which one the array is placed as is no
+  longer this milestone's to decide: DD-17 settled it on the gradient, which
+  grouped placement amplifies by a quarter of the array and interleaving
+  cancels. The shape is still the rules': square is what makes a gradient
+  shortest in both directions, a square array plus its ring misses the strip
+  at the declared split, and what fits is the same array drawn long -- the
+  height sets the rows and the width has room to spare. So this milestone
+  draws an interleaved array of a known shape rather than choosing a
+  placement.
   Its schematic is drawn and held to the netlist the same way the
   comparator's is (`xschem/cap_array.sch`, `sim/cap_array.py`,
   `sim/tests/test_cap_array.py`): eleven elements, one per branch, each
@@ -1059,23 +1151,18 @@ Delete each one when it is fixed.
   this split. What is still open is which of the two the array is placed as,
   which is M6's to decide with the yield study beside it.
 
-- **The unit capacitor's size is a choice nobody has made.**
-  `CAP_MIN_AREA_MIM` is 4.00 um2 and its comment claimed it was the smallest
-  the process would draw, so that no array could match worse. It is not:
-  neither running deck states a minimum area for the MiM, the only size rule
-  is a minimum width of 1.0 um, and the device's own model defaults to a
-  micrometre each way -- so a square a quarter of this is legal to draw and
-  matches half as well.
-
-  `studies/unit_study.py` (`make unit`, committed as `unit_baseline.txt`) is
-  what the choice should be made from. It is arithmetic on declared facts, so
-  a change in any of them arrives as a diff in it. What it says:
+- ~~**The unit capacitor's size is a choice nobody has made.**~~ Made, and
+  it is DD-16: 2.0 um square, the value unchanged and its standing changed
+  from an invented process floor to a decision with the axes written down.
+  What `studies/unit_study.py` contributed, and what it got wrong, both
+  matter enough to keep:
 
   * **Matching is not the constraint, at any size in the sweep.** The MSB's
     spread runs 0.050 to 0.150 LSB and kT/C 0.015 to 0.040 LSB, all of it
     far inside half an LSB. A reader who assumes Pelgrom decides this picks
     the wrong size, which is why that is asserted as a test rather than left
-    to be noticed.
+    to be noticed. It does, however, order the sizes, and with every other
+    axis pointing the same way that is what DD-16 rests on.
   * **Nor is the top plate's parasitic.** The switch's own diffusion leaves
     the swing above 0.999 everywhere. The comparator's input is the part
     that does not shrink with the array and is therefore the one that could
@@ -1084,34 +1171,138 @@ Delete each one when it is fixed.
     still leaves 0.996 of the swing (`test_the_comparator_leaves_the_array_
     its_swing_at_any_unit_size`). Routing over the array is not in either
     number and is a layout quantity.
-  * **Area is the constraint, and it binds today.** At 2.0 um the square
-    array plus its ring is 99.68 um grouped and 119.52 interleaved against a
-    95.76 um strip; at 1.0 um it is 65.68 and 85.52, so the common-centroid
-    placement fits. That is M6's grouped-or-interleaved decision stopping
-    being a trade.
-  * **And the switch's charge is not a trade either, below today's size.**
+  * **Area was never the constraint, and the study said it was.** Its
+    `block_group` and `block_inter` columns are the array drawn *square*,
+    and comparing them against the strip height asks whether a square array
+    fits rather than whether the array does. Through `mim_rows_within` every
+    size in the sweep fits interleaved at every split, so the column that
+    looked decisive was a bound being read as a measurement. The columns
+    stay, relabelled as bounds; the conclusion is gone.
+  * **And the switch's charge is the one axis that favours a smaller unit.**
     The sampling loop is R times C, so a smaller array settles faster and
     the speed can be given back as a narrower top switch -- whose width is
-    what its charge on the top plate is proportional to. At 1.0 um, holding
-    today's clock allows a 0.74 um switch and leaves the injection at 0.33
-    of today's. Keeping the 8 um switch instead makes it 3.50x and the
-    conversion 3.5x faster. Above today's size neither is available: the
-    pins are 500 ohms each and a bigger array exceeds today's time constant
-    before the switch is reached.
+    what its charge on the top plate is proportional to. The size of that
+    gain is overstated here: `w_top_um` extrapolates the switch as R ~ 1/W,
+    and measured against the PDK the product R*W is flat only from 8 um down
+    to 4 um, degrading 1.20x by 0.74 um at tt and 1.71x at W_MIN under ss
+    hot. The width that actually holds today's clock at a 1.0 um unit is
+    0.95 um, not 0.74, so the injection lands at 0.42x today's rather than
+    0.33x. The correction belongs in `top_switch_ohms`, from a measured
+    table rather than a law.
+- **The off top switch leaks, and the margin is thinnest at today's unit
+  size.** Measured through the same netlister the benches use: an off nfet,
+  gate at ground, the vcm side at Vcm, the plate at ground, body at ground.
+  The plate at ground is the worst case, because that is where the switch has
+  half a volt across it and conducts subthreshold -- the same mechanism Step
+  4c saw when an all-zeros array drove the plate below ground. Reached by a
+  DC sweep, because an `.op` at these currents takes a hundred seconds a
+  point and a sweep walks there in one.
 
-  So the decision is between a smaller unit and nothing, and what is still
-  open is making it. When it is made: `CAP_MIN_AREA_MIM` moves, the yield
-  study's "worst matching buildable" line and `studies/plots.py`'s "cannot be
-  made" move with it, `docs/floorplan.md`'s row counts are re-derived, and the
-  designed-block corner acceptance is re-run at the new size -- that last one
-  is the only part of it that is a measurement rather than arithmetic.
+  ```
+                      leak      /W   budget, fixed clock      margin
+    tt, 27 C
+      side 1.00 (W 0.95)   0.0496 pA   1.00      466.5 pA      9399x
+      side 1.50 (W 2.31)   0.2943 pA   5.93      960.3 pA      3264x
+      side 2.00 (W 8.00)   1.4489 pA  29.19     1630.5 pA      1125x
+    ff, 125 C
+      side 1.00 (W 0.95)  42.7437 pA   1.00      466.5 pA         11x
+      side 1.50 (W 2.31) 159.2812 pA   3.73      960.3 pA          6x
+      side 2.00 (W 8.00) 649.5692 pA  15.20     1630.5 pA          3x
+  ```
+
+  **The budget cancels if the clock is allowed to scale.** It is half an LSB
+  of charge over a conversion, so `0.5*Ctot*Vlsb/(N*clock)` with `clock`
+  proportional to `Ctot` leaves 1.7434 nA at every size -- checked against
+  the closed form on six rows. Margin is then purely the leakage, so the
+  narrower switch a smaller array allows wins outright. At a fixed clock the
+  budget scales with the array instead and a smaller unit still wins. Either
+  way the direction is the opposite of what DD-16's first draft claimed,
+  which compared tolerances and forgot that the leaking device shrinks too.
+
+  **And the leakage grows faster than the width**, which is the `/W` column:
+  8.4x the width costs 15.2x the current at the hot corner and 29.2x at tt,
+  so the smaller unit wins by more than the width ratio rather than by it.
+  Treat the superlinearity as an artifact of how the device is netlisted and
+  not as a property of the switch: a device wider than the models' bin is
+  split into equal fingers, each of which gets its own source and drain
+  diffusions at the models' default geometry, where a laid-out switch would
+  share them between adjacent fingers. The direction is safe, the exponent
+  is not.
+
+  **At the hot corner the margin is 3x at today's size.** Per DD-15 that
+  corner is read as margin and not as pass or fail, and at the specified room
+  temperature every size has four digits of margin, so nothing fails. What is
+  open is that 3x is the thinnest margin any axis of the size decision has,
+  and that it rests on that same default junction geometry -- so it is worth
+  no better than a factor of two until Magic extracts one. Re-measure it from
+  the extracted switch at M7, and treat it as a reason to revisit DD-16 if
+  the specification ever widens to the industrial range.
+
+  **What the first version of this measurement got wrong is worth more than
+  the numbers.** ngspice shunts every junction with `gmin` to help it
+  converge, 1e-12 S by default, which across the plate's range is 0.5 to
+  1 pA -- larger than this device's real current at room temperature. So the
+  first run read the floor and not the switch: lowering `gmin` three decades
+  dropped those points by a factor of three hundred and then they stopped
+  moving, which is what a shunt does and a device does not. Worse, the floor
+  is applied per junction, so the device split into two fingers read exactly
+  twice as much of it, and a measurement whose quantity under test scales
+  with width was contaminated by an artifact that scales with width too. It
+  reported 466x against 958x against 812x -- not even monotonic, which is the
+  tell that was there to be read and was not. The plate-at-ground point was
+  always clean (it is unchanged at `gmin` 1e-12, 1e-15 and 1e-18) and it was
+  always the worst case; the run was taking a maximum over three points, two
+  of which were the solver. The general form: when a measured quantity is
+  near a solver's floor, vary the floor and show the measurement does not
+  follow it. `build/leak/gmin.py` is that check.
+
+- **The corner acceptance has only ever run at the nominal capacitance
+  corner.** `devices.Sky130(corner)` names a section of the PDK's
+  `sky130.lib.spice`, and `tt`, `ff` and `ss` all include
+  `continuous/parameters_cap_nom.spice` -- only `ff_hh` and `ss_ll` carry the
+  capacitance extremes. So the twenty-minute acceptance at tt / ss hot /
+  ss cold / ff cold / ff hot swept the devices and held the capacitors at one
+  value throughout, and the corner where the array is largest has never been
+  simulated: at the high corner a 2.0 um unit makes C_total 11.509 pF, where
+  the two pins alone want 11.51 ns of the 12.72 ns loop the clock was derived
+  from. This file's own note that the capacitance corner rides with the
+  device corner is advice the test does not take. Fix: put `ff_hh` and
+  `ss_ll` in the corner set, or override the capacitance parameters on a
+  slow-device section to get the combination the PDK ships no section for
+  (slow devices, large capacitors), and re-derive the clock from whichever is
+  slowest. Until then DD-16's speed numbers are arithmetic, not measurement.
+
+- **The reset distribution does not meet max slew.** All 109 of the LibreLane
+  run's max-slew violations name `rst_n` or `RESET_B`, at 2.518 ns against a
+  0.75 ns limit at `ss_100C_1v60`. The flow did build a reset tree -- each
+  buffer feeds nine or ten flops -- so what violates is the port net reaching
+  the tree's roots across a 334 um die with no driving cell modelled. Setup
+  and hold both close with margin, so this is recovery/removal exposure
+  rather than a datapath failure. Buffer `rst_n` at the tile top, or model the
+  real driver in the SDC, and re-run.
+
+- **The SDC's load on `dac_b_o` is a placeholder.** A uniform 0.0334 pF on
+  every bit, which is the right shape -- the macro drives one inverter per
+  branch and the 512:1 taper is on the analog side -- attached to a number
+  nobody measured. The buffers it should be measured from are the undesigned
+  ones in the `dac_b` finding above, so the two close together.
+
 - **Values still restated in docs:** `docs/floorplan.md`'s die is read out of
   the vendored template by a test, and the height it splits that die at is
   declared beside it now (`template.DIGITAL_HEIGHT`, `template.analog_strip()`)
   rather than living in that document -- the analog half's budget is arithmetic
   on it, and a budget checked against a number in prose is checked against
-  nothing. It is still a decision rather than a measurement, and the LibreLane
-  run that would replace it has not happened.
+  nothing. The LibreLane run has now happened and is deliberately not spent:
+  `sar_top` hardened into 334.88 x 80 um with no DRC, LVS, XOR or antenna
+  violations and +26.92 / +0.112 ns of slack at 61.2% utilisation, against a
+  declared 130, so there is about 50 um of tile height in reserve. It stays in
+  reserve because M2's rule is to over-budget this half deliberately, because
+  the array fits at the current split and so nothing needs the room, and
+  because that run placed its pins freely and carried no tile power stripes --
+  80 um is a floor rather than the answer. The measured figure to beat, and
+  the yosys estimate it inflates from (8216.6 um2 of cells, 1.57x to placed
+  logic, not the 1.4x that was guessed), belong in a committed baseline beside
+  the config that produced them.
 
 - **The platform names its supplies twice, differently.** The vendored DEF
   carries `VPWR`/`VGND` as special nets; the shuttle's Verilog template names

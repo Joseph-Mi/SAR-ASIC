@@ -88,13 +88,23 @@ CAP_MIM_BIAS = {"low": 0.055, "typical": 0.150, "high": 0.245}
 #: improves with area, so the smaller of these is the worst matching an array
 #: is built to have.
 #:
-#: This is the project's floor and not the process's, which is lower: the only
-#: size rule either running deck states for the MiM is a minimum width, no
-#: deck states a minimum area, and the device's own model defaults to a
-#: micrometre each way -- so a square a quarter of this is legal to draw and
-#: matches half as well. Which is a decision waiting to be made rather than a
-#: fact, and it is written here as one so that the test below holds it to the
-#: rule it has to obey rather than to a rule it invented.
+#: This is the project's choice and not the process's floor, which is lower:
+#: the only size rule either running deck states for the MiM is a minimum
+#: width, no deck states a minimum area, and the device's own model defaults
+#: to a micrometre each way -- so a square a quarter of this is legal to draw
+#: and matches half as well. The decision to draw it at this one is DD-16, and
+#: the reasons are there rather than here because they are a balance across
+#: several quantities and not a property of the process. In short: almost
+#: nothing discriminates. The array fits interleaved at every candidate size,
+#: matching is worth 0.0185 ENOB across the whole range and kT/C less, the
+#: gradient is size-independent, and the two axes that could argue for more
+#: area -- coupling onto the top plate and its parasitic -- cannot be
+#: evaluated until a layout is extracted. Of what can be measured, the top
+#: switch's charge and its off-state leakage both favour a *smaller* unit. So
+#: this value is held rather than chosen: it is the size every measured result
+#: in the repository was taken at. It stays
+#: written as an area so that the test below holds it to the rule it has to
+#: obey -- a minimum width -- rather than to a rule it invented.
 CAP_MIN_AREA_MIM = 4.00
 CAP_MIN_AREA_VPP = 3.24
 
@@ -321,6 +331,39 @@ def mim_rows_within(height: float, side: float, ring: int = 1, shared: bool = Fa
     if room < 0.0:
         return 0
     return int(room // pitch) + 1 + 2 * ring
+
+
+def mim_fit(
+    unit_count: int,
+    side: float,
+    height: float,
+    ring: int = 1,
+    shared: bool = False,
+) -> tuple[int, int, float] | None:
+    """The array as the strip actually makes it: rows, units per row, and how
+    far it reaches along the strip. `None` if the strip holds no row to put a
+    unit in.
+
+    This is the fit, and `mim_array_extent` beside it is a bound. The
+    difference is the shape: that one is the array drawn square, which is what
+    a gradient wants -- shortest in both directions at once -- and this one is
+    the array drawn to the room there is. The strip is three times as wide as
+    it is tall, so the height decides the rows and the length then follows,
+    and the two answers are far enough apart to reverse a decision. They did:
+    the square bound read against the strip height says the unit capacitor has
+    to shrink, and the rows say every candidate size fits (DD-16).
+
+    The reach includes the ring and the keep-away, so it is comparable
+    against the die's width the way `mim_keep_out` output is. The rows count
+    the dummies, so it is the number that goes on a drawing.
+    """
+    rows = mim_rows_within(height, side, ring=ring, shared=shared)
+    interior = rows - 2 * ring
+    if interior < 1:
+        return None
+    per_row = -(-unit_count // interior)  # ceil, in integers
+    reach = mim_keep_out(mim_row(per_row, side, shared) + mim_ring_step(side, ring))
+    return rows, per_row, reach
 
 
 def mim_array_extent(unit_count: int, side: float, ring: int = 1, shared: bool = False) -> float:
