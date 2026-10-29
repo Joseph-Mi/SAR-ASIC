@@ -96,6 +96,41 @@ def test_a_mim_unit_is_the_smallest_drawable_square():
     assert len(re.findall(rf"^Xu\w+ top \S+ {sky130.MIM} ", text, re.M)) == N_BITS + 1
 
 
+def test_the_ideal_array_moves_with_the_capacitance_corner():
+    """The check that was missing while five corners swept one array.
+
+    `mim_sized` is where the acceptance's capacitance comes from, so if it
+    ignored its argument the corner set could name every capacitance corner
+    in the PDK and every run would still be at the nominal one -- a sweep that
+    passes because it never varied anything. Asserted as an ordering with real
+    separation rather than as three numbers, because the numbers are `tech`'s
+    to state and `test_mim` holds them to the PDK.
+    """
+    low, typical, high = (analog.mim_sized(c).farads for c in sky130.CAP_CORNERS)
+    assert low < typical < high
+    # A fifth either way: far too large for a rounding difference to produce.
+    assert high / typical > 1.1
+    assert typical / low > 1.1
+    assert analog.MIM_SIZED.farads == typical
+
+
+def test_the_corner_set_sweeps_the_capacitors_and_not_only_the_devices():
+    """What the corner set has to cover, and did not.
+
+    Sampling is resistance times the array, so the corner where the array is
+    largest is the one the conversion clock has to come from: it is the
+    slowest, whatever the transistors are doing. That corner has to be in the
+    set and it has to be the one named as slowest, which is the mistake this
+    pins -- the set listed five device corners and left every array nominal,
+    so the clock was derived from a loop a fifth faster than the worst the
+    process ships.
+    """
+    assert bench.SLOWEST_SAMPLING.caps == "high"
+    assert bench.SLOWEST_SAMPLING in bench.SKY130_CORNERS
+    swept = {corner.caps for corner in bench.SKY130_CORNERS}
+    assert swept == set(sky130.CAP_CORNERS), f"capacitance corners missed: {swept}"
+
+
 def test_every_mim_branch_states_the_units_its_matching_depends_on():
     """`mult` as well as `m`, and the two equal, on every branch.
 

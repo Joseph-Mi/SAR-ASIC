@@ -13,6 +13,7 @@ that phase set moving has had the whole phase to settle.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 import analog
 import ngspice
@@ -125,20 +126,52 @@ class Supplies:
 #: How far the platform lets the supply sit from nominal, either way.
 SUPPLY_SPREAD = 0.1
 
-#: Process corner, supply and temperature. Sampling is slowest at ss, low
-#: supply and hot -- the top switch's resistance peaks there -- so the clock
-#: comes from it; the rest are where the other edges of the design sit: cold
-#: slow, the largest injection (ff cold), and the most leakage (ff hot).
+
+class Corner(NamedTuple):
+    """Where a measurement is taken: the devices, the supply, the temperature
+    and the size of the capacitors.
+
+    The capacitors are the fourth axis because they are a separate one. The
+    PDK ships the whole cross product of device and capacitance corners --
+    `ss_hh` is slow devices with large capacitors, `ff_ll` the other way, and
+    `hh` and `ll` carry the capacitance alone -- so nothing makes the array's
+    size ride along with the transistors', and a corner set that names only
+    the devices has silently pinned the capacitors at nominal. This project
+    did that for five corners and twenty minutes a run.
+
+    It is a name rather than a library section because of where the array's
+    capacitance comes from. A thousand PDK subcircuits is not a deck a solver
+    will finish, so the array is ideal capacitors whose value `tech` evaluates
+    from the PDK's own expression at this corner -- which is what makes the
+    substitution faithful, and is asserted against the device the simulator
+    builds at every capacitance corner in `test_mim`. Selecting `ss_hh` in the
+    header instead would change the transistors not at all (it pulls the same
+    `parameters_fet_ss`) and the ideal capacitors not at all either, which is
+    the trap: it reads like the fix and measures nothing.
+    """
+
+    process: str
+    vdd: float
+    temp: float
+    caps: str = "typical"
+
+
+#: Process corner, supply, temperature and capacitor size. Sampling is slowest
+#: at ss, low supply, hot and with the largest capacitors -- the top switch's
+#: resistance peaks there and the array it charges is at its biggest -- so the
+#: clock comes from it; the rest are where the other edges of the design sit:
+#: cold slow, the largest injection (ff cold, where the array is smallest so a
+#: fixed charge is the most LSBs), and the most leakage (ff hot).
 #: Which of them is worst is not the same question for every block, so one
 #: that has its own worst corner finds it by measuring rather than by reading
 #: this order.
-SLOWEST_SAMPLING = ("ss", (1 - SUPPLY_SPREAD) * Supplies().vdd, 125)
+SLOWEST_SAMPLING = Corner("ss", (1 - SUPPLY_SPREAD) * Supplies().vdd, 125, "high")
 SKY130_CORNERS = [
-    ("tt", Supplies().vdd, NOMINAL_TEMP),
+    Corner("tt", Supplies().vdd, NOMINAL_TEMP),
     SLOWEST_SAMPLING,
-    ("ss", (1 - SUPPLY_SPREAD) * Supplies().vdd, -40),
-    ("ff", (1 + SUPPLY_SPREAD) * Supplies().vdd, -40),
-    ("ff", (1 + SUPPLY_SPREAD) * Supplies().vdd, 125),
+    Corner("ss", (1 - SUPPLY_SPREAD) * Supplies().vdd, -40),
+    Corner("ff", (1 + SUPPLY_SPREAD) * Supplies().vdd, -40, "low"),
+    Corner("ff", (1 + SUPPLY_SPREAD) * Supplies().vdd, 125),
 ]
 
 

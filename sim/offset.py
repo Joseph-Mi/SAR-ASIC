@@ -82,7 +82,10 @@ class OffsetStudy:
 
 def one_draw(base: pathlib.Path, corner, seed: int) -> float:
     """One part's offset, in its own directory so draws may run at once."""
-    process, supply, temp = corner
+    # Three of the corner's four axes: the latch is a comparator across a pair
+    # of nodes and does not touch the array, so its capacitance corner is not
+    # one of its own.
+    process, supply, temp = corner.process, corner.vdd, corner.temp
     workdir = base / f"{process}_{temp:g}_{seed}"
     workdir.mkdir(parents=True, exist_ok=True)
     return strongarm.offset(

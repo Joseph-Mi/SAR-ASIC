@@ -371,11 +371,28 @@ DEFAULT_UNIT = Ideal(1e-15)
 #: larger unit settles proportionally slower, and still far inside an edge.
 IDEAL_RON_UNIT = IDEAL_UNIT_TAU / DEFAULT_UNIT.farads
 
-#: An ideal unit the size of sky130's smallest MiM, fringe included. Where
-#: transistors touch the array its size counts -- a switch's charge and
-#: resistance act against the array's capacitance -- and a unit too light for
-#: its switches exaggerates every effect.
-MIM_SIZED = Ideal(sky130.mim_unit())
+
+def mim_sized(corner: str = "typical") -> Ideal:
+    """An ideal unit the size of sky130's smallest MiM, fringe included, at
+    one capacitance corner.
+
+    Where transistors touch the array its size counts -- a switch's charge and
+    resistance act against the array's capacitance -- and a unit too light for
+    its switches exaggerates every effect. Which is why the corner is an
+    argument and not a constant: the capacitance corner moves the array by a
+    fifth either way (7.52 to 11.24 fF against 9.25 at the smallest unit the
+    process draws), and the sampling loop is resistance times exactly this.
+
+    Ideal rather than the PDK's device because a thousand of its subcircuits
+    is not a deck that finishes, and faithful because the value is `tech`
+    evaluating the PDK's own expression -- held to the device the simulator
+    builds, at each corner, by `test_mim`.
+    """
+    return Ideal(sky130.mim_unit(corner))
+
+
+#: The array at the capacitance the process is centred on.
+MIM_SIZED = mim_sized()
 
 
 #: The comparator instance, by the name the netlist and the sheet both give
