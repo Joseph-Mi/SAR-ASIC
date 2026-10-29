@@ -26,8 +26,16 @@ from comparator import decision_time, margins, noise_for_margin, worst_margin
 from dynamic import codes_from_curve
 from interface import N_BITS
 from junction import Junction, input_at_decision, swing_gain
-from metrics import lsb_ideal, midcode_inputs
-from mismatch import sigma_from_area
+from metrics import (
+    dnl,
+    inl,
+    lsb_ideal,
+    midcode_inputs,
+    msb_dnl,
+    sigma_dnl_msb_analytic,
+    transition_voltages,
+)
+from mismatch import PERCENT, random_units, sigma_from_area
 from noise import sampled_noise_lsb
 from power import (
     Budget,
@@ -163,6 +171,25 @@ LEVEL_CYCLES = range(0, 7)
 #: taken over. Enough to see the shape and to find the worst case.
 CHARGE_POINTS = 64
 RATE_POINTS = 32
+
+
+#: Arrays the linearity figure draws, and the seed it draws them with. A
+#: linearity curve is one part, so the figure shows one and the spread of
+#: many: a single draw read as "the" DNL is how a sample becomes a
+#: specification.
+LINEARITY_DRAWS = 200
+LINEARITY_SEED = 20261029
+
+#: Bins the MSB histogram is drawn with, and the headroom the DNL panel
+#: keeps above its data. The missing-code bound is an order of magnitude
+#: outside the spread, so a panel scaled to it draws the curve as a flat
+#: line on its own axis.
+LINEARITY_BINS = 30
+LINEARITY_HEADROOM = 1.6
+
+#: DNL at which a code goes missing, in LSB. The step from one code to the
+#: next has shrunk to nothing, so no input produces it.
+MISSING_CODE_DNL = -1.0
 
 
 def _units(n_bits: int = N_BITS, corner: str = TYPICAL):
@@ -803,8 +830,124 @@ def limits(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     return house.save(fig, out_dir / "limits.png")
 
 
+def linearity(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
+    """What mismatch does to the transfer curve: the staircase, DNL, INL.
+
+    The plot every converter is shown by, and drawn here at the size DD-16
+    keeps rather than at a size that makes it interesting. The answer is that
+    it is not interesting, which is the result: at the unit the process draws,
+    the missing-code bound sits more than ten standard deviations away, so the
+    curve a part actually has is straight at the scale anyone would look at
+    it. A figure that had to exaggerate the mismatch to show something would
+    be drawing a different converter.
+
+    One draw and the spread of many, in every panel that has a code axis. A
+    single array's DNL is one part; reading it as the design's is how a sample
+    becomes a specification.
+    """
+    rng = np.random.default_rng(LINEARITY_SEED)
+    sigma = sigma_from_area(sky130.mim_side() ** 2, sky130.CAP_A_C)
+    drawn = random_units(N_BITS, sigma, rng, trials=LINEARITY_DRAWS)
+    steps, errors = dnl(drawn, VREF), inl(drawn, VREF)
+    msb = msb_dnl(drawn, VREF)
+    predicted = sigma_dnl_msb_analytic(N_BITS, sigma)
+
+    fig, ((stair, spread), (steps_ax, errors_ax)) = house.canvas(2, 2, size=SQUARE_PANEL)
+
+    # The staircase at a resolution whose steps are visible at all. Drawn
+    # against the straight line it is supposed to be, with the real spread.
+    few = random_units(DIAGRAM_BITS, sigma, rng)
+    levels = transition_voltages(few, VREF)
+    codes = np.arange(levels.size)
+    stair.step(codes, levels, where="post", color=house.SERIES[0], label="one drawn array")
+    stair.plot(
+        codes,
+        codes * lsb_ideal(DIAGRAM_BITS, VREF),
+        color=house.MODEL,
+        lw=house.BOUND_WIDTH,
+        ls="--",
+        label="ideal",
+    )
+    stair.set_xlabel("code")
+    stair.set_ylabel("DAC output  [V]")
+    stair.set_title(f"The transfer curve at {DIAGRAM_BITS} bits")
+    stair.legend(loc="lower right")
+    house.note(stair, "the two are not distinguishable here -- that is the point")
+
+    # The MSB transition is where no unit is shared between the two codes, so
+    # it is the worst step and the one the law predicts.
+    spread.hist(msb, bins=LINEARITY_BINS, color=house.SERIES[1])
+    for sign in (-1, 1):
+        house.bound(
+            spread,
+            sign * predicted,
+            f"{'+' if sign > 0 else '-'}sigma, predicted" if sign > 0 else None,
+            axis="x",
+        )
+    spread.set_xlabel("DNL at the MSB transition  [LSB]")
+    spread.set_ylabel(f"arrays, of {LINEARITY_DRAWS}")
+    spread.set_title("The worst step, over many parts")
+    house.note(
+        spread,
+        f"measured sigma {msb.std(ddof=1):.4f} LSB\n"
+        f"the law predicts {predicted:.4f}\n"
+        f"{MISSING_CODE_DNL:g} LSB is {abs(MISSING_CODE_DNL) / predicted:.0f} sigma away",
+    )
+
+    for ax, stack, label, title in (
+        (steps_ax, steps, "DNL  [LSB]", "Every step"),
+        (errors_ax, errors, "INL  [LSB]", "And the error it accumulates"),
+    ):
+        x = np.arange(stack.shape[-1])
+        sd = stack.std(axis=0, ddof=1)
+        ax.fill_between(
+            x,
+            -sd,
+            sd,
+            color=house.SERIES[2],
+            alpha=house.SHADE_ALPHA,
+            lw=0,
+            label=f"+-sigma over {LINEARITY_DRAWS} arrays",
+        )
+        ax.plot(x, stack[0], color=house.SERIES[0], lw=house.THIN, label="one drawn array")
+        ax.set_xlabel("code")
+        ax.set_ylabel(label)
+        ax.set_title(title)
+        ax.legend(loc="upper right")
+    # The missing-code bound is an order of magnitude outside the spread, so
+    # it is stated rather than drawn: a panel scaled to it renders the curve
+    # as a flat line on its own axis, which shows the bound and hides the
+    # measurement. The distance to it is the number worth reading anyway.
+    worst = max(abs(steps[0]).max(), sd.max()) * LINEARITY_HEADROOM
+    steps_ax.set_ylim(-worst, worst)
+    house.note(
+        steps_ax,
+        f"{MISSING_CODE_DNL:g} LSB, where a code goes missing, is "
+        f"{abs(MISSING_CODE_DNL) / sd.max():.0f}x below this panel",
+        (0.02, 0.12),
+    )
+
+    fig.suptitle(
+        f"Linearity at {N_BITS} bits, unit {sky130.mim_side():g} um square: "
+        f"sigma_u/C_u = {sigma * PERCENT:.3f} %\n"
+        "mismatch is not what limits this converter, and these are the panels "
+        "that say so rather than assert it.",
+    )
+    fig.tight_layout()
+    return house.save(fig, out_dir / "linearity.png")
+
+
 #: Every figure this module draws, by the name of its file.
-FIGURES = (conversion, frequency, bounds, junction, charge, comparator, limits)
+FIGURES = (
+    conversion,
+    frequency,
+    linearity,
+    bounds,
+    junction,
+    charge,
+    comparator,
+    limits,
+)
 
 
 def draw_all(out_dir: pathlib.Path = OUT_DIR) -> list[pathlib.Path]:

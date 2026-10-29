@@ -23,7 +23,7 @@ import bench
 import cosim
 import loop
 import strongarm
-from bench import EDGE, SKY130_CORNERS, SLOWEST_SAMPLING, Block, Supplies
+from bench import EDGE, SKY130_CORNERS, SLOWEST_SAMPLING, Block, Supplies, at_corner
 from devices import Sky130, pdk_library
 from interface import N_BITS
 from measure import first_trial_error, law_clock
@@ -370,26 +370,6 @@ def test_the_designed_block_converts_within_budget_once_its_offset_is_removed(co
 
 
 #: The supply's tolerance either side of nominal.
-
-
-def at_corner(corner) -> Block:
-    """The designed block with sky130's devices and array at one corner.
-
-    The array is the part this once got wrong by omission. Its capacitance
-    comes from `tech`'s evaluation of the PDK expression rather than from the
-    library section in the header, so a corner set naming only devices left
-    five corners sweeping transistors against one array -- and the corner
-    where the array is largest, which is where sampling is slowest, had never
-    been simulated. The capacitance corner therefore has to be applied here,
-    where the unit is built.
-    """
-    return replace(
-        bench.DESIGNED,
-        supplies=Supplies(vdd=corner.vdd, vref=VREF),
-        unit=analog.mim_sized(corner.caps),
-        sampling=replace(DESIGNED, devices=Sky130(corner.process)),
-        temp=corner.temp,
-    )
 
 
 needs_pdk = pytest.mark.skipif(not pdk_library().exists(), reason="sky130 model library not found")
