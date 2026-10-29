@@ -7,9 +7,10 @@ committed so that such a change arrives as a diff rather than as a number
 nobody compared.
 
 The rest of this asserts the shape of the answer rather than its digits: which
-way each column moves with size, and the two findings the study exists to
-produce -- that matching is not what decides this, and that the smallest unit
-the process draws is the one whose array fits the strip however it is placed.
+way each column moves with size, and the findings the study exists to produce
+-- that matching is not what decides this, and that the two block columns are
+a bound on a square array rather than the fit, every candidate fitting the
+strip interleaved once the rows are counted (DD-16).
 """
 
 from __future__ import annotations
@@ -89,21 +90,60 @@ def test_the_parasitic_this_counts_is_not_what_decides_it_either(rows):
         assert row["swing_gain"] > 0.99, row
 
 
-def test_the_smallest_unit_is_the_one_that_fits_however_it_is_placed(rows):
-    """The finding the floorplan was waiting on.
+def test_every_candidate_fits_interleaved_by_rows(rows):
+    """What the two block columns must not be read as, asserted so that the
+    next reader cannot repeat the mistake they invite.
 
-    A square array plus its dummy ring does not fit the strip at the size the
-    project draws today, and it does at the smallest the process draws --
-    interleaved, which is the placement that cancels a gradient and the one
-    that costs the most room. So the choice between grouped and interleaved
-    stops being a choice between symmetry and fit.
+    Those columns are the array drawn square, and a square array plus its
+    dummy ring misses the strip at the size the project draws. Read as a fit
+    that says the unit has to shrink, and it was: two size recommendations
+    came out of it before the row function was consulted. The array does not
+    have to be square -- `mim_rows_within` exists for that reason -- and the
+    strip is three times as wide as it is tall, so the height sets the rows
+    and the width has room to spare.
+
+    So: the square figure is a bound, every candidate fits interleaved
+    through the rows, and the long axis is nowhere near the die. Which is
+    what makes DD-16 a balance across matching, noise, coupling, leakage,
+    charge and speed rather than a question of what fits.
+    """
+    width, height = template.analog_strip()
+    square_misses = 0
+    for row in rows:
+        side = row["side_um"]
+        placed = sky130.mim_fit(2**N_BITS, side, height, shared=False)
+        assert placed is not None, f"{side} um holds no interior row in {height} um"
+        _, _, reach = placed
+        assert reach < width, f"{side} um interleaved reaches {reach:.2f} um of a {width} um die"
+        # The point of the test: the bound and the fit disagree, in the
+        # direction that reads as "it does not fit" when it does.
+        if row["block_inter"] > height:
+            square_misses += 1
+            assert reach < width, f"{side} um: square misses, rows fit"
+    assert square_misses, (
+        "no candidate's square bound misses the strip, so this test is "
+        "asserting nothing -- the split or the sweep has moved"
+    )
+
+
+def test_the_square_bound_is_the_shape_to_want_and_not_the_shape_that_fits(rows):
+    """Both halves of that, because dropping either one misleads.
+
+    Square is what makes a gradient shortest in both directions, so it is
+    what a placement scheme wants where there is room; the columns are
+    reported for that reason and not as decoration. What they are not is the
+    tile's answer.
     """
     _, height = template.analog_strip()
-    smallest, today = rows[0], next(r for r in rows if r["side_um"] == sky130.mim_side())
-    assert smallest["side_um"] == sky130.MIM_WIDTH_MIN
-    assert smallest["block_inter"] < height
-    assert today["block_inter"] > height
-    assert today["block_group"] > height
+    today = next(r for r in rows if r["side_um"] == sky130.mim_side())
+    assert today["block_inter"] > today["block_group"], (
+        "interleaving is the placement that costs room; if it does not, the pitch rule has changed"
+    )
+    assert today["block_inter"] > height, (
+        "the square interleaved array fits the strip now, which is a better "
+        "world and makes this test's premise stale"
+    )
+    assert sky130.mim_fit(2**N_BITS, sky130.mim_side(), height, shared=False)
 
 
 def test_a_smaller_array_buys_a_narrower_switch_and_less_charge(rows):
