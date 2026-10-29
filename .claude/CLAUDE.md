@@ -239,9 +239,9 @@ that almost nothing discriminates, and saying so is the decision:
 | kT/C | arithmetic on the PDK's capacitance | **No.** 0.040 against 0.021 LSB, both far under one |
 | Fit in the strip | the PDK's `capm` pitch rules through `mim_fit` | **No.** Every candidate fits interleaved at every split |
 | Gradient | derived, and measured over 2000 arrays | **No.** Size-independent; placement decides it (DD-17) |
-| Sampling speed | measured R(W), `R_PIN` from the platform spec | **Rate only.** The clock rescales 36 ns to 230 ns across the sweep and both cap corners. Nothing fails, and no conversion rate is specified |
+| Sampling speed | the loop measured at each corner, `R_PIN` from the platform spec | **Rate only.** The acceptance's clock is 225 ns and a conversion 4.7 us (212 kSa/s) at this size and the large capacitance corner; a 1.0 um unit would rescale it to about a third. Nothing fails, and no conversion rate is specified |
 | Top switch charge | the measured R(W) curve | **Favours smaller**, 0.42x at a 1.0 um unit -- but it is an offset, and DFT mode 4 measures it in the field |
-| Off-switch leakage | measured, below | **Favours smaller**, and it is the one axis with a margin worth watching |
+| Off-switch leakage | measured, below | **Favours smaller**, by 15x at the hot corner, and it is the one axis whose margin is thin: 1.5x at ff/125 C against 676x at the specified temperature |
 | Coupling onto the top plate | nothing | **Cannot be evaluated without a layout** |
 | Top-plate parasitic | nothing | same |
 
@@ -651,13 +651,25 @@ Step 6 (done):
   in `test_sar_loop.py`. The designed block, sky130 devices, 500 ohm on
   `vin`/`vref`/`vcm`, the real RTL; mid-code inputs either side of every
   carry (top code included); one clock for all corners, from the slowest
-  sampling corner (ss, 0.9*VDD, 125 C): tau 13.6 ns (the three-resistance
-  law says ~10.9 -- the measured loop is ~25% slower, so the clock takes the
-  measurement), clock 135 ns at 0.05 LSB, ~21 clocks per conversion. Every
-  code right with each corner's offset removed at tt / ss hot / ss cold /
-  ff cold / ff hot; no metastability flag. Mutation: at half the clock the
-  slowest corner gets 6/23 wrong. ~20 min in the container (needs the PDK;
-  skips without it).
+  sampling corner -- ss, 0.9*VDD, 125 C and the *large* capacitance corner,
+  which is where the array it charges is biggest: tau 22.6 ns (the
+  three-resistance law says 15.5 -- the measured loop is 46% slower, so the
+  clock takes the measurement), clock 225 ns at 0.05 LSB, ~21 clocks per
+  conversion, 4.7 us a conversion. Every code right with each corner's offset
+  removed at tt / ss hot / ss cold / ff cold / ff hot; no metastability flag.
+  Mutation: at half the clock the slowest corner gets 6/23 wrong. ~20 min in
+  the container (needs the PDK; skips without it). The clock is the sampling
+  loop's and only the sampling loop's, which is the acceptance's one known
+  hole: the reference pin's recovery scales with the array too and at the
+  large capacitance corner it binds first -- the open finding below has the
+  measurements and the choice of fix.
+  The figures here read 13.6 ns and 135 ns until the capacitance corner was
+  swept, and that pair was stale rather than wrong-at-the-time: the law it
+  quoted, 10.9 ns, implies 7.92 fF a unit, which is the 8 fF placeholder
+  Step 4c used and not `mim_unit`'s 9.245 fF. So the array was sized from the
+  PDK and the prose beside the test was not. The test itself never drifted --
+  it derives the clock at run time from `law_clock` -- which is the argument
+  for a committed baseline over a number in a sentence, made by the sentence.
 - The generic designed-block acceptance now runs behind the same pins, its
   clock from its own loop.
 
@@ -1048,9 +1060,13 @@ make shell first, then:
   # The matching coefficient, as a ratio: times 100 for percent-micrometres
   grep -n sw_mm_cmim $C/models_global.spice
 
-  # What a section actually pulls in -- the capacitance corner rides with the
-  # device corner, so tt is the only typical one and ff_hh / ss_ll the extremes
-  grep -A8 '^.lib ss_ll$' $PDK_ROOT/$PDK/libs.tech/combined/sky130.lib.spice
+  # What a section actually pulls in. The capacitance corner does NOT ride
+  # with the device corner: the tree ships the cross product, so ss_hh is slow
+  # devices with large capacitors, ff_ll the other way, and hh / ll carry the
+  # capacitance against typical silicon alone. Listing the sections is how you
+  # find that out, and believing otherwise cost this project five corners.
+  grep -n '^.lib ' $PDK_ROOT/$PDK/libs.tech/combined/sky130.lib.spice
+  grep -A8 '^.lib ss_hh$' $PDK_ROOT/$PDK/libs.tech/combined/sky130.lib.spice
 
   Then measure it yourself -- takes about a minute:
 
@@ -1199,16 +1215,24 @@ Delete each one when it is fixed.
   point and a sweep walks there in one.
 
   ```
-                      leak      /W   budget, fixed clock      margin
+                       leak      /W   budget pA     margin   scaled    margin
+                                      fixed clock              clock
     tt, 27 C
-      side 1.00 (W 0.95)   0.0496 pA   1.00      466.5 pA      9399x
-      side 1.50 (W 2.31)   0.2943 pA   5.93      960.3 pA      3264x
-      side 2.00 (W 8.00)   1.4489 pA  29.19     1630.5 pA      1125x
+      1.00 um (W 0.95)    0.0496   1.00     280.1     5648x   1310.2    26416x
+      1.50 um (W 2.31)    0.2943   5.93     576.7     1960x   1310.2     4452x
+      2.00 um (W 8.00)    1.4489  29.19     979.2      676x   1310.2      904x
     ff, 125 C
-      side 1.00 (W 0.95)  42.7437 pA   1.00      466.5 pA         11x
-      side 1.50 (W 2.31) 159.2812 pA   3.73      960.3 pA          6x
-      side 2.00 (W 8.00) 649.5692 pA  15.20     1630.5 pA          3x
+      1.00 um (W 0.95)   42.7437   1.00     280.1      6.6x   1310.2     30.7x
+      1.50 um (W 2.31)  159.2812   3.73     576.7      3.6x   1310.2      8.2x
+      2.00 um (W 8.00)  649.5692  15.20     979.2      1.5x   1310.2      2.0x
   ```
+
+  The budgets here are the second version of them. The first used a 135 ns
+  clock read out of this file, which was stale by 1.67x (the acceptance
+  derives 225 ns; see Step 6), so every budget was that much too generous and
+  the hot-corner margin at today's size read 3x where it is 1.5x. The
+  currents are unaffected -- a leak does not know what the clock is -- which
+  is the only reason the direction survived the correction.
 
   **The budget cancels if the clock is allowed to scale.** It is half an LSB
   of charge over a conversion, so `0.5*Ctot*Vlsb/(N*clock)` with `clock`
@@ -1229,12 +1253,14 @@ Delete each one when it is fixed.
   share them between adjacent fingers. The direction is safe, the exponent
   is not.
 
-  **At the hot corner the margin is 3x at today's size.** Per DD-15 that
+  **At the hot corner the margin is 1.5x at today's size.** Per DD-15 that
   corner is read as margin and not as pass or fail, and at the specified room
-  temperature every size has four digits of margin, so nothing fails. What is
-  open is that 3x is the thinnest margin any axis of the size decision has,
-  and that it rests on that same default junction geometry -- so it is worth
-  no better than a factor of two until Magic extracts one. Re-measure it from
+  temperature the thinnest margin is 676x, so nothing fails. What is open is
+  that 1.5x is by a wide way the thinnest margin any axis of the size
+  decision has, that it is thin enough to be inside the factor of two the
+  measurement is worth, and that it rests on the models' default junction
+  geometry rather than a laid-out switch whose fingers share diffusions -- so
+  it cannot presently be told from no margin at all at that corner. Re-measure it from
   the extracted switch at M7, and treat it as a reason to revisit DD-16 if
   the specification ever widens to the industrial range.
 
@@ -1256,21 +1282,117 @@ Delete each one when it is fixed.
   near a solver's floor, vary the floor and show the measurement does not
   follow it. `build/leak/gmin.py` is that check.
 
-- **The corner acceptance has only ever run at the nominal capacitance
-  corner.** `devices.Sky130(corner)` names a section of the PDK's
-  `sky130.lib.spice`, and `tt`, `ff` and `ss` all include
-  `continuous/parameters_cap_nom.spice` -- only `ff_hh` and `ss_ll` carry the
-  capacitance extremes. So the twenty-minute acceptance at tt / ss hot /
-  ss cold / ff cold / ff hot swept the devices and held the capacitors at one
-  value throughout, and the corner where the array is largest has never been
-  simulated: at the high corner a 2.0 um unit makes C_total 11.509 pF, where
-  the two pins alone want 11.51 ns of the 12.72 ns loop the clock was derived
-  from. This file's own note that the capacitance corner rides with the
-  device corner is advice the test does not take. Fix: put `ff_hh` and
-  `ss_ll` in the corner set, or override the capacitance parameters on a
-  slow-device section to get the combination the PDK ships no section for
-  (slow devices, large capacitors), and re-derive the clock from whichever is
-  slowest. Until then DD-16's speed numbers are arithmetic, not measurement.
+- ~~**The corner acceptance has only ever run at the nominal capacitance
+  corner.**~~ Fixed, and the diagnosis it came with was wrong in a way worth
+  keeping. The finding said the PDK ships no section for slow devices with
+  large capacitors and that the fix was to add `ff_hh` and `ss_ll` to the
+  corner set. Both halves are false.
+
+  **The PDK ships the whole cross product.** `ss_hh` is slow devices with
+  large capacitors, `ff_ll` the other way, `hh` and `ll` carry the
+  capacitance against typical silicon, and the `sf_*` and `fs_*` families are
+  there too -- forty-eight sections. The belief that the two corners ride
+  together came from a comment in `test_mim.py` beside
+  `SECTIONS = {"tt": ..., "ff_hh": ..., "ss_ll": ...}` saying only the
+  extreme device corners carry a capacitance corner, which is the shape of
+  that dictionary and not a property of the tree. A wrong statement in a
+  committed test is how something comes to be believed, and this is the
+  second time on this branch (`test_every_candidate_fits_interleaved_by_rows`
+  was the first).
+
+  **And adding a section would have changed nothing**, which is the part that
+  would have produced a false pass. `devices.Sky130(corner)` puts a section in
+  the header, but the array is not PDK devices: a thousand of its subcircuits
+  is not a deck that finishes, so `bench.DESIGNED` carries
+  `analog.MIM_SIZED`, an *ideal* capacitor whose value `tech` computes from
+  the PDK's expression -- at the typical corner, hard-coded. Selecting
+  `ss_hh` leaves `parameters_fet_ss` for the transistors, exactly what `ss`
+  already gave, and leaves an ideal capacitor entirely alone. The corner set
+  would have named every capacitance corner the process ships and every run
+  would still have been at the nominal one.
+
+  So the capacitance corner is now a fourth axis of `bench.Corner`, applied
+  where the capacitance comes from (`analog.mim_sized(corner)`), the slowest
+  sampling corner is slow-devices-and-large-array, and `ff` cold carries the
+  small array where a fixed injected charge is the most LSBs. Two tests pin
+  it: that the three corners give three different arrays separated by more
+  than a tenth, and that the corner set covers `sky130.CAP_CORNERS` with the
+  slowest naming the large one. What makes the ideal substitution faithful is
+  `test_the_closed_form_is_the_device_the_simulator_builds`, now run over all
+  seven sections above -- `tech`'s arithmetic equals the device ngspice builds
+  at every capacitance corner, so an ideal capacitor at a Python-side corner
+  is the PDK's capacitor.
+
+  What it cost: the clock, and then a corner. The true slowest corner wants
+  tau 22.6 ns and a 225 ns clock against the 168 ns the nominal-capacitance
+  array asked for, and against the 135 ns the record carried. DD-16's speed
+  numbers are measurement rather than arithmetic now -- and the measurement
+  does not pass. See the finding below.
+
+- **At the large capacitance corner the reference pin costs a code at full
+  scale, and the conversion clock does not know about it.** The corner that
+  had never been simulated fails the acceptance: at ss / 0.9*VDD / 125 C with
+  the large array, the loop reads 1022 where the model says 1023, and the
+  three codes below it are each one low as well -- a gain error at the top of
+  the range, which a mid-scale offset calibration cannot remove (the offset it
+  measures, -0.510 mV, does not move across any of this).
+
+  Three measurements say what it is, and they agree:
+
+  ```
+    same corner, same 225 ns clock, nominal array      all three codes right
+    same corner, same clock, reference at the array     all three codes right
+      (r_vref = 0)
+    same corner, pin as built, 2.0x the clock           one code still wrong
+    same corner, pin as built, 2.5x the clock          all three codes right
+  ```
+
+  So it is neither the devices nor the temperature: it is the array's size
+  against the reference's pin. `law_clock` derives the clock from the
+  *sampling* loop -- the array charged through the input pin, the top switch
+  and the vcm pin -- and sampling is not the only path that scales with the
+  array. Each trial pulls `c_seen_by_reference` (a quarter of the array at the
+  first trial) through `R_PIN`, and that recovery wants about two and a half
+  times the clock sampling asks for. Which is the same shortfall Step 6 found
+  from the other end and left as a note -- recovery measured at ~4 ns against
+  an `R*C/4` law predicting ~1 ns -- except that there it was inside the
+  budget at the nominal array and here it is not.
+
+  Pinned as a strict xfail on that corner (`REFERENCE_PIN_SHORTFALL`), so
+  whichever fix is taken announces itself by the test starting to pass.
+
+  Marking it took a fix to the test policy, and the interaction is worth
+  keeping. The root `conftest.py` turns a skip into a failure when
+  `SAR_REQUIRE_TOOLS` is set, and **pytest reports an xfail as skipped** --
+  the same outcome, told apart only by a `wasxfail` attribute on the report.
+  So the analog job failed the expected failure, and it did it pointing at the
+  test rather than at the policy. The two outcomes are opposites: a skip is a
+  test that did not run and should have, an xfail is one that ran and failed
+  the way it is documented to. The policy now exempts it and
+  `tests/test_require_tools_policy.py` holds both halves, running the real
+  conftest in a subprocess over one skip and one xfail.
+
+  Three fixes, and choosing between them is a rate decision rather than a
+  correctness one:
+  * **Decouple `vref` at the pin**, off-chip, the way DD-10 already requires
+    for `vcm`. `r_vref = 0` converts at the nominal clock, so this buys the
+    whole rate back for the price of a board component, and DD-03 gave the
+    reference its own pin for exactly this charge draw. Costs nothing on-chip
+    and nothing in rate; costs a line in the datasheet the board has to obey.
+  * **Take the clock from both paths.** Correct whatever else is decided, and
+    self-correcting: with a decap the measured reference recovery drops and
+    the clock comes back on its own. Wants a measured reference-recovery time
+    constant beside `sampling_tau`, because the law underpredicts it 4x --
+    `first_trial_error(..., phase=)` is the measurement to build it from.
+  * **Accept 2.5x the clock**: 562 ns, 11.8 us a conversion, ~85 kSa/s against
+    212. No circuit or board change, and the largest rate concession of the
+    three.
+
+  The first two together are the recommendation: the board decoupling is what
+  makes the rate achievable and the two-path clock is what stops the harness
+  claiming a rate the reference cannot deliver. The on-chip vref decap that
+  Step 6 left open is a fourth option and now has a number to be judged
+  against -- what it has to do is what `r_vref = 0` did.
 
 - **The reset distribution does not meet max slew.** All 109 of the LibreLane
   run's max-slew violations name `rst_n` or `RESET_B`, at 2.518 ns against a

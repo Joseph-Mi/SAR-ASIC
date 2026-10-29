@@ -373,13 +373,22 @@ def test_the_designed_block_converts_within_budget_once_its_offset_is_removed(co
 
 
 def at_corner(corner) -> Block:
-    """The designed block with sky130's devices at one corner."""
-    process, vdd, temp = corner
+    """The designed block with sky130's devices and array at one corner.
+
+    The array is the part this once got wrong by omission. Its capacitance
+    comes from `tech`'s evaluation of the PDK expression rather than from the
+    library section in the header, so a corner set naming only devices left
+    five corners sweeping transistors against one array -- and the corner
+    where the array is largest, which is where sampling is slowest, had never
+    been simulated. The capacitance corner therefore has to be applied here,
+    where the unit is built.
+    """
     return replace(
         bench.DESIGNED,
-        supplies=Supplies(vdd=vdd, vref=VREF),
-        sampling=replace(DESIGNED, devices=Sky130(process)),
-        temp=temp,
+        supplies=Supplies(vdd=corner.vdd, vref=VREF),
+        unit=analog.mim_sized(corner.caps),
+        sampling=replace(DESIGNED, devices=Sky130(corner.process)),
+        temp=corner.temp,
     )
 
 
@@ -394,8 +403,32 @@ def sky130_clock(tmp_path_factory):
     return law_clock(workdir, at_corner(SLOWEST_SAMPLING), EDGE_OFFSET_LSB * lsb(N_BITS))
 
 
+#: The corner the reference pin does not hold, and why it is pinned as a
+#: known failure rather than removed. Its clock comes from the sampling loop,
+#: and at the large capacitance corner the binding path is not sampling: the
+#: charge each trial pulls from the reference goes through `R_PIN`, scales with
+#: the array, and wants about two and a half times that clock. Measured three
+#: ways -- a nominal array converts the same codes at the same clock, an ideal
+#: reference at the array converts them at the same clock, and 2.5x the clock
+#: converts them through the pin as built. `strict` so that whichever fix is
+#: chosen, this says so by failing the moment it starts passing.
+REFERENCE_PIN_SHORTFALL = pytest.mark.xfail(
+    strict=True,
+    reason="the reference pin wants ~2.5x the sampling clock at the large "
+    "capacitance corner -- see the open finding; fix is a vref decap at the "
+    "pin or a clock derived from both paths, and it is a rate decision",
+)
+
+
 @needs_pdk
-@pytest.mark.parametrize("corner", SKY130_CORNERS, ids=lambda c: f"{c[0]}-{c[1]:g}V-{c[2]:g}C")
+@pytest.mark.parametrize(
+    "corner",
+    [
+        pytest.param(c, marks=[REFERENCE_PIN_SHORTFALL] if c.caps == "high" else [])
+        for c in SKY130_CORNERS
+    ],
+    ids=lambda c: f"{c.process}-{c.vdd:g}V-{c.temp:g}C-{c.caps}C",
+)
 def test_sky130_devices_convert_within_budget_at_every_corner(
     controller, sky130_clock, corner, tmp_path
 ):

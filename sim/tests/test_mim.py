@@ -70,10 +70,28 @@ PER_MICRON = 1e-6
 #: quotes it as a percentage.
 PERCENT = 100.0
 
-#: Library sections to measure, and the capacitance corner each selects. Only
-#: the extreme device corners carry a capacitance corner with them; the
-#: typical device is offered with the typical capacitance alone.
-SECTIONS = {"tt": "typical", "ff_hh": "high", "ss_ll": "low"}
+#: Library sections to measure, and the capacitance corner each selects.
+#:
+#: The capacitance corner is independent of the device corner, which this once
+#: said the opposite of -- "only the extreme device corners carry a
+#: capacitance corner with them" -- and being wrong in a committed test is how
+#: it came to be believed. The PDK ships the whole cross product: `ss_hh` is
+#: slow devices with large capacitors and `ff_ll` the other way round, each
+#: direction of capacitance is also offered against fast and slow silicon by
+#: `ss_ll` and `ff_hh`, and `hh` and `ll` carry the capacitance against
+#: typical devices alone. So there is a section for every combination the
+#: design needs, and the one the acceptance most needed -- slow devices, large
+#: array -- was never missing. Both diagonals and one bare capacitance corner
+#: are measured here, so a tree that stops shipping them says so.
+SECTIONS = {
+    "tt": "typical",
+    "ff_hh": "high",
+    "ss_ll": "low",
+    "ss_hh": "high",
+    "ff_ll": "low",
+    "hh": "high",
+    "ll": "low",
+}
 
 #: Drawn sides to measure, micrometres. The smallest the process draws, and
 #: one ten times larger: the bias is a sixth of the first and a sixtieth of

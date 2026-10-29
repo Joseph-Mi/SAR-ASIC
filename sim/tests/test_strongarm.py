@@ -334,7 +334,7 @@ def test_the_noise_the_converter_asked_for_survives_every_corner(corner, tmp_pat
     slower process lowers the transconductance and lengthens the integration
     at once, and the two do not cancel by arrangement.
     """
-    process, supply, temp = corner
+    process, supply, temp = corner.process, corner.vdd, corner.temp
     measured = strongarm.integration(
         tmp_path,
         strongarm.DESIGNED,
@@ -388,7 +388,7 @@ def test_the_decision_arrives_inside_the_phase_except_where_it_is_known_not_to(c
     decision that accepted it is the thing to revisit -- which a test that
     skipped the corner would never say.
     """
-    process, supply, temp = corner
+    process, supply, temp = corner.process, corner.vdd, corner.temp
     asked = (HALF_LSB, -HALF_LSB)
     found = strongarm.separations(
         tmp_path,
