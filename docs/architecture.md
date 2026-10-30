@@ -58,6 +58,11 @@ and its baseline committed beside the code that draws it, the same way a study
 commits one: the sweep belongs to whichever layer can run the thing being
 swept, and running a netlist is this one's.
 
+**`layout/`** -- physical placement and stream-out. It takes electrical unit
+ordering from the model and geometry from the process and tile template.
+Readback checks the emitted geometry against the same electrical ordering;
+branch connectivity is checked by extraction once routing exists.
+
 **`hdl/verification/`** -- the RTL under test: cocotb benches for the digital
 half, the closed loop that runs the RTL against the analog block, and the
 formal properties, which are the only place SystemVerilog is used and which
