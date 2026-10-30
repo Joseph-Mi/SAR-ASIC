@@ -554,12 +554,18 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   in `docs/array-layout.md`. Metal4 row buses and a side spine connect every
   electrical upper plate to `TOP_PLATE`, including the terminating unit, while
   the perimeter and filler dummies stay isolated. Geometry-union tests check
-  that connectivity and detect an opened row or a shorted dummy. Branch
-  interconnect, dummy ties, guard rings and final LVS remain layout work;
-  branch cell names identify intended ownership, not extracted connectivity.
-  Folding the scalar
-  study's physical-index order into rows preserves the permutation, not a
-  proof of cancellation for every gradient direction in the plane.
+  that connectivity and detect an opened row or a shorted dummy. Electrical
+  bottom plates reach metal2 through outside-capm via2 contacts, then metal1
+  row tracks through via1. Metal2 trunks at the right collect each branch
+  under its schematic bottom-terminal label. The contacted placement reserves
+  row channels and output margin using process-derived pitches. KLayout
+  conductor extraction across the lower metal stack holds each labelled net
+  to its golden-model unit slots, including the separate terminating unit;
+  missing contacts and branch bridges are injected defects. These checks are
+  conductor extraction, not capacitor-device LVS. Dummy ties, guard rings,
+  switches, device LVS and parasitic extraction remain layout work. Folding
+  the scalar study's physical-index order into rows preserves the permutation,
+  not a proof of cancellation for every gradient direction in the plane.
 - **M7** — Comparator laid out, DRC/LVS clean. Its schematic was generated
   from the netlist the benches are measured on (`make schematic` ->
   `xschem/strongarm.sch` and its symbol), so what LVS is handed and what M5
