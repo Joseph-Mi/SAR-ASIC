@@ -154,6 +154,20 @@ MIM_CONTACT_SIDE = 0.2
 METAL4_MIN_AREA = 0.240
 LAYOUT_GRID = 0.005
 
+#: Lower-metal routing and the via enclosures used on every side of a landing.
+METAL1_GDS = (68, 20)
+VIA1_GDS = (68, 44)
+METAL2_GDS = (69, 20)
+METAL2_LABEL_GDS = (69, 5)
+VIA2_GDS = (69, 44)
+VIA1_SIDE = 0.15
+VIA2_SIDE = 0.2
+VIA_LANDING_ENCLOSURE = 0.085
+VIA2_METAL3_ENCLOSURE = 0.065
+METAL1_SPACING = 0.14
+METAL2_SPACING = 0.14
+MIM_VIA2_SPACING = 0.14
+
 DIFF_EXT = 0.29
 
 #: Resistance of the NMOS that holds the top plate at the common mode, ohms,

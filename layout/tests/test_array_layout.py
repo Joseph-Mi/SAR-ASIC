@@ -12,6 +12,7 @@ import pytest
 import sky130
 import template
 from array_gds import read_units, write_gds
+from array_geometry import contact_reach, output_margin
 from array_place import DUMMY_RING, placement
 from interface import N_BITS
 from mismatch import interleaved
@@ -62,16 +63,17 @@ def test_the_ring_and_unused_sites_are_filled_with_dummies():
 def test_drawn_geometry_and_keepaway_fit_the_strip():
     drawn = placement()
     width, height = template.analog_strip()
-    fit = sky130.mim_fit(2**N_BITS, drawn.side, height, ring=DUMMY_RING, shared=False)
-    assert fit is not None
-    assert drawn.rows == fit[0]
-    assert drawn.columns - 2 * DUMMY_RING == fit[1]
+    assert drawn.pitch_x >= sky130.mim_pitch(drawn.side)
+    assert drawn.pitch_y >= sky130.mim_pitch(drawn.side)
     for unit in drawn.units:
-        assert unit.x >= sky130.MIM_METAL_SPACING
+        assert unit.x - contact_reach() >= sky130.MIM_METAL_SPACING
         assert unit.y >= sky130.MIM_METAL_SPACING
-        assert unit.x + drawn.side + sky130.MIM_METAL_SPACING <= width
+        assert unit.x + drawn.side + sky130.MIM_METAL_SPACING + output_margin(N_BITS) <= width
         assert unit.y + drawn.side + sky130.MIM_METAL_SPACING <= height
-    assert sky130.mim_keep_out(sky130.mim_row(drawn.columns, drawn.side)) == pytest.approx(fit[2])
+    assert (
+        max(u.y for u in drawn.units) + drawn.side + sky130.MIM_METAL_SPACING + drawn.pitch_y
+        > height
+    )
 
 
 @pytest.mark.parametrize("n_bits", RESOLUTIONS)
@@ -116,24 +118,23 @@ def test_streamed_capacitors_have_the_specified_plates_and_contacts(tmp_path):
     for ref in refs:
         polygons = ref.get_polygons(by_spec=True)
         (plate,) = polygons[sky130.MIM_GDS_PLATE]
-        (bottom,) = polygons[sky130.MIM_GDS_BOTTOM]
+        bottom = polygons[sky130.MIM_GDS_BOTTOM]
         (contact,) = polygons[sky130.MIM_GDS_CONTACT]
         (upper,) = polygons[sky130.MIM_GDS_UPPER]
         np.testing.assert_allclose(
             plate.max(axis=0) - plate.min(axis=0), drawn.side, atol=GDS_TOLERANCE, rtol=0
         )
-        np.testing.assert_allclose(
-            plate.min(axis=0) - bottom.min(axis=0),
-            sky130.MIM_PLATE_ENCLOSURE,
-            atol=GDS_TOLERANCE,
-            rtol=0,
-        )
-        np.testing.assert_allclose(
-            bottom.max(axis=0) - plate.max(axis=0),
-            sky130.MIM_PLATE_ENCLOSURE,
-            atol=GDS_TOLERANCE,
-            rtol=0,
-        )
+        expanded = [
+            (
+                plate.min(axis=0)[0] - sky130.MIM_PLATE_ENCLOSURE,
+                plate.min(axis=0)[1] - sky130.MIM_PLATE_ENCLOSURE,
+            ),
+            (
+                plate.max(axis=0)[0] + sky130.MIM_PLATE_ENCLOSURE,
+                plate.max(axis=0)[1] + sky130.MIM_PLATE_ENCLOSURE,
+            ),
+        ]
+        assert all(gdspy.inside(expanded, bottom))
         assert np.all(contact.min(axis=0) > plate.min(axis=0))
         assert np.all(contact.max(axis=0) < plate.max(axis=0))
         assert np.prod(upper.max(axis=0) - upper.min(axis=0)) >= sky130.METAL4_MIN_AREA

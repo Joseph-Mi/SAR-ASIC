@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import sky130
 import template
+from array_geometry import contact_reach, output_margin, pitch_x, pitch_y
 from interface import N_BITS
 from mismatch import interleaved
 from sar import branch_slices
@@ -42,6 +43,8 @@ class Placement:
     side: float
     columns: int
     rows: int
+    pitch_x: float
+    pitch_y: float
     units: tuple[Unit, ...]
 
 
@@ -52,7 +55,7 @@ def placement(
     width: float | None = None,
     height: float | None = None,
 ) -> Placement:
-    """Place the electrical permutation at the pitch of isolated bottom plates.
+    """Place the electrical permutation with room for bottom contacts and tracks.
 
     Separate polygons cannot claim shared-plate spacing even when their owners
     match. Branch interconnect is outside this placement contract.
@@ -66,11 +69,18 @@ def placement(
     if not all(math.isfinite(v) and v > 0.0 for v in (width, height, side)):
         raise ValueError("strip dimensions and unit side must be finite and positive")
     count = 2**n_bits
-    fit = sky130.mim_fit(count, side, height, ring=DUMMY_RING, shared=False)
-    if fit is None or fit[2] > width:
+    horizontal = pitch_x(side)
+    vertical = pitch_y(n_bits, side)
+    rows = math.floor((height - 2 * sky130.MIM_METAL_SPACING - side) / vertical) + 1
+    interior = rows - 2 * DUMMY_RING
+    if interior < 1:
         raise ValueError("the array and dummy ring do not fit the analog strip")
-    rows, per_row, _ = fit
+    per_row = -(-count // interior)
     columns = per_row + 2 * DUMMY_RING
+    reach = (columns - 1) * horizontal + side + contact_reach()
+    reach += 2 * sky130.MIM_METAL_SPACING + output_margin(n_bits)
+    if reach > width:
+        raise ValueError("the contacted array and branch outputs do not fit the analog strip")
     owners = [n_bits] * count
     for branch, slots in enumerate(branch_slices(n_bits)):
         owners[slots] = [branch] * (slots.stop - slots.start)
@@ -78,7 +88,6 @@ def placement(
     physical_slots = [0] * count
     for slot, physical in enumerate(order):
         physical_slots[int(physical)] = slot
-    pitch = sky130.mim_pitch(side, shared=False)
     units = []
     for row in range(rows):
         for column in range(columns):
@@ -90,12 +99,12 @@ def placement(
             slot = physical_slots[physical] if interior and physical < count else None
             units.append(
                 Unit(
-                    x=sky130.MIM_METAL_SPACING + column * pitch,
-                    y=sky130.MIM_METAL_SPACING + row * pitch,
+                    x=sky130.MIM_METAL_SPACING + contact_reach() + column * horizontal,
+                    y=sky130.MIM_METAL_SPACING + row * vertical,
                     column=column,
                     row=row,
                     slot=slot,
                     branch=None if slot is None else owners[slot],
                 )
             )
-    return Placement(n_bits, side, columns, rows, tuple(units))
+    return Placement(n_bits, side, columns, rows, horizontal, vertical, tuple(units))
