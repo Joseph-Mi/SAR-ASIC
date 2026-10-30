@@ -465,7 +465,7 @@ verify-system:
 	@$(PYTHON) -m pytest $(VERIF_DIR)/system $(PYTEST_LOUD) $(PYTEST_REPORT) $(PYTEST_ARGS); $(ALLOW_EMPTY)
 
 ## verify: model, then every verification level, in order
-verify: model verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system
+verify: model verify-layout verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system
 
 ## clean: remove generated output
 clean:
@@ -473,3 +473,17 @@ clean:
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
 .PHONY: show-loop offset corners measured phases noise unit placement schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
+
+## array-layout: stream the interleaved MiM placement and dummy ring
+array-layout:
+	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):layout $(PYTHON) layout/array_gds.py $(ARGS)
+
+## verify-layout: check coordinates and GDS readback against the golden permutation
+verify-layout:
+	@$(PYTHON) -m pytest layout $(PYTEST_REPORT) $(PYTEST_ARGS)
+
+## drc-array: check the generated placement with Magic and KLayout
+drc-array: array-layout
+	@sak-drc.sh -b -w $(BUILD_DIR)/layout/drc $(BUILD_DIR)/layout/sar_array.gds
+
+.PHONY: array-layout verify-layout drc-array

@@ -221,6 +221,14 @@ jobs:
         timeout-minutes: 5
         run: sh scripts/in-image.sh make verify-rules PYTHON=python3
 
+      - name: Array placement and GDS readback
+        timeout-minutes: 5
+        run: sh scripts/in-image.sh make verify-layout PYTHON=python3
+
+      - name: Array placement DRC
+        timeout-minutes: 10
+        run: sh scripts/in-image.sh make drc-array PYTHON=python3
+
       # Then, because the sheets are edited by hand: a wire dragged off a pin
       # is a two-second failure that would otherwise surface an hour in.
       - name: Schematic
