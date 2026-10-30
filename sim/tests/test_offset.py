@@ -16,6 +16,7 @@ import shutil
 import numpy as np
 import pytest
 
+import circuit_plots
 import offset
 import strongarm
 from devices import Generic, Sky130, pdk_library
@@ -45,6 +46,12 @@ CHEAP_COMMON = 0.5
 #: How far either side of a tie the seed is checked at. Close enough that what
 #: the process drew is most of what decides the answer.
 ASKED_AT = 1e-3
+
+#: How far the summary may sit from the draws it summarises, in the
+#: millivolts both are written in. They are the same numbers read back
+#: through six decimal places of text, so this is the rounding and
+#: nothing else.
+REREAD = 1e-5
 
 
 def baseline() -> tuple[dict[str, str], list[dict[str, str]]]:
@@ -119,3 +126,28 @@ def test_a_seed_names_one_part_and_another_seed_names_another(tmp_path):
     ]
     assert np.array_equal(drawn[0], drawn[1]), "a seed did not name one part"
     assert not np.array_equal(drawn[0], drawn[2]), "two seeds named the same part"
+
+
+def test_the_draws_and_the_summary_describe_one_population():
+    """Two files are two chances to describe different runs.
+
+    `offset_baseline.txt` is the small diff a regression compares; the draws
+    beside it are what a histogram needs, and the summary of them is supposed
+    to be the table. Nothing enforces that -- they are written by one run
+    today, and a hand edit, an interrupted run or an exploratory `--out`
+    landing in the wrong place would leave two files that each look finished.
+    So the arithmetic is redone here: every corner in the table has its draws,
+    and its mean, sigma and worst are theirs.
+    """
+    _, rows = baseline()
+    drawn = circuit_plots.read_draws()
+    assert {(r["corner"], r["temp"]) for r in rows} == set(drawn), (
+        f"the table's corners {sorted((r['corner'], r['temp']) for r in rows)} are not "
+        f"the draws' {sorted(drawn)}"
+    )
+    for row in rows:
+        values = drawn[(row["corner"], row["temp"])]
+        assert values.size == int(row["draws"])
+        assert float(row["mean_mv"]) == pytest.approx(values.mean(), abs=REREAD)
+        assert float(row["sigma_mv"]) == pytest.approx(values.std(ddof=1), abs=REREAD)
+        assert float(row["worst_mv"]) == pytest.approx(abs(values).max(), abs=REREAD)

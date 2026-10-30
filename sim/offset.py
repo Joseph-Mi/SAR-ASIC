@@ -32,6 +32,14 @@ from sar import VCM_FRACTION
 
 BASELINE = pathlib.Path(__file__).with_name("offset_baseline.txt")
 
+#: Every draw, beside the table that summarises them. The table is what the
+#: regression compares and is the smaller diff, so it stays; this is what a
+#: histogram needs, and a spread has a shape that three numbers cannot carry
+#: -- whether it is Gaussian, whether it is centred, whether the worst part
+#: is a tail or an outlier. Written by the same run as the table, so the two
+#: cannot describe different populations, and held to each other by a test.
+DRAWS = pathlib.Path(__file__).with_name("offset_draws.txt")
+
 #: Volts per millivolt, for the columns an offset is readable in.
 MILLIVOLT = 1e-3
 
@@ -110,7 +118,8 @@ def population(study: OffsetStudy, base: pathlib.Path, corner, workers: int) -> 
         return np.array(list(pool.map(lambda seed: one_draw(base, corner, seed), seeds)))
 
 
-def run_point(study: OffsetStudy, base: pathlib.Path, corner, workers: int) -> dict:
+def run_point(study: OffsetStudy, base: pathlib.Path, corner, workers: int) -> tuple:
+    """The summary row for one corner, and the draws it was taken over."""
     drawn = population(study, base, corner, workers)
     lsb = Supplies().vref / 2**N_BITS
     return {
@@ -122,7 +131,7 @@ def run_point(study: OffsetStudy, base: pathlib.Path, corner, workers: int) -> d
         "sigma_mv": float(drawn.std(ddof=1)) / MILLIVOLT,
         "worst_mv": float(np.abs(drawn).max()) / MILLIVOLT,
         "sigma_lsb": float(drawn.std(ddof=1)) / lsb,
-    }
+    }, drawn
 
 
 def format_table(study: OffsetStudy, rows: list[dict]) -> str:
@@ -152,6 +161,25 @@ def format_table(study: OffsetStudy, rows: list[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+def format_draws(study: OffsetStudy, rows: list[dict], drawn: list) -> str:
+    """Every draw, one per line, tagged by the corner it came from.
+
+    Long and thin rather than a column per corner, so a corner added or
+    dropped is a block of lines rather than a reshaped file, and so a reader
+    does not have to count columns to know which corner a number is.
+    """
+    out = [
+        f"# draws={study.draws} seed={study.seed} strobe={STROBE:g} sizing=DESIGNED",
+        f"# every draw in millivolts; the summary of these is {BASELINE.name}",
+        "  ".join(c.rjust(len("-0.000000")) for c in ("corner", "temp", "draw", "offset_mv")),
+    ]
+    for row, values in zip(rows, drawn, strict=True):
+        for i, volts in enumerate(values):
+            cells = (row["corner"], f"{row['temp']:g}", f"{i:d}", f"{volts / MILLIVOLT:.6f}")
+            out.append("  ".join(c.rjust(len("-0.000000")) for c in cells))
+    return "\n".join(out) + "\n"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--draws", type=int, default=OffsetStudy.draws)
@@ -170,11 +198,20 @@ def main() -> None:
         )
 
     args.work.mkdir(parents=True, exist_ok=True)
-    rows = [run_point(study, args.work, corner, args.workers) for corner in study.corners]
+    measured = [run_point(study, args.work, corner, args.workers) for corner in study.corners]
+    rows = [row for row, _ in measured]
+    drawn = [values for _, values in measured]
     table = format_table(study, rows)
     args.out.write_text(table)
+    # The draws go beside whatever the table went beside, so an exploratory
+    # run cannot leave its draws next to the committed summary.
+    draws_out = args.out.with_name(args.out.stem.replace("baseline", "draws") + args.out.suffix)
+    if draws_out == args.out:
+        draws_out = args.out.with_name(args.out.stem + "_draws" + args.out.suffix)
+    draws_out.write_text(format_draws(study, rows, drawn))
     print(table, end="")
     print(f"-> {args.out}")
+    print(f"-> {draws_out}")
 
 
 if __name__ == "__main__":

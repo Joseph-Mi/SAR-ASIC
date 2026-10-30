@@ -12,7 +12,7 @@ that phase set moving has had the whole phase to settle.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import NamedTuple
 
 import analog
@@ -220,6 +220,33 @@ DESIGNED = Block(
     r_vref=R_PIN,
     vcm=PinVcm(R_PIN),
 )
+
+
+def at_corner(corner: Corner) -> Block:
+    """`DESIGNED` with sky130's devices and array at one corner.
+
+    Here rather than in the bench that accepts the design, because two things
+    now need it and they must not be two experiments: the corner acceptance,
+    and the study that draws what the acceptance measures. A figure of a
+    slightly different block is worse than no figure.
+
+    The array is the part this once got wrong by omission. Its capacitance
+    comes from `tech`'s evaluation of the PDK expression rather than from the
+    library section in the header, so a corner set naming only devices left
+    five corners sweeping transistors against one array -- and the corner
+    where the array is largest, which is where sampling is slowest, had never
+    been simulated. The capacitance corner therefore has to be applied here,
+    where the unit is built.
+    """
+    from devices import Sky130
+
+    return replace(
+        DESIGNED,
+        supplies=Supplies(vdd=corner.vdd, vref=DESIGNED.supplies.vref),
+        unit=analog.mim_sized(corner.caps),
+        sampling=replace(DESIGNED.sampling, devices=Sky130(corner.process)),
+        temp=corner.temp,
+    )
 
 
 @dataclass

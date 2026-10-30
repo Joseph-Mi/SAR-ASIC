@@ -23,7 +23,7 @@ import bench
 import cosim
 import loop
 import strongarm
-from bench import EDGE, SKY130_CORNERS, SLOWEST_SAMPLING, Block, Supplies
+from bench import EDGE, SKY130_CORNERS, SLOWEST_SAMPLING, Block, Supplies, at_corner
 from devices import Sky130, pdk_library
 from interface import N_BITS
 from measure import first_trial_error, law_clock
@@ -372,26 +372,6 @@ def test_the_designed_block_converts_within_budget_once_its_offset_is_removed(co
 #: The supply's tolerance either side of nominal.
 
 
-def at_corner(corner) -> Block:
-    """The designed block with sky130's devices and array at one corner.
-
-    The array is the part this once got wrong by omission. Its capacitance
-    comes from `tech`'s evaluation of the PDK expression rather than from the
-    library section in the header, so a corner set naming only devices left
-    five corners sweeping transistors against one array -- and the corner
-    where the array is largest, which is where sampling is slowest, had never
-    been simulated. The capacitance corner therefore has to be applied here,
-    where the unit is built.
-    """
-    return replace(
-        bench.DESIGNED,
-        supplies=Supplies(vdd=corner.vdd, vref=VREF),
-        unit=analog.mim_sized(corner.caps),
-        sampling=replace(DESIGNED, devices=Sky130(corner.process)),
-        temp=corner.temp,
-    )
-
-
 needs_pdk = pytest.mark.skipif(not pdk_library().exists(), reason="sky130 model library not found")
 
 
@@ -407,16 +387,19 @@ def sky130_clock(tmp_path_factory):
 #: known failure rather than removed. Its clock comes from the sampling loop,
 #: and at the large capacitance corner the binding path is not sampling: the
 #: charge each trial pulls from the reference goes through `R_PIN`, scales with
-#: the array, and wants about two and a half times that clock. Measured three
-#: ways -- a nominal array converts the same codes at the same clock, an ideal
-#: reference at the array converts them at the same clock, and 2.5x the clock
-#: converts them through the pin as built. `strict` so that whichever fix is
-#: chosen, this says so by failing the moment it starts passing.
+#: the array, and wants about twice that clock. Measured two ways, and
+#: committed as `sim/corner_baseline.txt`: an ideal reference at the array
+#: converts every code at this clock, and the pin as built converts them at
+#: 2x it. The first is what makes this the reference rather than settling
+#: margin -- margin does not care which resistor is removed. `strict` so that
+#: whichever fix is chosen, this says so by failing the moment it starts
+#: passing.
 REFERENCE_PIN_SHORTFALL = pytest.mark.xfail(
     strict=True,
-    reason="the reference pin wants ~2.5x the sampling clock at the large "
-    "capacitance corner -- see the open finding; fix is a vref decap at the "
-    "pin or a clock derived from both paths, and it is a rate decision",
+    reason="the reference pin wants ~2x the sampling clock at the large "
+    "capacitance corner -- see the open finding and sim/corner_baseline.txt; "
+    "fix is a vref decap at the pin or a clock derived from both paths, and "
+    "it is a rate decision",
 )
 
 
