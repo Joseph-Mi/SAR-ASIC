@@ -337,3 +337,23 @@ def test_a_strip_too_shallow_for_a_row_has_no_fit():
     side = sky130.mim_side()
     assert sky130.mim_fit(1024, side, side) is None
     assert sky130.mim_rows_within(side, side) == 0
+
+
+@needs_pdk
+def test_the_contact_and_upper_pad_rules_are_read_from_the_running_deck():
+    deck = sky130.drc_klayout().read_text()
+    contact = re.search(r"via3_not_mt\.width\(([\d.]+),", deck)
+    area = re.search(r"m4\.with_area\(0\.\.([\d.]+)\)", deck)
+    grid = re.search(r"^\s*gridlimit\s+(\d+)", sky130.drc_magic().read_text(), re.M)
+    assert contact and area and grid
+    assert sky130.MIM_CONTACT_SIDE == pytest.approx(float(contact.group(1)))
+    assert sky130.METAL4_MIN_AREA == pytest.approx(float(area.group(1)))
+    assert sky130.LAYOUT_GRID == pytest.approx(float(grid.group(1)) / PER_MICRON)
+    for name, spec in (
+        ("m3", sky130.MIM_GDS_BOTTOM),
+        ("via3", sky130.MIM_GDS_CONTACT),
+        ("m4", sky130.MIM_GDS_UPPER),
+    ):
+        found = re.search(rf'{name}_wildcard = "(\d+)/(\d+)"', deck)
+        assert found and tuple(int(v) for v in found.groups()) == spec
+    assert f"capm = polygons{sky130.MIM_GDS_PLATE}" in deck

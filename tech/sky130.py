@@ -144,6 +144,15 @@ MIM_PLATE_SPACING = 1.2
 MIM_METAL_SPACING = 1.34
 MIM_SIDE_MAX = 20.0
 
+#: Stream layer/datatype pairs for the MiM stack, and its contact rules.
+MIM_GDS_BOTTOM = (70, 20)
+MIM_GDS_PLATE = (89, 44)
+MIM_GDS_CONTACT = (70, 44)
+MIM_GDS_UPPER = (71, 20)
+MIM_CONTACT_SIDE = 0.2
+METAL4_MIN_AREA = 0.240
+LAYOUT_GRID = 0.005
+
 DIFF_EXT = 0.29
 
 #: Resistance of the NMOS that holds the top plate at the common mode, ohms,
