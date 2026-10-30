@@ -1,7 +1,8 @@
 """Stream a MiM array with a common upper plate and recover its placement.
 
-Contract: electrical units share the upper net; edge and filler dummies stay
-isolated. Reference properties carry slot identity, not extracted connectivity.
+Contract: electrical units share the upper net and their assigned bottom
+branch; edge and filler dummies stay isolated. Reference properties carry slot
+identity, not extracted connectivity.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import math
 import pathlib
 
 import sky130
+from array_bottom import add_bottom_contact, route_bottom
 from array_place import Placement, Unit, placement
 
 TOP = "sar_array"
@@ -39,7 +41,7 @@ def _route_upper(top, drawn: Placement) -> None:
     half = upper_pad_side() / 2
     centre = drawn.side / 2
     first_x = min(u.x for units in rows.values() for u in units)
-    spine_x = first_x + centre - sky130.mim_pitch(drawn.side) / 2
+    spine_x = first_x + centre - drawn.pitch_x / 2
     row_ys = []
     for units in rows.values():
         y = units[0].y + centre
@@ -99,6 +101,7 @@ def write_gds(drawn: Placement, path: pathlib.Path) -> None:
                 datatype=sky130.MIM_GDS_BOTTOM[1],
             )
         )
+        add_bottom_contact(cell, drawn.side)
         centre = drawn.side / 2
         pad_side = upper_pad_side()
         for spec, half in (
@@ -120,6 +123,7 @@ def write_gds(drawn: Placement, path: pathlib.Path) -> None:
             ref.properties[SLOT_PROPERTY] = str(unit.slot)
         top.add(ref)
     _route_upper(top, drawn)
+    route_bottom(top, drawn)
     path.parent.mkdir(parents=True, exist_ok=True)
     library.write_gds(str(path))
 

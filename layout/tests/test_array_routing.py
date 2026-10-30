@@ -59,7 +59,8 @@ def test_missing_row_connection_is_detected(tmp_path):
     rows = [
         p
         for p in top.polygons
-        if np.ptp(p.polygons[0], axis=0)[0] > np.ptp(p.polygons[0], axis=0)[1]
+        if (p.layers[0], p.datatypes[0]) == sky130.MIM_GDS_UPPER
+        and np.ptp(p.polygons[0], axis=0)[0] > np.ptp(p.polygons[0], axis=0)[1]
     ]
     assert rows
     top.polygons.remove(rows[-1])
