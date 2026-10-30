@@ -5,18 +5,28 @@ import numpy as np
 import pytest
 
 import sky130
+from metrics import msb_dnl
 from mismatch import (
     PERCENT,
     area_for_sigma,
+    centroids,
     gradient,
+    gradient_dnl_msb,
+    interleaved,
     place,
     random_units,
     row_major,
     sigma_from_area,
 )
-from sar import branch_weights
+from sar import branch_weights, ideal_units
 
 RESOLUTIONS = (4, 8, 10)
+
+#: How far `(2**N - 1)/4` sits from the exact gradient law at each
+#: resolution. It is an asymptotic form, so it tightens as the array
+#: grows, and naming the error per resolution is what stops it being
+#: quoted as exact -- which is how it entered the record.
+ASYMPTOTIC_ERROR = {4: 0.014, 8: 6e-5, 10: 3e-6}
 
 #: The resolution the single-array tests use.
 N_BITS = 8
@@ -144,3 +154,98 @@ def test_the_sizing_direction_round_trips():
     for target in TARGETS:
         area = area_for_sigma(target, sky130.CAP_A_C)
         assert np.isclose(sigma_from_area(area, sky130.CAP_A_C), target)
+
+
+#: The gradient the placement claims are checked at. Large enough that the
+#: effect is far outside the arithmetic's noise, and well past any slope a die
+#: this size would plausibly carry -- what is under test is the ratio between
+#: the two placements, which is a property of the permutations and not of the
+#: slope.
+PLACEMENT_GRADIENT = 0.01
+
+
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+def test_interleaving_is_a_permutation_of_the_whole_array(n_bits):
+    """Every physical position used exactly once. A placement that drops or
+    repeats one is not a layout, and bit reversal is easy to get subtly wrong
+    at a resolution nobody tested."""
+    assert sorted(interleaved(n_bits)) == list(range(2**n_bits))
+
+
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+@pytest.mark.parametrize("build", (row_major, interleaved))
+def test_the_gradient_law_is_what_the_arrays_do(n_bits, build):
+    """The closed form against the arrays it describes, for both placements.
+
+    This is the number the placement decision turns on, so it is held to the
+    model rather than to the sentence that states it. The sentence was wrong
+    once already: DD-17 quotes the grouped figure as `(2**N - 1)/4`, which is
+    the asymptotic form and is out by 1.3% at four bits.
+    """
+    perm = build(n_bits)
+    units = place(gradient(ideal_units(n_bits), PLACEMENT_GRADIENT), perm)
+    measured = float(msb_dnl(units)) / PLACEMENT_GRADIENT
+    assert measured == pytest.approx(gradient_dnl_msb(n_bits, perm), rel=1e-9)
+
+
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+def test_grouped_placement_amplifies_a_gradient_by_about_a_quarter_of_the_array(n_bits):
+    """DD-17's figure is an approximation, and this is how good it is.
+
+    Kept as a test rather than deleted, because the approximate form is the
+    one that explains *why* -- a quarter of the array's units sit between the
+    MSB branch's centroid and everything below it -- and the exact one does
+    not explain anything. Both belong, with the error between them named.
+    """
+    exact = gradient_dnl_msb(n_bits, row_major(n_bits))
+    asymptotic = (2**n_bits - 1) / 4
+    assert exact == pytest.approx(asymptotic, rel=ASYMPTOTIC_ERROR[n_bits])
+
+
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+def test_interleaving_leaves_about_one_lsb_and_gets_better_with_resolution(n_bits):
+    """And it is about one LSB, not nothing.
+
+    Worth asserting as a number rather than as "small": a reader who
+    remembers "interleaving cancels the gradient" will not expect a residue
+    at all. One LSB per unit of slope means a code survives any gradient
+    short of 100%, where grouped loses one at a quarter of a percent.
+
+    The advantage is `2**(N-2)`, so it *grows* with resolution -- at four bits
+    interleaving is only four times better and at ten it is 256 times. The
+    decision is therefore more forced at the resolution this part is, not
+    less.
+    """
+    residue = abs(gradient_dnl_msb(n_bits, interleaved(n_bits)))
+    assert residue < 1.0
+    ratio = gradient_dnl_msb(n_bits, row_major(n_bits)) / residue
+    assert ratio == pytest.approx(2 ** (n_bits - 2), rel=0.05)
+
+
+@pytest.mark.parametrize("n_bits", RESOLUTIONS)
+def test_what_interleaving_centres_is_the_weighted_centroid_and_not_the_centroid(n_bits):
+    """The mechanism, asserted because the record had it wrong.
+
+    DD-17 said interleaving puts every branch's centroid within 0.0005 of the
+    array's. It does not, and not nearly: the LSB branch is a single unit and
+    bit reversal puts it at physical position 0, the far end of the die, for
+    a centroid of -0.5 -- the worst value there is. Only the top few branches
+    are anywhere near the middle.
+
+    What is actually centred is each branch's centroid *times its unit
+    count*, and those come out antisymmetric from the second branch up, so
+    they cancel in pairs. That is why a branch sitting at the very edge of
+    the die costs nothing: it has one unit there, and one unit is one LSB.
+    """
+    centred = centroids(n_bits, interleaved(n_bits))
+    assert centred[0] == pytest.approx(-0.5), "the LSB branch is not near the middle"
+
+    weighted = 2.0 ** np.arange(n_bits) * centred
+    assert weighted[1:] == pytest.approx(-weighted[1:][::-1], abs=1e-12)
+    # Which is what leaves the residue just under one LSB. The weighted
+    # centroids above the first cancel, so the branches below the MSB come to
+    # `weighted[0] - weighted[-1]`, and the transition is the MSB's own term
+    # less that: twice its own, less the lone unit stranded at the edge.
+    assert gradient_dnl_msb(n_bits, interleaved(n_bits)) == pytest.approx(
+        2 * weighted[-1] - weighted[0], abs=1e-9
+    )

@@ -57,6 +57,9 @@ def test_no_figure_is_defined_and_then_never_drawn():
         if callable(value)
         and not name.startswith("_")
         and getattr(value, "__module__", None) == plots.__name__
-        and name not in ("draw_all", "main", "read_table")
+        # Readers, not figures. Each study whose table a shared reader cannot
+        # parse brings its own -- the placement sweep's first column is a name
+        # rather than a measurement, which `read_table` has no reason to allow.
+        and name not in ("draw_all", "main", "read_table", "read_placement")
     }
     assert public == {figure.__name__ for figure in plots.FIGURES}

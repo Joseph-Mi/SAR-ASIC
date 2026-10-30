@@ -21,10 +21,17 @@ import sky130
 from mismatch import (
     PERCENT,
     area_for_sigma,
+    centroids,
+    gradient_dnl_msb,
+    interleaved,
+    row_major,
     sigma_from_area,
 )
 from noise_study import BASELINE as NOISE_BASELINE
 from noise_study import GROSS_ERROR_ONSET_LSB
+from placement_study import BASELINE as PLACEMENT_BASELINE
+from placement_study import PLACEMENTS
+from placement_study import Study as PlacementStudy
 from unit_study import BASELINE as UNIT_BASELINE
 from yield_study import BASELINE
 
@@ -38,6 +45,15 @@ NOISE_PANEL = (4.7, 4.2)
 # The x range is widened this far around the buildable limit so the limit
 # line never sits on the frame.
 LIMIT_MARGIN = (0.6, 1.4)
+
+#: DNL at which a code goes missing, in LSB: the step from one code to
+#: the next has shrunk to nothing, so no input produces it.
+MISSING_CODE = -1.0
+
+#: Where the weighted-centroid panel switches from linear to logarithmic,
+#: in units of the array. Below interleaved's smallest term, so nothing
+#: that panel is about falls inside the linear region.
+CENTROID_LINTHRESH = 0.01
 
 # Where the "none seen" note sits: this far into the axes, and this far above
 # the floor line it labels.
@@ -339,7 +355,121 @@ def plot_unit(path: pathlib.Path = UNIT_BASELINE, out_dir: pathlib.Path = OUT_DI
     return house.save(fig, out_dir / "unit.png")
 
 
-FIGURES = (plot, plot_noise, plot_unit)
+def read_placement(path: pathlib.Path = PLACEMENT_BASELINE) -> dict[str, list[dict]]:
+    """The placement sweep, grouped by placement and sorted by gradient.
+
+    Its own reader because its first column is a name rather than a
+    measurement, which `read_table` has no reason to allow.
+    """
+    lines = [ln for ln in path.read_text().splitlines() if not ln.startswith("#")]
+    columns = lines[0].split()
+    out: dict[str, list[dict]] = {}
+    for line in lines[1:]:
+        row = dict(zip(columns, line.split(), strict=True))
+        parsed = {k: v if k == "placement" else float(v) for k, v in row.items()}
+        out.setdefault(parsed["placement"], []).append(parsed)
+    return {k: sorted(v, key=lambda r: r["gradient"]) for k, v in out.items()}
+
+
+def plot_placement(path: pathlib.Path = PLACEMENT_BASELINE, out_dir: pathlib.Path = OUT_DIR):
+    """DD-17's evidence: what a gradient costs, and what placement it costs it to.
+
+    Four panels because the decision has four parts and only the first is the
+    one usually quoted. A gradient is not random, so it does not average out
+    over units and Pelgrom says nothing about it; what decides how much of it
+    reaches the MSB transition is which physical positions each branch owns,
+    and nothing else.
+
+    The bottom-left panel is the mechanism, and it is the panel the record
+    got wrong: interleaving does *not* put every branch's centroid near the
+    middle of the array -- the LSB branch is one unit and bit reversal
+    strands it at the very edge. What it centres is each branch's centroid
+    times its unit count, and those come out antisymmetric, so they cancel in
+    pairs. A branch at the edge of the die costs nothing when it has one unit
+    there.
+    """
+    by_name = read_placement(path)
+    n_bits = PlacementStudy.n_bits
+    fig, ((dnl, scrap), (mech, bits)) = house.canvas(2, 2, size=YIELD_PANEL)
+
+    for i, (name, rows) in enumerate(by_name.items()):
+        colour = house.SERIES[i % len(house.SERIES)]
+        s = np.array([r["gradient"] for r in rows]) * PERCENT
+        law = gradient_dnl_msb(n_bits, PLACEMENTS[name](n_bits))
+        dnl.plot(s, [r["dnl_msb"] for r in rows], "o", color=colour, label=f"{name}, measured")
+        dnl.plot(
+            s,
+            law * s / PERCENT,
+            "-",
+            color=colour,
+            lw=house.THIN,
+            label=f"{name}, law: {law:.3g} LSB per unit",
+        )
+        scrap.plot(s, [r["p_missing"] * PERCENT for r in rows], "o-", color=colour, label=name)
+        bits.plot(s, [r["enob"] for r in rows], "o-", color=colour, label=name)
+
+    house.bound(dnl, MISSING_CODE, "a code goes missing")
+    dnl.set_xlabel("end-to-end gradient across the array  [%]")
+    dnl.set_ylabel("DNL at the MSB transition  [LSB]")
+    dnl.set_title("What the gradient reaches")
+    dnl.legend(loc="upper left", fontsize=house.FONT_SMALL)
+
+    scrap.set_xlabel("end-to-end gradient across the array  [%]")
+    scrap.set_ylabel("parts that are scrap  [%]")
+    scrap.set_title("And what it scraps -- on one side only")
+    scrap.legend(loc="upper center", fontsize=house.FONT_SMALL)
+    house.note(
+        scrap,
+        "the sign decides this.\nwhich end of the die is\nthicker is arbitrary, and\n"
+        "only the slope that shrinks\nthe MSB branch closes a code.\n"
+        "one sign alone reports\nno scrap at any gradient.",
+        (0.02, 0.88),
+    )
+
+    branches = np.arange(n_bits)
+    width = 0.4
+    for i, name in enumerate(by_name):
+        weighted = 2.0**branches * centroids(n_bits, PLACEMENTS[name](n_bits))
+        mech.bar(
+            branches + (i - 0.5) * width,
+            weighted,
+            width,
+            color=house.SERIES[i % len(house.SERIES)],
+            label=name,
+        )
+    # Symmetric log: the two placements differ by five hundred times here, so
+    # on a linear axis grouped's bars erase the structure that is the whole
+    # point of the panel. The threshold is below interleaved's smallest term.
+    mech.set_yscale("symlog", linthresh=CENTROID_LINTHRESH)
+    mech.set_xlabel("branch, LSB first")
+    mech.set_ylabel("units x centroid  [units of the array, symlog]")
+    mech.set_xticks(branches)
+    mech.set_title("Why: the weighted centroids, which cancel in pairs")
+    mech.legend(loc="upper left", fontsize=house.FONT_SMALL)
+
+    bits.set_xlabel("end-to-end gradient across the array  [%]")
+    bits.set_ylabel("ENOB of the parts that are not scrap")
+    bits.set_title("What the part is worth")
+    bits.legend(loc="lower center", fontsize=house.FONT_SMALL)
+    house.note(
+        bits,
+        "grouped stops at -0.4%: past it every part\nis scrap and the model reports no ENOB",
+        (0.02, 0.30),
+    )
+
+    fig.suptitle(
+        f"Placement against a gradient at {n_bits} bits (DD-17): grouped "
+        f"amplifies it by {gradient_dnl_msb(n_bits, row_major(n_bits)):.0f} LSB per unit "
+        f"of slope, interleaved by "
+        f"{abs(gradient_dnl_msb(n_bits, interleaved(n_bits))):.2f}.\n"
+        "a bigger unit buys no immunity -- the gradient term carries no "
+        "capacitance -- so placement is the only thing that decides this.",
+    )
+    fig.tight_layout()
+    return house.save(fig, out_dir / "placement.png")
+
+
+FIGURES = (plot, plot_noise, plot_unit, plot_placement)
 
 
 def draw_all(out_dir: pathlib.Path = OUT_DIR) -> list[pathlib.Path]:
