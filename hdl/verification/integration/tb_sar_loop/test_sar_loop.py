@@ -331,6 +331,24 @@ def designed(sampling) -> Block:
 #: Where each designed-block input sits: mid-way between two thresholds, so a
 #: code is right as long as everything the calibrated converter cannot remove
 #: -- sampling error beyond the offset, settling -- stays within half an LSB.
+#:
+#: Mid-way between the *calibrated* thresholds, which is the whole subtlety
+#: and was wrong here for a while. The inputs are placed off the ideal grid
+#: and then graded against a model shifted by the offset the block was
+#: measured to have. That shift is half an LSB at the slow corner, so it
+#: moved the model's decision point onto the input: the bench believed it had
+#: half an LSB of margin and had 0.02, while the error it grades is 0.055.
+#: One code then disagreed, and the pin and the clock each appeared to fix it
+#: because either one moves a threshold a few hundredths of an LSB across a
+#: window the bench had drawn around itself. Measured thresholds, the same
+#: corner: the loop's sit -0.574 to -0.481 LSB off the model's, a span of
+#: 0.094, and 0.055 of that survives the calibration. Shifting the inputs by
+#: the same offset the model is told about is what restores the margin the
+#: constant above is named for.
+#:
+#: This is the third time this bench family has graded on a margin finer than
+#: the thing it measures -- see the sampling open finding, where a criterion
+#: of 0.05 LSB *was* the offset it was supposed to be blind to.
 MID_CODE = 0.5
 
 
@@ -348,9 +366,11 @@ def designed_block_disagreements(controller, workdir, block: Block, clock=None) 
         clock = law_clock(workdir, block, EDGE_OFFSET_LSB * lsb(N_BITS))
     offset = sampling_offset(workdir, block, clock)
     step = lsb(N_BITS)
-    inputs = [(k + side * MID_CODE) * step for k in carry_codes(N_BITS) for side in (-1, +1)] + [
-        MID_CODE * step
-    ]
+    # Shifted by the offset the model below is told about, so each input is
+    # half a code from the threshold it is actually graded against rather
+    # than from the ideal one the converter does not have.
+    codes = [(k + side * MID_CODE) for k in carry_codes(N_BITS) for side in (-1, +1)]
+    inputs = [c * step + offset for c in codes + [MID_CODE]]
     got = loop.convert(inputs, controller(N_BITS), workdir, block, clock)
     units = ideal_units(N_BITS)
     # A top plate that sits high reads as an input that sits low.
@@ -383,33 +403,10 @@ def sky130_clock(tmp_path_factory):
     return law_clock(workdir, at_corner(SLOWEST_SAMPLING), EDGE_OFFSET_LSB * lsb(N_BITS))
 
 
-#: The corner the reference pin does not hold, and why it is pinned as a
-#: known failure rather than removed. Its clock comes from the sampling loop,
-#: and at the large capacitance corner the binding path is not sampling: the
-#: charge each trial pulls from the reference goes through `R_PIN`, scales with
-#: the array, and wants about twice that clock. Measured two ways, and
-#: committed as `sim/corner_baseline.txt`: an ideal reference at the array
-#: converts every code at this clock, and the pin as built converts them at
-#: 2x it. The first is what makes this the reference rather than settling
-#: margin -- margin does not care which resistor is removed. `strict` so that
-#: whichever fix is chosen, this says so by failing the moment it starts
-#: passing.
-REFERENCE_PIN_SHORTFALL = pytest.mark.xfail(
-    strict=True,
-    reason="the reference pin wants ~2x the sampling clock at the large "
-    "capacitance corner -- see the open finding and sim/corner_baseline.txt; "
-    "fix is a vref decap at the pin or a clock derived from both paths, and "
-    "it is a rate decision",
-)
-
-
 @needs_pdk
 @pytest.mark.parametrize(
     "corner",
-    [
-        pytest.param(c, marks=[REFERENCE_PIN_SHORTFALL] if c.caps == "high" else [])
-        for c in SKY130_CORNERS
-    ],
+    [pytest.param(c) for c in SKY130_CORNERS],
     ids=lambda c: f"{c.process}-{c.vdd:g}V-{c.temp:g}C-{c.caps}C",
 )
 def test_sky130_devices_convert_within_budget_at_every_corner(

@@ -28,7 +28,7 @@ import cosim
 import house
 import loop
 import ngspice
-from bench import Block, Supplies
+from bench import NOMINAL_TEMP, Block, Corner, Supplies, at_corner
 from interface import N_BITS
 from measure import first_trial_error, law_clock
 from sar import VCM_FRACTION, ideal_units, sar_convert, top_plate_voltage
@@ -55,6 +55,13 @@ LANE_FILL = 0.8
 #: Space kept above and below the top plate's excursion, as a fraction of it,
 #: so the decision labels clear the frame.
 HEADROOM = 0.15
+
+#: The process corner the designed block is drawn at unless another is
+#: asked for. sky130's own models and the array the PDK's expression gives,
+#: because "the designed block" means the one that gets built: the generic
+#: models are a different circuit, and a picture of them labelled as this
+#: design is the mistake the phase figure made once.
+CORNER = "tt"
 
 #: Where after the strobe's rising edge the latched decision is read, and
 #: where before it the top plate is: as fractions of a clock, clear of both
@@ -211,15 +218,24 @@ def draw(
     if zoom is not None:
         top.set_xlim(starts[zoom] / NS, starts[zoom + 1] / NS)
 
-    kind = "designed block" if block.sampling is not None else "ideal switches"
+    if block.sampling is None:
+        kind = "ideal switches"
+    else:
+        kind = f"designed block, sky130 {block.sampling.devices.corner}, {block.temp:g} C"
     fig.suptitle(f"Closed loop, {block.n_bits} bits, {kind}, clock {run.clock / NS:.2f} ns")
     fig.tight_layout()
     house.save(fig, out)
 
 
-def show(inputs, n_bits: int, designed: bool, clock=None, zoom=None, out=None):
-    """Run and draw; returns where the figure and the raw file went."""
-    block = replace(bench.DESIGNED if designed else Block(), n_bits=n_bits, supplies=Supplies())
+def show(inputs, n_bits: int, designed: bool, clock=None, zoom=None, out=None, corner=CORNER):
+    """Run and draw; returns where the figure and the raw file went.
+
+    The designed block is built at a sky130 corner, so what is drawn is the
+    circuit that gets made rather than the simulator's own generic devices.
+    """
+    nominal = Corner(corner, Supplies().vdd, NOMINAL_TEMP)
+    base = at_corner(nominal) if designed else Block()
+    block = replace(base, n_bits=n_bits)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     # The simulator runs in the output's folder, so every path it is handed
     # has to mean the same thing from there.
@@ -255,10 +271,11 @@ def main():
     )
     p.add_argument("--zoom", type=int, help="draw only this conversion, counted from 0")
     p.add_argument("--out", help="figure path (default build/show/loop.png)")
+    p.add_argument("--corner", default=CORNER, help="sky130 process corner for --designed")
     a = p.parse_args()
     vref = Supplies().vref
     inputs = a.vin if a.vin else [f * vref for f in DEFAULT_INPUTS]
-    show(inputs, a.bits, a.designed, a.clock, a.zoom, a.out)
+    show(inputs, a.bits, a.designed, a.clock, a.zoom, a.out, a.corner)
 
 
 if __name__ == "__main__":
