@@ -357,3 +357,10 @@ def test_the_contact_and_upper_pad_rules_are_read_from_the_running_deck():
         found = re.search(rf'{name}_wildcard = "(\d+)/(\d+)"', deck)
         assert found and tuple(int(v) for v in found.groups()) == spec
     assert f"capm = polygons{sky130.MIM_GDS_PLATE}" in deck
+
+
+@needs_pdk
+def test_the_upper_net_label_uses_the_process_label_purpose():
+    path = sky130.pdk() / "libs.tech/klayout/tech" / f"{sky130.pdk().name}.lyp"
+    layer, purpose = sky130.MIM_GDS_UPPER_LABEL
+    assert f"<name>met4.label - {layer}/{purpose}</name>" in path.read_text()
