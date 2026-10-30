@@ -387,16 +387,19 @@ def sky130_clock(tmp_path_factory):
 #: known failure rather than removed. Its clock comes from the sampling loop,
 #: and at the large capacitance corner the binding path is not sampling: the
 #: charge each trial pulls from the reference goes through `R_PIN`, scales with
-#: the array, and wants about two and a half times that clock. Measured three
-#: ways -- a nominal array converts the same codes at the same clock, an ideal
-#: reference at the array converts them at the same clock, and 2.5x the clock
-#: converts them through the pin as built. `strict` so that whichever fix is
-#: chosen, this says so by failing the moment it starts passing.
+#: the array, and wants about twice that clock. Measured two ways, and
+#: committed as `sim/corner_baseline.txt`: an ideal reference at the array
+#: converts every code at this clock, and the pin as built converts them at
+#: 2x it. The first is what makes this the reference rather than settling
+#: margin -- margin does not care which resistor is removed. `strict` so that
+#: whichever fix is chosen, this says so by failing the moment it starts
+#: passing.
 REFERENCE_PIN_SHORTFALL = pytest.mark.xfail(
     strict=True,
-    reason="the reference pin wants ~2.5x the sampling clock at the large "
-    "capacitance corner -- see the open finding; fix is a vref decap at the "
-    "pin or a clock derived from both paths, and it is a rate decision",
+    reason="the reference pin wants ~2x the sampling clock at the large "
+    "capacitance corner -- see the open finding and sim/corner_baseline.txt; "
+    "fix is a vref decap at the pin or a clock derived from both paths, and "
+    "it is a rate decision",
 )
 
 

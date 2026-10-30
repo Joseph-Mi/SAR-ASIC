@@ -344,6 +344,13 @@ noise:
 offset:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/offset.py $(ARGS)
 
+## corners: regenerate the corner acceptance table -- commit the diff
+## 	About an hour: every row is a batch of closed-loop conversions with
+## 	transistor switches and the controller compiled into the deck. Needs the
+## 	PDK, ngspice and verilator
+corners:
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/corner_study.py $(ARGS)
+
 ## schematic: regenerate each generated symbol, and each sheet that is still
 ## 	generated -- commit the diff. A sheet is drawn by hand from its module's
 ## 	ARRANGEMENT onward, so this leaves those alone and writes what it would
@@ -357,6 +364,20 @@ schematic:
 
 ## figures: draw every figure the model can produce, into build/
 figures: plots diagrams
+
+## measured: draw the committed circuit measurements into build/sim/
+## 	The offset spread and the corner acceptance. Reads the artifacts a run
+## 	committed rather than re-running them, so these are seconds and the
+## 	picture is always of the numbers under review
+measured:
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/circuit_plots.py
+
+## phases: draw the generator handing over, into build/show/
+## 	VDD=1.8  TEMP=27  CORNER=tt. Runs ngspice against sky130, so it is a
+## 	minute rather than seconds
+phases:
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/show_phases.py \
+	  $(if $(VDD),--vdd $(VDD)) $(if $(TEMP),--temp $(TEMP)) $(if $(CORNER),--corner $(CORNER))
 
 ## diagrams: pictures of the conversion, the bounds and the physics
 diagrams:
@@ -444,4 +465,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop offset noise unit schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
+.PHONY: show-loop offset corners measured phases noise unit schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean

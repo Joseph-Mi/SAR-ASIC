@@ -18,6 +18,7 @@ import numpy as np
 
 import house
 from bench import Supplies
+from corner_study import BASELINE as CORNERS
 from interface import N_BITS
 from offset import BASELINE, DRAWS, MILLIVOLT
 
@@ -33,6 +34,10 @@ BINS = 24
 #: How far past the data the panel reaches, as a fraction of its span, so the
 #: sigma rules and their labels clear the frame.
 HEADROOM = 0.12
+
+#: The reference's series resistance when the board decouples it at the pin.
+#: The row carrying it is the control, not a corner.
+DECOUPLED = 0.0
 
 
 def read_draws(path: pathlib.Path = DRAWS) -> dict[tuple[str, str], np.ndarray]:
@@ -123,7 +128,118 @@ def plot_offset(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
     return house.save(fig, out_dir / "offset.png")
 
 
-FIGURES = (plot_offset,)
+def read_corners(path: pathlib.Path = CORNERS) -> list[dict]:
+    """The committed corner table, each cell already a number where it is one."""
+    rows = [ln.split() for ln in path.read_text().splitlines() if not ln.startswith("#")]
+    header, body = rows[0], rows[1:]
+    out = []
+    for row in body:
+        r = dict(zip(header, row, strict=True))
+        out.append({k: v if k in ("corner", "caps") else float(v) for k, v in r.items()})
+    return out
+
+
+def plot_corners(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
+    """What the corner acceptance measures, and what the one failure is.
+
+    The acceptance is a gate, so it answers yes or no. These are the numbers
+    behind the answer: how much array each corner builds, how slow that makes
+    the sampling loop, and how many codes come out wrong at the one clock
+    every corner shares -- the clock the slowest corner's *sampling* loop
+    asks for.
+
+    The right panel is the part a gate cannot say. The corner that fails
+    comes right by lengthening the clock, which would read as ordinary
+    settling margin, except that it also comes right at the original clock
+    with the reference's pin taken out and nothing else changed. A margin
+    does not care which resistor you remove. That is what makes this the
+    reference pin rather than the sampling loop, and `law_clock` only knows
+    about the second one.
+    """
+    rows = read_corners()
+    corners = [r for r in rows if r["mult"] == 1.0 and r["r_vref"] != DECOUPLED]
+    swept = sorted(
+        [r for r in rows if r["r_vref"] != DECOUPLED and (r["mult"] > 1.0 or r in corners[:0])]
+        + [r for r in corners if r["caps"] == "high"],
+        key=lambda r: r["mult"],
+    )
+    decoupled = next(r for r in rows if r["r_vref"] == DECOUPLED)
+
+    fig, (sizes, sweep) = house.canvas(1, 2, size=PANEL)
+
+    labels = [f"{r['corner']}\n{r['vdd']:g} V {r['temp']:g} C\n{r['caps']} C" for r in corners]
+    x = np.arange(len(corners))
+    bars = sizes.bar(x, [r["tau_ns"] for r in corners], color=house.SERIES[0])
+    for bar, r in zip(bars, corners, strict=True):
+        if r["wrong"]:
+            bar.set_color(house.BAD)
+        sizes.annotate(
+            f"{r['ctot_pf']:.2f} pF\n{int(r['wrong'])}/{int(r['of'])} wrong",
+            (bar.get_x() + bar.get_width() / 2, bar.get_height()),
+            textcoords="offset points",
+            xytext=(0, 4),
+            ha="center",
+            fontsize=house.FONT_SMALL,
+            color=house.BAD if r["wrong"] else house.INK_SOFT,
+        )
+    sizes.set_xticks(x)
+    sizes.set_xticklabels(labels, fontsize=house.FONT_SMALL)
+    sizes.set_ylabel("sampling loop tau  [ns]")
+    sizes.margins(y=0.25)
+    sizes.set_title("Each corner builds a different array, so each samples at its own speed")
+    house.note(
+        sizes,
+        f"one clock for all five, {corners[0]['own_clock_ns']:.0f} ns, from the "
+        f"slowest\nthe array spans {min(r['ctot_pf'] for r in corners):.2f} to "
+        f"{max(r['ctot_pf'] for r in corners):.2f} pF across the capacitance corners",
+    )
+
+    sweep.step(
+        [r["mult"] for r in swept],
+        [r["wrong"] for r in swept],
+        where="post",
+        color=house.SERIES[0],
+        lw=house.LINE,
+        label="the failing corner, clock lengthened",
+    )
+    sweep.plot(
+        [r["mult"] for r in swept],
+        [r["wrong"] for r in swept],
+        "o",
+        color=house.SERIES[0],
+    )
+    sweep.plot(
+        [decoupled["mult"]],
+        [decoupled["wrong"]],
+        "*",
+        markersize=16,
+        color=house.GOOD,
+        label="same clock, reference at the array (r_vref = 0)",
+    )
+    sweep.set_xlabel("clock, as a multiple of the one sampling asks for")
+    sweep.set_ylabel(f"codes wrong, of {int(swept[0]['of'])}")
+    sweep.set_ylim(-0.3, max(r["wrong"] for r in swept) + 0.7)
+    sweep.legend(loc="upper right", fontsize=house.FONT_SMALL)
+    sweep.set_title("The one failure, and the two things that remove it")
+    house.note(
+        sweep,
+        "lengthening the clock fixes it -- which looks like settling margin.\n"
+        "removing the reference's pin fixes it at the original clock, which\n"
+        "margin cannot do. the binding path is the reference, not sampling.",
+        (0.02, 0.60),
+    )
+
+    fig.suptitle(
+        "The corner acceptance, measured rather than asserted: sky130 "
+        "devices and array, the real controller,\n"
+        "behind the platform's 500 ohm pins -- "
+        f"{int(swept[0]['of'])} mid-code inputs either side of every carry.",
+    )
+    fig.tight_layout()
+    return house.save(fig, out_dir / "corners.png")
+
+
+FIGURES = (plot_offset, plot_corners)
 
 
 def draw_all(out_dir: pathlib.Path = OUT_DIR) -> list[pathlib.Path]:

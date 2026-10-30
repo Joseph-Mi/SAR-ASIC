@@ -1337,23 +1337,46 @@ Delete each one when it is fixed.
   the range, which a mid-scale offset calibration cannot remove (the offset it
   measures, -0.510 mV, does not move across any of this).
 
-  Three measurements say what it is, and they agree:
+  Measured, and committed as `sim/corner_baseline.txt` (`make corners`,
+  drawn by `circuit_plots.plot_corners`). The acceptance's own 23 inputs --
+  mid-code either side of every carry, and mid-scale -- at the one shared
+  225 ns clock:
 
   ```
-    same corner, same 225 ns clock, nominal array      all three codes right
-    same corner, same clock, reference at the array     all three codes right
-      (r_vref = 0)
-    same corner, pin as built, 2.0x the clock           one code still wrong
-    same corner, pin as built, 2.5x the clock          all three codes right
+    tt   1.80 V   27 C  typical     9.47 pF   tau 11.37 ns    0/23 wrong
+    ss   1.62 V  125 C  high       11.51 pF   tau 22.65 ns    1/23 wrong
+    ss   1.62 V  -40 C  typical     9.47 pF   tau 18.42 ns    0/23 wrong
+    ff   1.98 V  -40 C  low         7.70 pF   tau  9.21 ns    0/23 wrong
+    ff   1.98 V  125 C  typical     9.47 pF   tau 11.79 ns    0/23 wrong
+
+    the failing corner, clock lengthened:
+      1.00x (224.8 ns)  1/23      2.00x (449.7 ns)  0/23
+      1.25x (281.0 ns)  1/23      2.50x (562.1 ns)  0/23
+      1.50x (337.3 ns)  1/23      3.00x (674.5 ns)  0/23
+    the failing corner, same 225 ns clock, reference at the array
+      (r_vref = 0)                 0/23
   ```
+
+  **The first version of this table was taken with a scratch script and
+  overstated the failure twice, and the correction is the reason it is a
+  committed baseline now.** It reported the three codes below full scale
+  each one low and the corner coming right only at 2.5x. On the acceptance's
+  inputs it is *one* code, and it comes right at 2.0x. Both measurements are
+  real and they measured different things: the scratch script probed three
+  specific thresholds at the top of the range, where this failure lives, so
+  it found three; the acceptance spreads 23 inputs over every carry and has
+  one up there. So the scratch script was the better instrument for the
+  shape of the failure and the worse one for its size, and the number that
+  belongs in a rate decision is this one. What did not move is the
+  diagnosis, which is the only part either measurement was being asked for.
 
   So it is neither the devices nor the temperature: it is the array's size
   against the reference's pin. `law_clock` derives the clock from the
   *sampling* loop -- the array charged through the input pin, the top switch
   and the vcm pin -- and sampling is not the only path that scales with the
   array. Each trial pulls `c_seen_by_reference` (a quarter of the array at the
-  first trial) through `R_PIN`, and that recovery wants about two and a half
-  times the clock sampling asks for. Which is the same shortfall Step 6 found
+  first trial) through `R_PIN`, and that recovery wants about twice the clock
+  sampling asks for. Which is the same shortfall Step 6 found
   from the other end and left as a note -- recovery measured at ~4 ns against
   an `R*C/4` law predicting ~1 ns -- except that there it was inside the
   budget at the nominal array and here it is not.
@@ -1384,9 +1407,11 @@ Delete each one when it is fixed.
     the clock comes back on its own. Wants a measured reference-recovery time
     constant beside `sampling_tau`, because the law underpredicts it 4x --
     `first_trial_error(..., phase=)` is the measurement to build it from.
-  * **Accept 2.5x the clock**: 562 ns, 11.8 us a conversion, ~85 kSa/s against
+  * **Accept 2x the clock**: 450 ns, 9.4 us a conversion, ~106 kSa/s against
     212. No circuit or board change, and the largest rate concession of the
-    three.
+    three. The bisection is coarse -- the table steps 1.5x to 2.0x -- so the
+    true threshold is somewhere in between and 2x is the measured bound
+    rather than the requirement.
 
   The first two together are the recommendation: the board decoupling is what
   makes the rate achievable and the two-path clock is what stops the harness
