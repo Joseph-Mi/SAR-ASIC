@@ -35,6 +35,7 @@ import bench
 import house
 import ngspice
 from bench import Bench, Block, Phase, Supplies
+from devices import Sky130
 from interface import N_BITS
 
 REPO = next(p for p in pathlib.Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
@@ -43,6 +44,14 @@ OUT_DIR = REPO / "build" / "show"
 VREF = 1.0
 VDD = 1.8
 PS = 1e-12
+
+#: The process corner the generator is drawn at. sky130's own models rather
+#: than the simulator's generic ones, because the gates here are sized in
+#: this process -- the off-detector is a skewed inverter whose switching
+#: point has to sit below where the top switch conducts, and where that point
+#: sits is a property of the process's thresholds and of nothing else. Drawn
+#: at typical; `test_sampling_phases.py` is what holds the order at the rest.
+CORNER = "tt"
 
 #: One panel of this figure, inches. Two stacked panels share one time axis
 #: over a window a few hundred picoseconds wide, so the canvas is wide.
@@ -103,7 +112,9 @@ def nodes() -> list[str]:
     return ["sample", *inside]
 
 
-def record(out: pathlib.Path, vdd: float, temp: float) -> tuple[np.ndarray, dict, dict]:
+def record(
+    out: pathlib.Path, vdd: float, temp: float, corner: str = CORNER
+) -> tuple[np.ndarray, dict, dict]:
     """One sample, one conversion and back, keeping every line.
 
     Returns the time base, every line's waveform, and the crossings `MARKS`
@@ -122,7 +133,7 @@ def record(out: pathlib.Path, vdd: float, temp: float) -> tuple[np.ndarray, dict
             Supplies(vdd=vdd, vref=VREF, vin=0.5 * VREF),
             N_BITS,
             unit=analog.MIM_SIZED,
-            sampling=analog.NonOverlap(),
+            sampling=analog.NonOverlap(devices=Sky130(corner)),
             temp=temp,
         ),
         probes={},
@@ -155,7 +166,9 @@ def handover(time: np.ndarray, wave: dict, vdd: float) -> tuple[float, float]:
     return start - LEAD * width, end + TRAIL * width
 
 
-def draw(time: np.ndarray, wave: dict, marks: dict, vdd: float, out: pathlib.Path) -> pathlib.Path:
+def draw(
+    time: np.ndarray, wave: dict, marks: dict, vdd: float, corner: str, out: pathlib.Path
+) -> pathlib.Path:
     """The lines, and the detectors that hold each one back."""
     begin, finish = handover(time, wave, vdd)
     window = (time >= begin) & (time <= finish)
@@ -214,7 +227,9 @@ def draw(time: np.ndarray, wave: dict, marks: dict, vdd: float, out: pathlib.Pat
 
     fig.suptitle(
         f"Bottom-plate sampling: the phases are made on chip from one "
-        f"wire (DD-11), at {vdd:g} V\n"
+        f"wire (DD-11)\n"
+        f"sky130 {corner}, {vdd:g} V, with the array at the unit the process "
+        f"draws\n"
         "the top switch passes a constant Vcm, so its charge is an offset;\n"
         "the input switches' depends on Vin, so it is distortion -- and "
         "sealing the top plate first\n"
@@ -224,22 +239,25 @@ def draw(time: np.ndarray, wave: dict, marks: dict, vdd: float, out: pathlib.Pat
     return house.save(fig, out)
 
 
-def show(vdd: float = VDD, temp: float = bench.NOMINAL_TEMP, out=None) -> pathlib.Path:
+def show(
+    vdd: float = VDD, temp: float = bench.NOMINAL_TEMP, corner: str = CORNER, out=None
+) -> pathlib.Path:
     """Run and draw; returns where the figure went."""
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = pathlib.Path(out).resolve() if out else OUT_DIR / "phases.png"
     out.parent.mkdir(parents=True, exist_ok=True)
-    time, wave, marks = record(out, vdd, temp)
-    return draw(time, wave, marks, vdd, out)
+    time, wave, marks = record(out, vdd, temp, corner)
+    return draw(time, wave, marks, vdd, corner, out)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--vdd", type=float, default=VDD)
     parser.add_argument("--temp", type=float, default=bench.NOMINAL_TEMP)
+    parser.add_argument("--corner", default=CORNER)
     parser.add_argument("--out", help="figure path (default build/show/phases.png)")
     args = parser.parse_args()
-    print(show(args.vdd, args.temp, args.out))
+    print(show(args.vdd, args.temp, args.corner, args.out))
 
 
 if __name__ == "__main__":

@@ -105,7 +105,7 @@ def plot_offset(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
         ax.legend(loc="upper right", fontsize=house.FONT_SMALL)
         house.note(
             ax,
-            f"sigma {sigma / lsb:.1f} LSB\\nmean {mean / lsb:+.1f} LSB\\n"
+            f"sigma {sigma / lsb:.1f} LSB\nmean {mean / lsb:+.1f} LSB\n"
             f"worst {float(np.abs(values).max()) / lsb:.1f} LSB",
         )
         span = values.max() - values.min()
@@ -113,9 +113,9 @@ def plot_offset(out_dir: pathlib.Path = OUT_DIR) -> pathlib.Path:
 
     fig.suptitle(
         f"StrongARM offset over {next(iter(drawn.values())).size} drawn parts, "
-        f"per corner, at {N_BITS} bits\\n"
+        f"per corner, at {N_BITS} bits\n"
         "the spread is tens of LSB and it moves with the corner, so one "
-        "factory trim cannot remove it --\\n"
+        "factory trim cannot remove it --\n"
         "which is what DFT mode 4 is for: firmware measures this in the "
         "field, on the part it is running on.",
     )
