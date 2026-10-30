@@ -34,6 +34,7 @@ LAYERS = {
     "model": {"tech", "reference"},
     "studies": {"tech", "figures", "reference", "model"},
     "sim": {"tech", "figures", "reference", "model"},
+    "layout": {"tech", "reference", "model"},
     "hdl/verification": {"tech", "figures", "reference", "model", "sim"},
 }
 
