@@ -335,6 +335,13 @@ study:
 unit:
 	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/unit_study.py $(ARGS)
 
+## placement: regenerate the placement sweep -- commit the diff
+## 	DD-17's evidence: what a die gradient costs at each placement. Pure
+## 	model, no simulator and no PDK tree, so it is about a minute
+## 	ARGS="--gradients 0 0.01 --out build/studies/grad.txt" for an exploratory run
+placement:
+	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/placement_study.py $(ARGS)
+
 ## noise: regenerate the comparator noise artifact -- commit the diff
 noise:
 	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):$(STUDY_DIR) $(PYTHON) $(STUDY_DIR)/noise_study.py $(ARGS)
@@ -465,4 +472,4 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop offset corners measured phases noise unit schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
+.PHONY: show-loop offset corners measured phases noise unit placement schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean

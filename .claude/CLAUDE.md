@@ -238,7 +238,7 @@ that almost nothing discriminates, and saying so is the decision:
 | Matching, sigma_DNL(MSB) | `CAP_A_C` read from the PDK, the law confirmed in ngspice (`test_mim`: 0.057% measured against 0.059%), 10,000 arrays per point | **No.** `p_missing` is 0.000000 at 1.0 um and at 2.0 um; halving the unit costs 0.0185 ENOB |
 | kT/C | arithmetic on the PDK's capacitance | **No.** 0.040 against 0.021 LSB, both far under one |
 | Fit in the strip | the PDK's `capm` pitch rules through `mim_fit` | **No.** Every candidate fits interleaved at every split |
-| Gradient | derived, and measured over 2000 arrays | **No.** Size-independent; placement decides it (DD-17) |
+| Gradient | the closed form, and measured over 10,000 arrays a point (`placement_baseline.txt`) | **No.** Size-independent; placement decides it (DD-17) |
 | Sampling speed | the loop measured at each corner, `R_PIN` from the platform spec | **Rate only.** The acceptance's clock is 225 ns and a conversion 4.7 us (212 kSa/s) at this size and the large capacitance corner; a 1.0 um unit would rescale it to about a third. Nothing fails, and no conversion rate is specified |
 | Top switch charge | the measured R(W) curve | **Favours smaller**, 0.42x at a 1.0 um unit -- but it is an offset, and DFT mode 4 measures it in the field |
 | Off-switch leakage | measured, below | **Favours smaller**, by 15x at the hot corner, and it is the one axis whose margin is thin: 1.5x at ff/125 C against 676x at the specified temperature |
@@ -287,15 +287,53 @@ is the guard against the general one.
 
 **DD-17 - The array is interleaved, not grouped, and that is forced rather
 than chosen.**
-Grouped placement amplifies a linear gradient by a quarter of the array: for
-an end-to-end fractional gradient `s`, DNL at the MSB transition is
-`s * (2^N - 1)/4`, which is 255.75 LSB per unit of `s` at ten bits -- derived,
-and measured at 255.3 over two thousand arrays. So a code goes missing at
-`s = 1/256`, four parts in a thousand across the array, and the converter is
-non-monotonic there; the model declines to report an ENOB for it at all.
+Grouped placement amplifies a linear gradient by about a quarter of the
+array. For an end-to-end fractional gradient `s`, DNL at the MSB transition
+is `mismatch.gradient_dnl_msb` times `s` -- exactly
+`(M^2 - 2M - 2) / (4(M-1))` with `M = 2^N`, which is **255.749** LSB per unit
+of `s` at ten bits. The familiar `(2^N - 1)/4`, 255.75, is the asymptotic
+form of that: right to three parts in a million here, and out by 1.3% at four
+bits, so it is the expression to reason with and not the one to compute with.
 Interleaved placement -- branch-order slot `j` taking the physical position
-whose index is `j`'s bits reversed, which puts every branch's centroid within
-0.0005 of the array's -- is unaffected at 5%.
+whose index is `j`'s bits reversed -- leaves **0.999** LSB per unit of `s`.
+The ratio is `2^(N-2)`, so the advantage *grows* with resolution: four times
+at four bits, 256 times at ten.
+
+So grouped loses a code at `s = 1/255.749`, four parts in a thousand across
+the array. Measured over ten thousand arrays per point
+(`studies/placement_baseline.txt`, `make placement`, drawn by
+`plots.plot_placement`): at `s = -0.3%` grouped scraps 0.05% of parts, at
+`-0.4%` it scraps **62%**, and at `-0.5%` and beyond it scraps **all** of
+them and the model declines to report an ENOB at all. Interleaved scraps
+nothing anywhere in the sweep, which reaches 5%, and holds 10.008 ENOB
+across the whole of it.
+
+**Three things the first version of this decision got wrong, all found by
+writing the study it already claimed to rest on.**
+
+* **The sign is not a formality, and a one-sided sweep measures the gentle
+  half.** Which end of the die is thicker is arbitrary. A slope that makes
+  the MSB branch the *large* one widens the MSB step -- positive DNL, a
+  linearity cost that is survivable to 5% and beyond. The opposite slope
+  narrows it, and at DNL = -1 LSB the code is unreachable and the part is
+  scrap. At `s = +5%` grouped placement scraps nothing; at `s = -0.5%` it
+  scraps everything. A sweep of positive gradients alone reports `p_missing`
+  of zero at every point and passes a placement that loses whole wafers.
+* **Interleaving does not cancel the gradient, it divides it by `2^(N-2)`.**
+  The residue is about one LSB per unit of `s`, approaching one from below as
+  the array grows. That is still a code surviving any gradient short of 100%,
+  so the conclusion stands, but "unaffected" was wrong and the number is
+  worth having: it is what a future resolution change scales.
+* **The stated mechanism was false.** It said interleaving puts every
+  branch's centroid within 0.0005 of the array's. It does not, and not
+  nearly: the LSB branch is a single unit and bit reversal strands it at
+  physical position 0, the far end of the die, for a centroid of -0.5 -- the
+  worst value available. Only the top four branches are anywhere near the
+  middle. What is actually centred is each branch's centroid *times its unit
+  count*, and those come out antisymmetric from the second branch upward, so
+  they cancel in pairs. A branch at the very edge of the die costs nothing
+  when it has one unit there, because one unit is one LSB. `mismatch.
+  centroids` reports them and the mechanism is asserted rather than described.
 
 The gradient term carries no capacitance, so a bigger unit buys no immunity
 and only placement does. (Strictly the two are not independent: a fixed
