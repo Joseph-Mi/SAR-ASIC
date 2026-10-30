@@ -545,15 +545,19 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   So the sheet is what LVS is handed and the placement is what DRC checks,
   and they are different documents answering different questions.
   The placement generator is `layout/array_place.py`; `make array-layout`
-  streams the isolated MiM units, perimeter ring and unused-site dummies to
+  streams the MiM units, perimeter ring and unused-site dummies to
   `build/layout/sar_array.gds`. `make verify-layout` reads the streamed plate
   geometry back and compares its ordering with `mismatch.interleaved`, with
   the terminating electrical capacitor kept distinct from edge dummies.
   `make drc-array` runs Magic and KLayout at macro scope, and the analog CI
   job runs both verification targets. The commands and physical contract are
-  in `docs/array-layout.md`. Branch interconnect, common upper-plate routing,
-  dummy ties, guard rings and final LVS remain layout work; branch cell names
-  identify intended ownership, not extracted connectivity. Folding the scalar
+  in `docs/array-layout.md`. Metal4 row buses and a side spine connect every
+  electrical upper plate to `TOP_PLATE`, including the terminating unit, while
+  the perimeter and filler dummies stay isolated. Geometry-union tests check
+  that connectivity and detect an opened row or a shorted dummy. Branch
+  interconnect, dummy ties, guard rings and final LVS remain layout work;
+  branch cell names identify intended ownership, not extracted connectivity.
+  Folding the scalar
   study's physical-index order into rows preserves the permutation, not a
   proof of cancellation for every gradient direction in the plane.
 - **M7** — Comparator laid out, DRC/LVS clean. Its schematic was generated
