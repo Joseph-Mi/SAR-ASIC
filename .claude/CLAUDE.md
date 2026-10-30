@@ -530,7 +530,7 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   and interleaved placements, and which one the array is placed as is no
   longer this milestone's to decide: DD-17 settled it on the gradient, which
   grouped placement amplifies by a quarter of the array and interleaving
-  cancels. The shape is still the rules': square is what makes a gradient
+  suppresses. The shape is still the rules': square is what makes a gradient
   shortest in both directions, a square array plus its ring misses the strip
   at the declared split, and what fits is the same array drawn long -- the
   height sets the rows and the width has room to spare. So this milestone
@@ -544,6 +544,18 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   pieces build the array and where each sits is this milestone's, scripted.
   So the sheet is what LVS is handed and the placement is what DRC checks,
   and they are different documents answering different questions.
+  The placement generator is `layout/array_place.py`; `make array-layout`
+  streams the isolated MiM units, perimeter ring and unused-site dummies to
+  `build/layout/sar_array.gds`. `make verify-layout` reads the streamed plate
+  geometry back and compares its ordering with `mismatch.interleaved`, with
+  the terminating electrical capacitor kept distinct from edge dummies.
+  `make drc-array` runs Magic and KLayout at macro scope, and the analog CI
+  job runs both verification targets. The commands and physical contract are
+  in `docs/array-layout.md`. Branch interconnect, common upper-plate routing,
+  dummy ties, guard rings and final LVS remain layout work; branch cell names
+  identify intended ownership, not extracted connectivity. Folding the scalar
+  study's physical-index order into rows preserves the permutation, not a
+  proof of cancellation for every gradient direction in the plane.
 - **M7** — Comparator laid out, DRC/LVS clean. Its schematic was generated
   from the netlist the benches are measured on (`make schematic` ->
   `xschem/strongarm.sch` and its symbol), so what LVS is handed and what M5
