@@ -10,34 +10,13 @@ import numpy as np
 import pytest
 
 import sky130
-from array_gds import SLOT_PROPERTY, TOP, UPPER_NET_LABEL, write_gds
+from array_check import LayoutError
+from array_check import upper_slots as connected_slots
+from array_gds import TOP, write_gds
 from array_place import placement
 from interface import N_BITS
 
 RESOLUTIONS = (1, 4, N_BITS)
-
-
-def connected_slots(library):
-    """Find the labelled island by unioning actual upper-metal polygons."""
-    import gdspy
-
-    top = library.cells[TOP]
-    labels = [label for label in top.labels if label.text == UPPER_NET_LABEL]
-    assert len(labels) == 1
-    polygons = top.get_polygons(by_spec=True)[sky130.MIM_GDS_UPPER]
-    merged = gdspy.boolean(polygons, None, "or", max_points=0)
-    islands = [p for p in merged.polygons if gdspy.inside([labels[0].position], [p])[0]]
-    assert len(islands) == 1
-    slots = set()
-    for ref in top.references:
-        contacts = ref.get_polygons(by_spec=True)[sky130.MIM_GDS_CONTACT]
-        (contact,) = contacts
-        centre = contact.mean(axis=0)
-        if gdspy.inside([centre], islands)[0]:
-            slot = ref.properties.get(SLOT_PROPERTY)
-            assert slot is not None, "the charge-summing net reaches an edge or filler dummy"
-            slots.add(int(slot))
-    return slots
 
 
 @pytest.mark.parametrize("n_bits", RESOLUTIONS)
@@ -66,7 +45,8 @@ def test_missing_row_connection_is_detected(tmp_path):
     top.polygons.remove(rows[-1])
     library.write_gds(str(path))
     reread = gdspy.GdsLibrary(infile=str(path))
-    assert connected_slots(reread) != set(range(2**N_BITS))
+    with pytest.raises(LayoutError, match="upper metal"):
+        connected_slots(reread)
 
 
 def test_a_short_to_a_dummy_is_detected(tmp_path):
@@ -89,5 +69,5 @@ def test_a_short_to_a_dummy_is_detected(tmp_path):
         )
     )
     library.write_gds(str(path))
-    with pytest.raises(AssertionError, match="dummy"):
+    with pytest.raises(LayoutError, match="dummy"):
         connected_slots(gdspy.GdsLibrary(infile=str(path)))

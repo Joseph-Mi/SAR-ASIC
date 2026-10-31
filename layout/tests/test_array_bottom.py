@@ -10,45 +10,13 @@ import pytest
 
 import sky130
 from array_bottom import branch_label
+from array_check import extract
 from array_gds import TOP, write_gds
 from array_place import placement
 from interface import N_BITS
 from sar import branch_slices
 
 RESOLUTIONS = (1, 4, N_BITS)
-
-
-def extract(path):
-    """Extract a flat conductor graph without treating a capacitor as a short."""
-    import klayout.db as db
-
-    layout = db.Layout()
-    layout.read(str(path))
-    top = layout.cell(TOP)
-    extractor = db.LayoutToNetlist(TOP, layout.dbu)
-    layers = {}
-    for name, spec in (
-        ("m1", sky130.METAL1_GDS),
-        ("v1", sky130.VIA1_GDS),
-        ("m2", sky130.METAL2_GDS),
-        ("v2", sky130.VIA2_GDS),
-        ("m3", sky130.MIM_GDS_BOTTOM),
-    ):
-        region = db.Region(top.begin_shapes_rec(layout.layer(*spec)))
-        extractor.register(region, name)
-        extractor.connect(region)
-        layers[name] = region
-    for left, right in (("m1", "v1"), ("v1", "m2"), ("m2", "v2"), ("v2", "m3")):
-        extractor.connect(layers[left], layers[right])
-    extractor.extract_netlist()
-
-    def probe(name, x, y):
-        point = db.Point(round(x / layout.dbu), round(y / layout.dbu))
-        net = extractor.probe_net(layers[name], point)
-        assert net is not None, f"no conductor at {name} ({x}, {y})"
-        return net.cluster_id
-
-    return extractor, probe
 
 
 @pytest.mark.parametrize("n_bits", RESOLUTIONS)

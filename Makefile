@@ -487,3 +487,16 @@ drc-array: array-layout
 	@sak-drc.sh -b -w $(BUILD_DIR)/layout/drc $(BUILD_DIR)/layout/sar_array.gds
 
 .PHONY: array-layout verify-layout drc-array
+
+
+## check-layout: validate exactly LAYOUT, without generating or modifying it
+check-layout:
+	@test -n "$(LAYOUT)" || { echo 'set LAYOUT to the saved GDS file to check'; exit 1; }
+	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):layout $(PYTHON) layout/array_check.py "$(LAYOUT)" $(ARGS)
+
+## validate-layout: check saved geometry/connectivity and DRC a private snapshot
+validate-layout:
+	@test -n "$(LAYOUT)" || { echo 'set LAYOUT to the saved GDS file to check'; exit 1; }
+	@PYTHONPATH=$(TECH_DIR):$(REF_DIR):$(MODEL_DIR):layout $(PYTHON) layout/array_check.py "$(LAYOUT)" --drc $(ARGS)
+
+.PHONY: check-layout validate-layout
