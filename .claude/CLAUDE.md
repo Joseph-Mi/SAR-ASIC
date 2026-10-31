@@ -472,6 +472,48 @@ Two things that are easy to get wrong:
   that touches `strongarm.py` wants `verify-integration` at least. Consider
   mirroring the tag to GHCR if pull times get annoying -- the image is ~20 GB.
 
+### A measurement has to be able to fail
+
+The recurring defect in this project is not a wrong circuit. It is a
+measurement that cannot report failure, and then reports a pass. Five so far,
+and every wrong conclusion the record has had to withdraw traces to one:
+
+| | Why it could not fail |
+|---|---|
+| `test_the_array_converts_with_the_comparator_it_will_be_built_with` | its tolerance *was* the offset it was blind to |
+| `test_every_candidate_fits_interleaved_by_rows`, predecessor | asserted the same arithmetic it was checking |
+| the corner acceptance | 0.021 LSB of margin against a 0.055 LSB error |
+| the generic designed-block bench | both sides of every top carry saturated at 1023 |
+| `threshold_study.locate` | the window never bracketed the answer, so it returned the window |
+
+They do not look alike while you are writing them, and they all look like a
+pass afterwards. What they share is that the quantity reported is a property
+of the instrument rather than of the circuit. So:
+
+- **A bounded search refuses an answer at its bound.** `strongarm.boundary`
+  does, and is the one instrument here that has never lied; `locate` does now.
+  A search that does not bracket converges on whichever end it was walking
+  toward and returns a column of identical numbers -- which reads as a
+  beautifully consistent measurement and is the shape of the window.
+- **A bench asserts that its own inputs can disagree with it**, before
+  spending the simulation. `straddles` is that check for the designed-block
+  benches: each pair must sit either side of a threshold, so the model
+  answers `k-1` then `k`. It is arithmetic and costs nothing.
+- **A margin finer than the thing it grades reports the grading.** Compare the
+  two before trusting a verdict: the acceptance allowed itself 0.021 LSB while
+  measuring 0.055.
+- **When a result is suspiciously clean, vary the instrument and show the
+  answer does not follow it.** A spread of exactly zero, a perfectly flat
+  column, a number that is exactly the setting -- all of these have been real
+  here. The `gmin` sweep in the leakage finding is this rule applied to a
+  solver floor; the window check above is the same rule applied to a search.
+- **Measure the quantity, not a correlate of it.** `first_trial_error` is a
+  real measurement of the top plate at the *first* trial, where its excursion
+  scales with the input; a *threshold* is decided by the last trials, where
+  the plate has converged near Vcm. Reading the first as though it were the
+  second produced a 0.67 LSB "gain error" where the converter has 0.055, and
+  two fixes were designed for it before anyone bisected a threshold.
+
 ### Understanding the digital half beyond simulation
 
 Simulation shows it does the right thing for the inputs tried. The rest:
