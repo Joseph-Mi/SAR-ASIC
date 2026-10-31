@@ -1,15 +1,14 @@
 # Which artifact is authoritative
 
-Every part of this chip is described more than once: as a generator, as a
-schematic, as a netlist, as a layout. Exactly one of those descriptions is
-written by hand. The rest are produced from it by a tool and checked against
-it, and none of them is ever edited.
+Every part of this chip has electrical and physical descriptions: a model,
+a schematic, a netlist and geometry. Each domain has one maintained source;
+exports from that source are generated artifacts and are not edited.
 
-Two hand-maintained descriptions of the same circuit cannot be kept equal.
-Each one is self-consistent, each reads correctly on its own, and the
-disagreement between them is visible in neither -- only in silicon, or in a
-check that compares them. So the question for any artifact is not whether it
-is correct but whether it is the authored one.
+The schematic defines the intended electrical circuit. The layout source
+defines physical geometry, maintained either in a generator or an editable
+layout cell. These are different domains, held together by extraction and
+LVS. A hand-maintained schematic and a hand-maintained layout are valid;
+independently editing a generated layout and its generator is not.
 
 ## The rule
 
@@ -26,7 +25,8 @@ is not how it was made but being a copy that someone maintains by hand.
 | The boundary between the halves | `reference/interface.py` | the xschem symbol, the RTL's ports |
 | The capacitor array | its generator | netlist, layout |
 | The comparator, until its topology is fixed | its generator | netlist |
-| The comparator, from then on | its xschem schematic | netlist, layout |
+| The comparator circuit, from then on | its xschem schematic | netlist |
+| Custom layout geometry | its designated editable cells | exported layout, extracted netlist |
 | The digital half, until synthesis | `hdl/rtl/` | nothing yet |
 | The digital half, from then on | the gate netlist | placement, routing, layout |
 | The tile | the two hardened halves | the merged layout |
@@ -48,8 +48,20 @@ being the reference, because what is placed, routed and compared against the
 layout is the netlist. The RTL's correctness transfers to it only through a
 proof that the two are the same logic.
 
-**At layout.** Nothing becomes authoritative here, which is the point: layout
-is always the generated side of a comparison, never the authored one.
+**At layout.** The schematic stays the electrical reference; the designated
+layout source owns geometry. For a scripted cell the source is its generator.
+For a hand-maintained cell it is the tracked editable layout. GDS can be an
+export or an editable source, depending on the declared ownership and tool.
+A transfer to hand maintenance must preserve the editable source outside the
+build directory and disable ordinary regeneration of that source. The transfer
+is complete only when checks validate exports from the maintained artifact,
+not a freshly generated substitute.
+
+The capacitor array remains generator-owned. `make check-layout LAYOUT=...`
+validates a supplied saved GDS without regeneration; `make validate-layout`
+also checks a private DRC snapshot. Their unit metadata contract and scope
+are in `docs/array-layout.md`. These commands support checking edited exports;
+they do not transfer ownership or establish device LVS or parasitic accuracy.
 
 ## What proves each handover
 
