@@ -475,7 +475,7 @@ Two things that are easy to get wrong:
 ### A measurement has to be able to fail
 
 The recurring defect in this project is not a wrong circuit. It is a
-measurement that cannot report failure, and then reports a pass. Five so far,
+measurement that cannot report failure, and then reports a pass. Six so far,
 and every wrong conclusion the record has had to withdraw traces to one:
 
 | | Why it could not fail |
@@ -485,6 +485,7 @@ and every wrong conclusion the record has had to withdraw traces to one:
 | the corner acceptance | 0.021 LSB of margin against a 0.055 LSB error |
 | the generic designed-block bench | both sides of every top carry saturated at 1023 |
 | `threshold_study.locate` | the window never bracketed the answer, so it returned the window |
+| `threshold_study.locate`, again | it bisected every code in one batch, so each reading's predecessor was a jump of hundreds of LSB |
 
 They do not look alike while you are writing them, and they all look like a
 pass afterwards. What they share is that the quantity reported is a property
@@ -513,6 +514,20 @@ of the instrument rather than of the circuit. So:
   the plate has converged near Vcm. Reading the first as though it were the
   second produced a 0.67 LSB "gain error" where the converter has 0.055, and
   two fixes were designed for it before anyone bisected a threshold.
+- **A measurement controls the question it asked just before.** A
+  conversion's code depends on the input of the conversion *before* it --
+  Step 4b's kick, measured at the loop level at ss/-40/typical and on that
+  corner's own clock: a +895 LSB jump between conversions costs three codes,
+  +384 and +128 one each, jumps of +0.125, -0.5 and -127 cost nothing, and
+  the first conversion after a reset is wrong by three. `locate` advanced
+  every code in one batch, so each reading sat behind a jump of hundreds of
+  LSB, and it put code 896 at the slow cold corner 0.69 LSB from its
+  neighbours where the settled answer is 0.38. It converts each input three
+  times and reads the last now, so the predecessor is the input itself and
+  the kick is zero by construction; the last two share that predecessor, so
+  they must agree, which is a check and not an assumption. The general form
+  is the rule above it: the order of the questions was a setting of the
+  instrument, and the answer followed it.
 
 ### Understanding the digital half beyond simulation
 
@@ -770,9 +785,14 @@ Step 6 (done):
   the container (needs the PDK; skips without it). The clock is the sampling
   loop's and only the sampling loop's, and that was recorded here as a known
   hole on the grounds that the reference pin's recovery scales with the array
-  too. It was not a hole: the reference recovers in 2.7-4.9 ns against a
-  225 ns clock, so sampling binds by fifty times and the second path never
-  comes close. The withdrawn finding below has the measurements.
+  too. The mechanism was wrong and the hole is real. The reference does
+  recover in 2.7-4.9 ns against a 225 ns clock, so it is not the reference
+  pin; but bisecting the loop's own thresholds at each corner's own clock
+  finds a second path of 33 to 43 ns against the sampling law's 18.4, which
+  costs 0.38 LSB at one code at that clock and 0.11 LSB at this one. This
+  clock covers it 4.6 times over because it is the slowest corner's and
+  over-settles everywhere else, which is the margin rather than the law.
+  Both the withdrawn finding and the open one below have the measurements.
   Its inputs sit at the offset the model is told about, which is less
   obvious than it looks and was wrong here for a while: placed on the ideal
   grid and graded against a model shifted by half an LSB of measured offset,
@@ -1504,11 +1524,56 @@ Delete each one when it is fixed.
 
   What the block actually is, at the slowest corner: an offset of -0.52 LSB
   and 0.055 LSB of everything else, which is nine times inside the half-LSB
-  the bench allows. The offset moves with the corner, so it is removed in the
+  the bench allows -- over the codes `carry_codes` probes. It is not nine
+  times everywhere, and the finding below is the code that says so: 0.11 LSB
+  at this clock, 4.6 times inside, which is the figure to quote for the
+  block. The offset moves with the corner, so it is removed in the
   field by DFT mode 4 as the sampling finding already says; nothing needs a
   second calibration point, because there is no gain term worth one (two-point
   leaves 0.027 LSB against one-point's 0.055, an improvement of two against a
   measurement grid of 0.0125).
+
+- **The conversion clock is the sampling loop's, and a second path is about
+  twice as slow.** Found by bisecting the loop's own thresholds at each
+  corner's own `law_clock` (`sim/threshold_study.py`, `make thresholds`): at
+  ss/-40/typical every threshold in the sweep sits at -0.570 LSB and code 896
+  sits at -0.187. It is settling-limited and decays as the clock lengthens --
+  0.3789 LSB at 182.83 ns, 0.1055 at 224.83, 0.0039 at 365.66 -- which fits
+  one time constant of 33 to 43 ns against the 18.4 ns the sampling law the
+  clock is derived from implies. Codes 768 and 1023 are flat to 0.001 LSB
+  across all three clocks, so it belongs to that transition and is not a
+  global sensitivity to the clock.
+
+  **Nothing fails, and what provides the margin is the acceptance's clock
+  rather than the law.** The acceptance runs every corner at the slowest
+  corner's 225 ns, so it over-settles here by 23% and the deviation is
+  0.1094 LSB against the half-LSB budget, 4.6x. Mid-code inputs either side
+  of every multiple of 32, at the *law* clock -- the harsher one -- give no
+  wrong code at all, 0 of 64. So this is a threshold shift inside the
+  half-code margin and not a lost code. What it costs is the claim that the
+  slow corner has nine times its margin: over the codes now measured it has
+  4.6, and a clock derived from sampling alone would have 1.3.
+
+  **The mechanism is not identified and five candidates are dead.** 896 is
+  the only deviant member of the family `2^n - 2^w`, by sixteen times, so it
+  is not the carry width; not the upper branches already on (1023 has nine
+  and is flat); not the DAC step into the marginal trial nor the time
+  constants it needs (512 and 768 need more of both and are flat); not the
+  reference load at the decision (1023 is the largest and is flat); and not
+  the device sizing (branch 7's switch fingers at 4.923 um, as branches 6, 8
+  and 9 do). A denser sweep is what would say how many such codes there are;
+  until then the deviant set cannot be characterised, which is the reason the
+  coverage fix below is a family and not this code.
+
+  **And it is a coverage hole as much as a timing one.** `sweep.carry_codes`
+  is the powers of two and the top code: one representative of each carry
+  width, and every one of them with no upper branch on. 896 is 0b1110000000,
+  eight bits changing with branches 8 and 9 already at the reference, and the
+  acceptance cannot reach it -- which is why a 0.38 LSB deviation sat in the
+  design unmeasured through every green run. Probing each width at both ends
+  of the range takes the set from 11 codes to 19 and the acceptance from
+  ~36 minutes to about an hour. That trade is undecided; the measurement
+  says the 19-code set would pass at 4.6x.
 
 - **The reset distribution does not meet max slew.** All 109 of the LibreLane
   run's max-slew violations name `rst_n` or `RESET_B`, at 2.518 ns against a
