@@ -562,8 +562,15 @@ Make the divider a clock-enable tick, not a divided clock — one clock domain.
   conductor extraction across the lower metal stack holds each labelled net
   to its golden-model unit slots, including the separate terminating unit;
   missing contacts and branch bridges are injected defects. These checks are
-  conductor extraction, not capacitor-device LVS. Dummy ties, guard rings,
-  switches, device LVS and parasitic extraction remain layout work. Folding
+  conductor extraction, not capacitor-device LVS. `make check-layout LAYOUT=...`
+  checks the specified saved GDS without regenerating it; `make validate-layout`
+  also runs DRC on a private snapshot. Reports identify the exact input hash
+  and distinguish conductor checks from device LVS and parasitic verification.
+  Unit hierarchy and slot metadata are required by the saved-array checker.
+  Electrical and geometry ownership are distinguished in `docs/authority.md`;
+  the array remains generator-owned until an explicit protected handoff.
+  Dummy ties, guard rings, switches, device LVS and parasitic extraction
+  remain layout work. Folding
   the scalar study's physical-index order into rows preserves the permutation,
   not a proof of cancellation for every gradient direction in the plane.
 - **M7** — Comparator laid out, DRC/LVS clean. Its schematic was generated
