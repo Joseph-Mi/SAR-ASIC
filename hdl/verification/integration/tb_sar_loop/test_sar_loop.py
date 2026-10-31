@@ -450,10 +450,14 @@ def test_what_the_designed_block_adds_is_an_offset_and_a_bend_at_full_scale(cont
 
     What it is, measured by locating its own thresholds: an offset of -3.43
     LSB, flat from code 64 to code 896 within 0.016 LSB either side of
-    mid-scale (0.031 end to end), then bending to -2.73 by full scale --
-    0.695 LSB that a mid-scale calibration does not remove. The two figures
+    mid-scale (0.023 end to end), then bending to -2.73 by full scale --
+    0.699 LSB that a mid-scale calibration does not remove. The two figures
     are both quoted because the assertion below uses the first and a reader
-    comparing against a plot will measure the second. The
+    comparing against a plot will measure the second. The top code's own
+    figure comes from `locate` stopping on a straddle rather than running out
+    of rounds: the loop flips within about two thousandths of an LSB of that
+    transition and repeats either side of it, so the bisection reaches the
+    transition before it reaches its resolution. The
     bend is the transmission gate running out of PMOS at the top of the
     range, which Step 4d measured directly in sky130 and which the generic
     models exaggerate: at the slowest sky130 corner the same measurement
