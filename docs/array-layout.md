@@ -5,6 +5,39 @@ checks placement, streamed plate geometry, and extracted conductor connectivity.
 `make drc-array` regenerates the GDS and checks it with both Magic and KLayout
 through `sak-drc.sh` in the pinned tool container.
 
+## Checking a saved artifact
+
+`make check-layout LAYOUT=path/to/saved.gds` reads that exact GDS. It has no
+layout-generation prerequisite and never calls the generator. To include
+Magic and KLayout DRC, use
+`make validate-layout LAYOUT=path/to/saved.gds`. DRC runs on a private snapshot
+named for the top cell, so the input can have another filename or contain
+spaces and the original remains untouched. Each DRC run keeps its snapshot
+and reports in a unique directory under `build/layout/checks/`.
+
+Add `ARGS="--report build/layout/validation.json"` to retain a JSON report.
+It records the source file hash, resolution, electrical and dummy unit counts,
+and recovered membership counts for each bottom net. Device LVS and parasitic
+verification are explicitly reported as absent. A hash identifies the checked
+artifact; it is not a geometry-equivalence test. Check the command's exit
+status and the report's input hash when using reports in automation.
+
+The checker requires the array's unit-reference hierarchy, slot properties,
+branch cell ownership and terminal labels. It checks the supplied geometry,
+including capacitor dimensions, interleaved ordering, dummy perimeter, strip
+bounds, upper contacts, branch membership and orphan lower-metal conductors.
+It permits changes such as moving an output label along its existing net;
+it does not require an exact copy of the generator's routing polygons.
+Flattening or discarding the slot properties is rejected rather than silently
+reducing coverage. This is an array checker, not a full-tile signoff deck.
+
+The generated-layout tests and the saved-file command share their conductor
+extraction and upper-island checks. Tests edit a saved file after generation
+and require rejection of removed contacts, wrong geometry, missing labels,
+damaged metadata and orphan metal without changing the edited file. DRC
+snapshot and report-path tests protect the original input from accidental
+replacement, including through symlinks or hardlinks.
+
 ## Placement and contact access
 
 `layout/array_place.py` takes the resolution from `interface.N_BITS`, unit side
