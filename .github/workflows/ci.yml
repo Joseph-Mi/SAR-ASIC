@@ -225,9 +225,13 @@ jobs:
         timeout-minutes: 5
         run: sh scripts/in-image.sh make verify-layout PYTHON=python3
 
-      - name: Array placement DRC
+      - name: Generate array layout
+        timeout-minutes: 5
+        run: sh scripts/in-image.sh make array-layout PYTHON=python3
+
+      - name: Saved array validation and DRC
         timeout-minutes: 10
-        run: sh scripts/in-image.sh make drc-array PYTHON=python3
+        run: sh scripts/in-image.sh make validate-layout LAYOUT=build/layout/sar_array.gds ARGS="--report build/layout/validation.json" PYTHON=python3
 
       # Then, because the sheets are edited by hand: a wire dragged off a pin
       # is a two-second failure that would otherwise surface an hour in.
@@ -266,5 +270,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: analog-reports
-          path: build/verify/*.xml
+          path: |
+            build/verify/*.xml
+            build/layout/validation.json
+            build/layout/checks/**
           if-no-files-found: ignore
