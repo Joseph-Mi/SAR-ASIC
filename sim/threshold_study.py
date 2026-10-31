@@ -107,6 +107,13 @@ def locate(
     conversion's code depends on the input before it and bisecting every code
     together is the worst case for that. See `SETTLE`.
 
+    The search stops early for a code whose repeated readings straddle it,
+    because that is what reaching the transition looks like from here: the
+    loop repeats everywhere except within a couple of thousandths of an LSB
+    of a boundary, so readings of `k-1` and `k` from one input mean the input
+    is on the boundary and no further round can say more. Readings that
+    disagree and are *not* that pair are a real failure to settle and raise.
+
     `centre` shifts the search, in LSB, and is how a block whose offset
     exceeds the window is measured at all -- pass the offset and the window
     brackets what is left of the error rather than the offset itself. The
@@ -123,6 +130,14 @@ def locate(
     step = lsb(n_bits, VREF)
     low = {k: (k + centre - WINDOW) * step for k in codes}
     high = {k: (k + centre + WINDOW) * step for k in codes}
+    if SETTLE < 3:
+        raise ValueError(
+            f"SETTLE is {SETTLE} and the settle check needs three: the first "
+            "reading of an input sits behind the previous code's input and may "
+            "differ from the rest for that reason, so the two that share a "
+            "predecessor -- the last two -- are the only pair whose "
+            "disagreement means anything."
+        )
     per_round = 1 + SETTLE * len(codes)
     if per_round > BATCH:
         raise ValueError(
@@ -140,12 +155,26 @@ def locate(
         for i, k in enumerate(codes):
             repeats = read[SETTLE * i : SETTLE * (i + 1)]
             if repeats[-1] != repeats[-2]:
+                if set(repeats[-2:]) <= {k - 1, k}:
+                    # The two readings share a predecessor and still differ,
+                    # and they are this code's own pair: the input is sitting
+                    # on the transition closer than the loop repeats, so the
+                    # transition is here and there is nothing finer to find.
+                    # Measured on the generic block: the loop is steady five
+                    # thousandths of an LSB either side of its top transition
+                    # and flips two thousandths from it, which is finer than
+                    # RESOLUTION and so not reachable by bisecting further.
+                    # Collapsing the bracket is how the answer is kept: later
+                    # rounds re-ask the same input and land back here.
+                    low[k] = high[k] = mid[k]
+                    continue
                 raise ValueError(
                     f"code {k} is not settled after {SETTLE} conversions of the "
                     f"same input: {repeats}. The last two share a predecessor -- "
                     "themselves -- so they can only differ if the input has not "
-                    "settled within the clock. Raise SETTLE, or the clock is too "
-                    "short for this corner."
+                    f"settled within the clock; and they are not {k - 1} and {k}, "
+                    "so this is not the transition being straddled either. Raise "
+                    "SETTLE, or the clock is too short for this corner."
                 )
             # At or above the code means the transition is at or below here.
             if repeats[-1] >= k:
