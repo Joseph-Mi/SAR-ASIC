@@ -358,6 +358,13 @@ offset:
 corners:
 	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/corner_study.py $(ARGS)
 
+## thresholds: regenerate the located-threshold table -- commit the diff
+## 	Where each code transition actually sits, bisected with the real
+## 	controller. Says what the corner acceptance cannot: how large the error
+## 	is and what shape it has. Hours; needs the PDK, ngspice and verilator
+thresholds:
+	@PYTHONPATH=$(TECH_DIR):$(FIG_DIR):$(REF_DIR):$(MODEL_DIR):$(SIM_DIR) $(PYTHON) $(SIM_DIR)/threshold_study.py $(ARGS)
+
 ## schematic: regenerate each generated symbol, and each sheet that is still
 ## 	generated -- commit the diff. A sheet is drawn by hand from its module's
 ## 	ARRANGEMENT onward, so this leaves those alone and writes what it would
@@ -472,7 +479,7 @@ clean:
 	rm -rf $(BUILD_DIR) .pytest_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
-.PHONY: show-loop offset corners measured phases noise unit placement schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
+.PHONY: show-loop offset corners thresholds measured phases noise unit placement schematic help doctor designinit osic-tools image image-name container shell tool-versions tool-manifest check-tools format format-check lint lint-rtl lint-py model regmap study plots verify-rules verify-schematic verify-analog verify-unit verify-formal verify-integration verify-system verify coverage coverage-rtl coverage-py figures diagrams clean
 
 ## array-layout: stream the interleaved MiM placement and dummy ring
 array-layout:

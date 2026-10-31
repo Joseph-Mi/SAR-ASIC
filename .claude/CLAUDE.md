@@ -472,6 +472,63 @@ Two things that are easy to get wrong:
   that touches `strongarm.py` wants `verify-integration` at least. Consider
   mirroring the tag to GHCR if pull times get annoying -- the image is ~20 GB.
 
+### A measurement has to be able to fail
+
+The recurring defect in this project is not a wrong circuit. It is a
+measurement that cannot report failure, and then reports a pass. Six so far,
+and every wrong conclusion the record has had to withdraw traces to one:
+
+| | Why it could not fail |
+|---|---|
+| `test_the_array_converts_with_the_comparator_it_will_be_built_with` | its tolerance *was* the offset it was blind to |
+| `test_every_candidate_fits_interleaved_by_rows`, predecessor | asserted the same arithmetic it was checking |
+| the corner acceptance | 0.021 LSB of margin against a 0.055 LSB error |
+| the generic designed-block bench | both sides of every top carry saturated at 1023 |
+| `threshold_study.locate` | the window never bracketed the answer, so it returned the window |
+| `threshold_study.locate`, again | it bisected every code in one batch, so each reading's predecessor was a jump of hundreds of LSB |
+
+They do not look alike while you are writing them, and they all look like a
+pass afterwards. What they share is that the quantity reported is a property
+of the instrument rather than of the circuit. So:
+
+- **A bounded search refuses an answer at its bound.** `strongarm.boundary`
+  does, and is the one instrument here that has never lied; `locate` does now.
+  A search that does not bracket converges on whichever end it was walking
+  toward and returns a column of identical numbers -- which reads as a
+  beautifully consistent measurement and is the shape of the window.
+- **A bench asserts that its own inputs can disagree with it**, before
+  spending the simulation. `straddles` is that check for the designed-block
+  benches: each pair must sit either side of a threshold, so the model
+  answers `k-1` then `k`. It is arithmetic and costs nothing.
+- **A margin finer than the thing it grades reports the grading.** Compare the
+  two before trusting a verdict: the acceptance allowed itself 0.021 LSB while
+  measuring 0.055.
+- **When a result is suspiciously clean, vary the instrument and show the
+  answer does not follow it.** A spread of exactly zero, a perfectly flat
+  column, a number that is exactly the setting -- all of these have been real
+  here. The `gmin` sweep in the leakage finding is this rule applied to a
+  solver floor; the window check above is the same rule applied to a search.
+- **Measure the quantity, not a correlate of it.** `first_trial_error` is a
+  real measurement of the top plate at the *first* trial, where its excursion
+  scales with the input; a *threshold* is decided by the last trials, where
+  the plate has converged near Vcm. Reading the first as though it were the
+  second produced a 0.67 LSB "gain error" where the converter has 0.055, and
+  two fixes were designed for it before anyone bisected a threshold.
+- **A measurement controls the question it asked just before.** A
+  conversion's code depends on the input of the conversion *before* it --
+  Step 4b's kick, measured at the loop level at ss/-40/typical and on that
+  corner's own clock: a +895 LSB jump between conversions costs three codes,
+  +384 and +128 one each, jumps of +0.125, -0.5 and -127 cost nothing, and
+  the first conversion after a reset is wrong by three. `locate` advanced
+  every code in one batch, so each reading sat behind a jump of hundreds of
+  LSB, and it put code 896 at the slow cold corner 0.69 LSB from its
+  neighbours where the settled answer is 0.38. It converts each input three
+  times and reads the last now, so the predecessor is the input itself and
+  the kick is zero by construction; the last two share that predecessor, so
+  they must agree, which is a check and not an assumption. The general form
+  is the rule above it: the order of the questions was a setting of the
+  instrument, and the answer followed it.
+
 ### Understanding the digital half beyond simulation
 
 Simulation shows it does the right thing for the inputs tried. The rest:
@@ -726,10 +783,21 @@ Step 6 (done):
   removed at tt / ss hot / ss cold / ff cold / ff hot; no metastability flag.
   Mutation: at half the clock the slowest corner gets 6/23 wrong. ~20 min in
   the container (needs the PDK; skips without it). The clock is the sampling
-  loop's and only the sampling loop's, which is the acceptance's one known
-  hole: the reference pin's recovery scales with the array too and at the
-  large capacitance corner it binds first -- the open finding below has the
-  measurements and the choice of fix.
+  loop's and only the sampling loop's, and that was recorded here as a known
+  hole on the grounds that the reference pin's recovery scales with the array
+  too. The mechanism was wrong and the hole is real. The reference does
+  recover in 2.7-4.9 ns against a 225 ns clock, so it is not the reference
+  pin; but bisecting the loop's own thresholds at each corner's own clock
+  finds a second path of 33 to 43 ns against the sampling law's 18.4, which
+  costs 0.38 LSB at one code at that clock and 0.11 LSB at this one. This
+  clock covers it 4.6 times over because it is the slowest corner's and
+  over-settles everywhere else, which is the margin rather than the law.
+  Both the withdrawn finding and the open one below have the measurements.
+  Its inputs sit at the offset the model is told about, which is less
+  obvious than it looks and was wrong here for a while: placed on the ideal
+  grid and graded against a model shifted by half an LSB of measured offset,
+  the bench kept two hundredths of an LSB of margin while grading an error of
+  0.055, and failed a code for it.
   The figures here read 13.6 ns and 135 ns until the capacitance corner was
   swept, and that pair was stale rather than wrong-at-the-time: the law it
   quoted, 10.9 ns, implies 7.92 fF a unit, which is the 8 fF placeholder
@@ -1396,95 +1464,116 @@ Delete each one when it is fixed.
   numbers are measurement rather than arithmetic now -- and the measurement
   does not pass. See the finding below.
 
-- **At the large capacitance corner the reference pin costs a code at full
-  scale, and the conversion clock does not know about it.** The corner that
-  had never been simulated fails the acceptance: at ss / 0.9*VDD / 125 C with
-  the large array, the loop reads 1022 where the model says 1023, and the
-  three codes below it are each one low as well -- a gain error at the top of
-  the range, which a mid-scale offset calibration cannot remove (the offset it
-  measures, -0.510 mV, does not move across any of this).
+- ~~**At the large capacitance corner the reference pin costs a code at full
+  scale.**~~ Withdrawn. The circuit was never at fault; the bench was grading
+  itself. Kept because the way it was wrong is worth more than the finding was.
 
-  Measured, and committed as `sim/corner_baseline.txt` (`make corners`,
-  drawn by `circuit_plots.plot_corners`). The acceptance's own 23 inputs --
-  mid-code either side of every carry, and mid-scale -- at the one shared
-  225 ns clock:
+  **What the record claimed**, and what each part measures as
+  (`sim/threshold_baseline.txt`, `make thresholds`; scripts in `build/refpin/`
+  for the exploratory half):
 
   ```
-    tt   1.80 V   27 C  typical     9.47 pF   tau 11.37 ns    0/23 wrong
-    ss   1.62 V  125 C  high       11.51 pF   tau 22.65 ns    1/23 wrong
-    ss   1.62 V  -40 C  typical     9.47 pF   tau 18.42 ns    0/23 wrong
-    ff   1.98 V  -40 C  low         7.70 pF   tau  9.21 ns    0/23 wrong
-    ff   1.98 V  125 C  typical     9.47 pF   tau 11.79 ns    0/23 wrong
-
-    the failing corner, clock lengthened:
-      1.00x (224.8 ns)  1/23      2.00x (449.7 ns)  0/23
-      1.25x (281.0 ns)  1/23      2.50x (562.1 ns)  0/23
-      1.50x (337.3 ns)  1/23      3.00x (674.5 ns)  0/23
-    the failing corner, same 225 ns clock, reference at the array
-      (r_vref = 0)                 0/23
+    the reference recovery wants ~2x the clock   tau 2.7-4.9 ns, done by 40 ns
+                                                 (a 2x clock implies 45 ns)
+    the pin costs a code at full scale           it moves a threshold 0.063 LSB
+    a gain error calibration cannot remove       0.094 LSB end to end, of which
+                                                 0.055 survives the calibration
   ```
 
-  **The first version of this table was taken with a scratch script and
-  overstated the failure twice, and the correction is the reason it is a
-  committed baseline now.** It reported the three codes below full scale
-  each one low and the corner coming right only at 2.5x. On the acceptance's
-  inputs it is *one* code, and it comes right at 2.0x. Both measurements are
-  real and they measured different things: the scratch script probed three
-  specific thresholds at the top of the range, where this failure lives, so
-  it found three; the acceptance spreads 23 inputs over every carry and has
-  one up there. So the scratch script was the better instrument for the
-  shape of the failure and the worse one for its size, and the number that
-  belongs in a rate decision is this one. What did not move is the
-  diagnosis, which is the only part either measurement was being asked for.
+  **The real defect was in the acceptance's input placement.** It puts each
+  input half a code from the *ideal* threshold and then grades it against a
+  model shifted by the offset the block was measured to have. At the slow
+  corner that offset is 0.52 LSB, so the shift moved the model's decision
+  point onto the input:
 
-  So it is neither the devices nor the temperature: it is the array's size
-  against the reference's pin. `law_clock` derives the clock from the
-  *sampling* loop -- the array charged through the input pin, the top switch
-  and the vcm pin -- and sampling is not the only path that scales with the
-  array. Each trial pulls `c_seen_by_reference` (a quarter of the array at the
-  first trial) through `R_PIN`, and that recovery wants about twice the clock
-  sampling asks for. Which is the same shortfall Step 6 found
-  from the other end and left as a note -- recovery measured at ~4 ns against
-  an `R*C/4` law predicting ~1 ns -- except that there it was inside the
-  budget at the nominal array and here it is not.
+  ```
+    acceptance input            1022.5000 LSB   (mid-code off the ideal grid)
+    model threshold, bare       1023.0000 LSB   -> 0.5000 LSB of margin
+    model threshold, calibrated 1022.4788 LSB   -> 0.0212 LSB of margin
+    loop threshold, measured    1022.5195 LSB   -> 0.0195 LSB
+  ```
 
-  Pinned as a strict xfail on that corner (`REFERENCE_PIN_SHORTFALL`), so
-  whichever fix is taken announces itself by the test starting to pass.
+  The two thresholds straddle the input by 0.041 LSB and the codes disagree.
+  The bench believed it had half an LSB and had two hundredths, while the
+  error it grades is 0.055. **A criterion whose margin is finer than the
+  resolution of the thing it measures reports the measurement and not the
+  circuit** -- which is the sentence already written in the sampling finding
+  below, about a different bench, failing the same way. This is the third
+  time. The fix is one line: place the inputs at the same offset the model is
+  told about, so each sits half a code from the threshold it is graded
+  against.
 
-  Marking it took a fix to the test policy, and the interaction is worth
-  keeping. The root `conftest.py` turns a skip into a failure when
-  `SAR_REQUIRE_TOOLS` is set, and **pytest reports an xfail as skipped** --
-  the same outcome, told apart only by a `wasxfail` attribute on the report.
-  So the analog job failed the expected failure, and it did it pointing at the
-  test rather than at the policy. The two outcomes are opposites: a skip is a
-  test that did not run and should have, an xfail is one that ran and failed
-  the way it is documented to. The policy now exempts it and
-  `tests/test_require_tools_policy.py` holds both halves, running the real
-  conftest in a subprocess over one skip and one xfail.
+  It also explains the two "fixes" that appeared to work and are now
+  understood to be neither. `r_vref = 0` moves a threshold 0.063 LSB and 2x
+  the clock moves it similarly; each merely nudges one code back across a
+  0.04 LSB window the bench had drawn around itself. Nothing was settling
+  slowly and nothing was being decoupled.
 
-  Three fixes, and choosing between them is a rate decision rather than a
-  correctness one:
-  * **Decouple `vref` at the pin**, off-chip, the way DD-10 already requires
-    for `vcm`. `r_vref = 0` converts at the nominal clock, so this buys the
-    whole rate back for the price of a board component, and DD-03 gave the
-    reference its own pin for exactly this charge draw. Costs nothing on-chip
-    and nothing in rate; costs a line in the datasheet the board has to obey.
-  * **Take the clock from both paths.** Correct whatever else is decided, and
-    self-correcting: with a decap the measured reference recovery drops and
-    the clock comes back on its own. Wants a measured reference-recovery time
-    constant beside `sampling_tau`, because the law underpredicts it 4x --
-    `first_trial_error(..., phase=)` is the measurement to build it from.
-  * **Accept 2x the clock**: 450 ns, 9.4 us a conversion, ~106 kSa/s against
-    212. No circuit or board change, and the largest rate concession of the
-    three. The bisection is coarse -- the table steps 1.5x to 2.0x -- so the
-    true threshold is somewhere in between and 2x is the measured bound
-    rather than the requirement.
+  **Two of the three wrong answers were reached with the right instrument
+  pointed at the wrong quantity.** `measure.first_trial_error` reads the top
+  plate at the *first* trial, where its excursion scales with the input, so
+  its error runs -0.81 to -0.14 LSB across the range and reads as a 0.67 LSB
+  gain error. A threshold is decided by the *last* trials, where the plate
+  has converged to within an LSB of Vcm, and there the error is nearly
+  constant. The proxy measures something real that is not what decides codes.
+  Everything built on it -- a two-path clock, then a two-point gain
+  calibration -- was wrong, and both were argued from tables that looked like
+  evidence. The instrument that settles it is bisecting the loop's own
+  thresholds (`threshold_study.locate`), because that is the quantity in
+  question rather than a correlate of it.
 
-  The first two together are the recommendation: the board decoupling is what
-  makes the rate achievable and the two-path clock is what stops the harness
-  claiming a rate the reference cannot deliver. The on-chip vref decap that
-  Step 6 left open is a fourth option and now has a number to be judged
-  against -- what it has to do is what `r_vref = 0` did.
+  What the block actually is, at the slowest corner: an offset of -0.52 LSB
+  and 0.055 LSB of everything else, which is nine times inside the half-LSB
+  the bench allows -- over the codes `carry_codes` probes. It is not nine
+  times everywhere, and the finding below is the code that says so: 0.11 LSB
+  at this clock, 4.6 times inside, which is the figure to quote for the
+  block. The offset moves with the corner, so it is removed in the
+  field by DFT mode 4 as the sampling finding already says; nothing needs a
+  second calibration point, because there is no gain term worth one (two-point
+  leaves 0.027 LSB against one-point's 0.055, an improvement of two against a
+  measurement grid of 0.0125).
+
+- **The conversion clock is the sampling loop's, and a second path is about
+  twice as slow.** Found by bisecting the loop's own thresholds at each
+  corner's own `law_clock` (`sim/threshold_study.py`, `make thresholds`): at
+  ss/-40/typical every threshold in the sweep sits at -0.570 LSB and code 896
+  sits at -0.187. It is settling-limited and decays as the clock lengthens --
+  0.3789 LSB at 182.83 ns, 0.1055 at 224.83, 0.0039 at 365.66 -- which fits
+  one time constant of 33 to 43 ns against the 18.4 ns the sampling law the
+  clock is derived from implies. Codes 768 and 1023 are flat to 0.001 LSB
+  across all three clocks, so it belongs to that transition and is not a
+  global sensitivity to the clock.
+
+  **Nothing fails, and what provides the margin is the acceptance's clock
+  rather than the law.** The acceptance runs every corner at the slowest
+  corner's 225 ns, so it over-settles here by 23% and the deviation is
+  0.1094 LSB against the half-LSB budget, 4.6x. Mid-code inputs either side
+  of every multiple of 32, at the *law* clock -- the harsher one -- give no
+  wrong code at all, 0 of 64. So this is a threshold shift inside the
+  half-code margin and not a lost code. What it costs is the claim that the
+  slow corner has nine times its margin: over the codes now measured it has
+  4.6, and a clock derived from sampling alone would have 1.3.
+
+  **The mechanism is not identified and five candidates are dead.** 896 is
+  the only deviant member of the family `2^n - 2^w`, by sixteen times, so it
+  is not the carry width; not the upper branches already on (1023 has nine
+  and is flat); not the DAC step into the marginal trial nor the time
+  constants it needs (512 and 768 need more of both and are flat); not the
+  reference load at the decision (1023 is the largest and is flat); and not
+  the device sizing (branch 7's switch fingers at 4.923 um, as branches 6, 8
+  and 9 do). A denser sweep is what would say how many such codes there are;
+  until then the deviant set cannot be characterised, which is the reason the
+  coverage fix below is a family and not this code.
+
+  **And it is a coverage hole as much as a timing one.** `sweep.carry_codes`
+  is the powers of two and the top code: one representative of each carry
+  width, and every one of them with no upper branch on. 896 is 0b1110000000,
+  eight bits changing with branches 8 and 9 already at the reference, and the
+  acceptance cannot reach it -- which is why a 0.38 LSB deviation sat in the
+  design unmeasured through every green run. Probing each width at both ends
+  of the range takes the set from 11 codes to 19 and the acceptance from
+  ~36 minutes to about an hour. That trade is undecided; the measurement
+  says the 19-code set would pass at 4.6x.
 
 - **The reset distribution does not meet max slew.** All 109 of the LibreLane
   run's max-slew violations name `rst_n` or `RESET_B`, at 2.518 ns against a
